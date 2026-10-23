@@ -72,7 +72,8 @@ profiles:
     visual:                           # 经 Chrome DevTools Protocol 连渲染进程，纯脚本判定
       exe: dist/win-unpacked/App.exe
       args: []
-      timeout_ms: 15000               # 启动 + 等断言成立的总时长（页面可异步渲染）
+      startup_timeout_ms: 30000       # 等应用起来、暴露 DevTools 并出现页面
+      timeout_ms: 15000               # 连上之后等断言成立（页面可异步渲染）
       expect_text: []                 # 可见文本里必须出现，如 ["登录"]
       expect_selector: []             # 必须存在的选择器，如 ["#app"]
       forbid_text: []                 # 不得出现，如 ["加载失败"]

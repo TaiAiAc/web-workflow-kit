@@ -9,7 +9,8 @@ export interface VisualRule {
   exe: string
   args?: string[]
   port?: number              // 0 = 让应用自选端口，从 stderr 的 “DevTools listening on” 读
-  timeout_ms?: number        // 启动 + 等待断言成立的总时长
+  startup_timeout_ms?: number // 等应用暴露 DevTools 并出现页面的时长
+  timeout_ms?: number        // 连上之后等断言成立的时长
   expect_text?: string[]     // 页面可见文本里必须出现
   expect_selector?: string[] // 必须存在的 CSS 选择器
   forbid_text?: string[]     // 不得出现（如 “Error”“加载失败”）
@@ -149,7 +150,8 @@ async function probe(cdp: CDP, selectors: string[]): Promise<PageState> {
 
 export async function runVisual(rule: VisualRule, cwd: string, maxDetail: number): Promise<VisualIssue[]> {
   const timeout = rule.timeout_ms ?? 15000
-  const deadline = Date.now() + timeout
+  // 启动与断言分开计时：冷启动慢（CI 上 Chromium 会卡在 D-Bus）不该吃掉断言的等待时间
+  const startupDeadline = Date.now() + (rule.startup_timeout_ms ?? 30000)
   const port = rule.port ?? 0
   const errChunks: Buffer[] = []
   const args = [`--remote-debugging-port=${port}`, ...(rule.args ?? [])]
@@ -175,13 +177,14 @@ export async function runVisual(rule: VisualRule, cwd: string, maxDetail: number
   let devtoolsPort: number | undefined
   try {
     try {
-      devtoolsPort = await waitForDevtoolsPort(stderr, args, port, deadline, () => crashed)
-      cdp = await CDP.open(await findPage(devtoolsPort, deadline))
+      devtoolsPort = await waitForDevtoolsPort(stderr, args, port, startupDeadline, () => crashed)
+      cdp = await CDP.open(await findPage(devtoolsPort, startupDeadline))
     }
     catch (e) {
       return [{ code: 'VISUAL_UNAVAILABLE', message: (e as Error).message, detail: tail(stderr(), maxDetail) }]
     }
 
+    const deadline = Date.now() + timeout
     await cdp.send('Runtime.enable')
     await sleep(300) // 让已排队的 exceptionThrown 事件先到
     const want = rule.expect_text ?? []
