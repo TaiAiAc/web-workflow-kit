@@ -14,7 +14,8 @@ Electron 主进程 ──启动──→ python -m web_workflow_kit.cli ui --por
 - **Python 源码随应用分发**：打包时把 `web_workflow_kit/` 复制到 `resources/python/`，运行时用它作 `PYTHONPATH`，所以桌面端的版本总是和应用一致，不依赖 pip 装的是哪个版本。
 - **依赖要求**：需要一个装好 `langgraph`、`python-dotenv` 等依赖的 Python ≥ 3.10。按 README 装好 `web-workflow-kit[all]` 的虚拟环境即可。
 - **固定端口**：优先用 18765（被占用时依次试 18766–18769），页面存在 localStorage 里的主题、草稿、最近项目才不会丢。
-- **关闭窗口即停止**：退出时结束后端进程树，包括它拉起的门禁命令和编程 agent。
+- **退出即停止**：退出时结束后端进程树，包括它拉起的门禁命令和编程 agent。Windows 关闭窗口即退出；macOS 按惯例关窗口后应用留在程序坞，`Cmd+Q` 才退出。
+- **继承 shell 的 PATH**（macOS / Linux）：从访达、程序坞启动的应用只有系统默认 PATH，启动时会向登录 shell 要一次 PATH，这样才能找到 Homebrew 的 Python、门禁要的 `node` 和 `claude` / `dsh` 等命令。
 
 ## 查找 Python 的顺序
 
@@ -23,6 +24,8 @@ Electron 主进程 ──启动──→ python -m web_workflow_kit.cli ui --por
 3. `~/wwk-venv`（README 推荐的安装位置）
 4. 仓库根目录的 `.venv`（仅开发时）
 5. `py -3`（Windows），然后是 PATH 里的 `python` / `python3`
+
+macOS 自带的 `python3` 是 3.9，不满足要求；用 Homebrew 的 Python 3.12 建 `~/wwk-venv`（`brew install python@3.12`，再 `python3.12 -m venv ~/wwk-venv`）。
 
 每个候选都会先试着导入依赖，都不行时启动页会列出每个候选失败的原因，并给出安装命令。
 
@@ -58,11 +61,17 @@ pnpm dev
 | 命令 | 作用 |
 | --- | --- |
 | `pnpm dev` | 渲染进程热更新，主进程改动后自动重启 |
-| `pnpm build:dir` | 只生成免安装目录 `dist/out/win-unpacked`，用来快速检查打包结果 |
+| `pnpm build:dir` | 只生成免安装目录（Windows 是 `dist/out/win-unpacked`，macOS 是 `dist/out/mac-arm64`），用来快速检查打包结果 |
 | `pnpm build:win` / `build:mac` / `build:linux` | 生成安装包（mac 只能在 macOS 上打，linux 不能在 Windows 上打） |
 | `pnpm typecheck` / `pnpm lint` | 类型检查 / 代码风格 |
 
-Electron 45 起安装时不再下载二进制：`pnpm install` 后 `node_modules/electron/dist` 不存在是正常的，第一次 `pnpm dev` 时会打印 `Downloading Electron binary...` 自动下载（镜像见 `desktop/.npmrc`）。
+Electron 45 起安装时不再下载二进制：`pnpm install` 后 `node_modules/electron/dist` 不存在是正常的，第一次 `pnpm dev` 时会打印 `Downloading Electron binary...` 自动下载。这一步**不读** `desktop/.npmrc` 里的 `electron_mirror`，默认从 GitHub 下载，国内可能要几十分钟。用环境变量指定镜像：
+
+```bash
+export ELECTRON_MIRROR=https://cdn.npmmirror.com/binaries/electron/
+```
+
+Windows PowerShell 里是 `$env:ELECTRON_MIRROR = '...'`。打安装包时 electron-builder 的工具同理可设 `ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/`。
 
 ## 目录
 
@@ -107,11 +116,14 @@ electronup 只转发 Electron 的输出，不打印退出码，所以 Electron �
 
 **首次 `pnpm install` 报 `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`**
 
-pnpm 12 默认不安装发布不到约一天的包。刚发布的依赖（如 electronup 新版本）过了这个时间就能正常安装；急用时本次安装可加 `--config.minimum-release-age=0`。
+pnpm 12 默认不安装发布不到约一天的包。刚发布的依赖（如 electronup 新版本）过了这个时间就能正常安装；急用时本次安装可加 `--config.minimum-release-age=0`。`pnpm dev` 等脚本也会做同样的检查，这段时间里可以设环境变量 `pnpm_config_minimum_release_age=0`。
 
 ## 已知限制
 
 - 还没有应用图标，用的是 Electron 默认图标。
-- 安装包没有签名，Windows 首次运行可能出现 SmartScreen 提示。
+- 安装包没有签名，Windows 首次运行可能出现 SmartScreen 提示；macOS 的 dmg 只有 ad-hoc 签名、没有公证，从网上下载后首次打开要在「系统设置 → 隐私与安全性」里点「仍要打开」。
+- macOS 安装包只打了 arm64（Apple 芯片）。
 - 不内置 Python 运行时，需要用户自己装好依赖。
-- 只在 Windows 上实测过：`pnpm dev`（启动、找不到 Python 时的启动页、Ctrl-C 后无残留进程），以及免安装目录（`build:dir`）的启动、崩溃重试和退出清理；安装包和 macOS / Linux 还没实测。
+- Windows 实测过：`pnpm dev`（启动、找不到 Python 时的启动页、Ctrl-C 后无残留进程），以及免安装目录（`build:dir`）的启动、崩溃重试和退出清理；Windows 安装包还没实测。
+- macOS（Apple 芯片）实测过：`pnpm dev` 启动并加载控制台、自动找到仓库 `.venv`、退出后门禁命令无残留；dmg 打包，按访达的环境启动后找不到 Python 时的启动页、继承 shell PATH 后门禁能找到 `node`、退出后无残留。
+- Linux 还没实测。

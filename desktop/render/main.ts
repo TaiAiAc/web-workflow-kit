@@ -4,9 +4,10 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 const desktop = window.wwkDesktop
 const isWin = desktop.platform === 'win32'
 
+// macOS 自带的 python3 是 3.9，不够用，直接写 Homebrew 的 3.12（brew install python@3.12）
 $('cmd-venv').textContent = isWin
   ? 'python -m venv $env:USERPROFILE\\wwk-venv'
-  : 'python3 -m venv ~/wwk-venv'
+  : desktop.platform === 'darwin' ? 'python3.12 -m venv ~/wwk-venv' : 'python3 -m venv ~/wwk-venv'
 $('cmd-install').textContent = `${isWin ? '& $env:USERPROFILE\\wwk-venv\\Scripts\\python.exe' : '~/wwk-venv/bin/python'} -m pip install "web-workflow-kit[all] @ git+https://github.com/TaiAiAc/web-workflow-kit"`
 
 function render(status: BootStatus): void {

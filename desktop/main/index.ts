@@ -1,10 +1,10 @@
-import type { IpcMainInvokeEvent } from 'electron'
+import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron'
 import { join, resolve } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from 'electron'
 import { Backend } from './backend'
-import { findPython, probe, saveSettings } from './python'
+import { findPython, inheritShellPath, probe, saveSettings } from './python'
 
 const isDev = process.env.NODE_ENV === 'development'
 const BOOT_URL = isDev
@@ -147,7 +147,10 @@ function createWindow(): void {
 }
 
 function buildMenu(): void {
+  // macOS 把第一个菜单当作应用名菜单，不先放一个的话「文件」会被吞掉
+  const appMenu: MenuItemConstructorOptions[] = process.platform === 'darwin' ? [{ role: 'appMenu' }] : []
   Menu.setApplicationMenu(Menu.buildFromTemplate([
+    ...appMenu,
     {
       label: '文件',
       submenu: [
@@ -212,6 +215,7 @@ else {
   })
 
   app.whenReady().then(() => {
+    inheritShellPath()
     buildMenu()
     createWindow()
     app.on('activate', () => {
