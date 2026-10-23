@@ -57,7 +57,7 @@ macOS 自带的 `python3` 是 3.9，需要先装更新的版本（如 `brew inst
 | 用途 | 需要 |
 | --- | --- |
 | 生成 Spec、写代码（默认） | 安装并登录 [Claude Code](https://claude.com/claude-code)：终端里运行一次 `claude` 按提示登录 |
-| 修复（默认） | 安装 DeepSeek Harness（`dsh` 命令可用） |
+| 修复（默认） | 安装 DeepSeek Harness（`dsh` 命令可用）；也可以在控制台的「修复 agent」里换成其他已安装的 agent |
 | 验收审阅 | 可选：配置 `DEEPSEEK_API_KEY`；不配则自动改用 dsh，见[验收审阅](#验收审阅) |
 | 熔断邮件 | 可选：SMTP 配置 |
 
@@ -135,7 +135,8 @@ agent --project D:/projects/my-app
 | `--once "需求"` | 非交互跑一次，退出码 0 = 交付、1 = 熔断 |
 | `--verify` | 只跑门禁，退出码 0/1/2 |
 | `--init` | 复制默认 `rules.yaml`、`agent.config.json` 到项目 |
-| `--agent claude\|codex\|opencode\|dsh` | 写代码用哪个 agent |
+| `--agent claude\|codex\|opencode\|workbuddy\|dsh` | 写代码用哪个 agent |
+| `--fix-agent <同上>` | 修复用哪个 agent（默认取配置 `fix`，即 dsh） |
 | `--review auto\|api\|dsh\|skip` | 验收审阅方式 |
 | `--config <文件>` / `--version` | 额外配置文件 / 版本 |
 
@@ -148,15 +149,16 @@ agent --project D:/projects/my-app
 | Claude Code（`claude`） | `claude -p` | 安装并登录 Claude Code |
 | Codex（`codex`） | ACP 协议，经 npx 按需拉起适配器 | 有 npx，已登录 Codex 或配好 OpenAI Key |
 | OpenCode（`opencode`） | ACP 协议，`opencode acp` | 安装并登录 OpenCode |
+| WorkBuddy（`workbuddy`） | ACP 协议，`codebuddy --acp` | 安装 WorkBuddy 的引擎 CodeBuddy Code（`npm install -g @tencent-ai/codebuddy-code`），运行一次 `codebuddy` 登录 |
 | DeepSeek Harness（`dsh`） | `dsh headless` | 安装 DeepSeek Harness |
 
-经 ACP 的 Codex / OpenCode 受权限策略约束：改不了 `rules.yaml`、门禁文件和流水线配置，也写不到项目以外。控制台会标出本机找不到命令的选项；是否已登录只有真正调用时才知道。
+经 ACP 的 Codex / OpenCode / WorkBuddy 受权限策略约束：改不了 `rules.yaml`、门禁文件和流水线配置，也写不到项目以外。控制台会标出本机找不到命令的选项；是否已登录只有真正调用时才知道。
 
 生成 Spec 不受这个选项影响，默认仍用 Claude Code（可改为 GPT，见 [docs/configuration.md](docs/configuration.md#spec)）。
 
 ## 验收审阅
 
-门禁失败后，先由“验收顾问”读失败项和改动块，给出修复计划，再交给修复 agent（默认 dsh）去改。
+门禁失败后，先由“验收顾问”读失败项和改动块，给出修复计划，再交给修复 agent（默认 dsh）去改。修复 agent 和编程 agent 一样可以选：控制台的「修复 agent」下拉框、`--fix-agent`，可选项相同；建议和编程 agent 选不同的，避免同源偏差。
 
 | 选项 | 行为 |
 | --- | --- |
@@ -218,7 +220,7 @@ Claude Code 没登录。终端运行 `claude` 登录后重试。
 
 - 控制台的运行记录只在内存里，服务重启后清空（交付记录仍在 `.agent/delivery.json`）。
 - 同一个项目同一时间只能有一次运行。
-- Codex、OpenCode、dsh 作为编程 agent，以及 dsh 作为审阅顾问，目前只用模拟 agent 验证过接入，还没在真实项目上跑过完整流程。
+- Codex、OpenCode、WorkBuddy、dsh 作为编程 / 修复 agent，以及 dsh 作为审阅顾问，目前只用模拟 agent 验证过接入，还没在真实项目上跑过完整流程。
 - Electron 视觉验收只在 Windows 上用 Electron 45 实测过；应用若在生产包里禁用了远程调试，会报 `VISUAL_UNAVAILABLE`。
 
 ## 文档

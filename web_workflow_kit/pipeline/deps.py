@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from . import llm
-from .agents import Agent, ClaudeCodeCLI, END_TURN, build_agent, build_coding_agent
+from .agents import Agent, ClaudeCodeCLI, END_TURN, build_coding_agent, build_fix_agent
 from .config import Config, prompt, render
 from .design import load_design
 from .gate import GateResult, run_gate
@@ -73,9 +73,11 @@ def validate_plan(plan: Any) -> dict[str, Any]:
 
 
 def default_deps(cfg: Config, log: Callable[[str], None] | None = None,
-                 coding_agent: str | None = None, review_backend: str | None = None) -> Deps:
-    """coding_agent：编程 agent（claude / codex / opencode / dsh），空则用 code.agent；
-    review_backend：审阅方式（auto / api / dsh / skip），空则用 review.backend。"""
+                 coding_agent: str | None = None, review_backend: str | None = None,
+                 fix_agent: str | None = None) -> Deps:
+    """coding_agent：编程 agent（claude / codex / opencode / workbuddy / dsh），空则用 code.agent；
+    review_backend：审阅方式（auto / api / dsh / skip），空则用 review.backend；
+    fix_agent：修复 agent，可选项同编程 agent，空则用 fix 段。"""
     return Deps(
         cfg=cfg,
         design=lambda ref: load_design(ref, cfg),
@@ -84,7 +86,7 @@ def default_deps(cfg: Config, log: Callable[[str], None] | None = None,
         # 指定了 log（如本地网页界面）时，门禁逐项输出也走 log；否则直接打到终端
         gate=lambda: run_gate(cfg, log=log),
         reviewer=make_reviewer(cfg, review_backend, validate_plan),
-        fixer=build_agent(cfg["fix"], cfg, "fix-task"),
+        fixer=build_fix_agent(cfg, fix_agent),
         notifier=lambda state: notify_breaker(state, cfg),
         log=log or safe_print,
     )
@@ -106,7 +108,7 @@ def deps_from_state(state: dict[str, Any]) -> Deps:
     if not root:
         raise ValueError("input.project_root is required: the absolute path of the front-end project to work on")
     return default_deps(load_config(root), coding_agent=state.get("coding_agent"),
-                        review_backend=state.get("review_backend"))
+                        review_backend=state.get("review_backend"), fix_agent=state.get("fix_agent"))
 
 
 def code_prompt(requirement: str, spec: str) -> str:

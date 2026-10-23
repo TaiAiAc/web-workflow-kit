@@ -13,9 +13,14 @@ ProjectRoot = Annotated[str, Field(
     description="目标前端项目的绝对路径，如 D:/projects/my-app；流水线按该项目的 agent.config.json、.env、rules.yaml 运行",
 )]
 Requirement = Annotated[str, Field(title="需求", description="需求原文，一句话或一段话")]
-CodingAgent = Annotated[Literal["claude", "codex", "opencode", "dsh"] | None, Field(
+AgentKey = Literal["claude", "codex", "opencode", "workbuddy", "dsh"]
+CodingAgent = Annotated[AgentKey | None, Field(
     title="编程 agent",
-    description="写代码这一步用哪个 agent：Claude Code / Codex / OpenCode / DeepSeek Harness；不选则用配置里的 code.agent",
+    description="写代码这一步用哪个 agent：Claude Code / Codex / OpenCode / WorkBuddy / DeepSeek Harness；不选则用配置里的 code.agent",
+)]
+FixAgent = Annotated[AgentKey | None, Field(
+    title="修复 agent",
+    description="门禁失败后按修复计划改代码用哪个 agent，可选项同编程 agent；不选则用配置里的 fix（默认 DeepSeek Harness）",
 )]
 ReviewBackend = Annotated[Literal["auto", "api", "dsh", "skip"] | None, Field(
     title="验收审阅",
@@ -40,6 +45,7 @@ class FixLoopInput(TypedDict, total=False):
     __pydantic_config__ = ConfigDict(title="门禁修复回环 · 输入")  # type: ignore[misc]
     project_root: Required[ProjectRoot]
     review_backend: ReviewBackend
+    fix_agent: FixAgent
 
 
 class PipelineInput(TypedDict, total=False):
@@ -49,6 +55,7 @@ class PipelineInput(TypedDict, total=False):
     requirement: Required[Requirement]
     coding_agent: CodingAgent
     review_backend: ReviewBackend
+    fix_agent: FixAgent
     design_ref: DesignRef
 
 
@@ -72,6 +79,7 @@ class PipelineState(TypedDict, total=False):
     project_root: str
     coding_agent: str | None
     review_backend: str | None
+    fix_agent: str | None
     design_ref: str | None
     # codegraph
     design: dict[str, Any] | None

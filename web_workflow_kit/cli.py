@@ -19,7 +19,7 @@ HELP = """\
 :fix               对当前工作区跑 门禁 ⇄ 审阅/修复 闭环（人工修完后复验也用它）
 :resume [thread]   从检查点继续被中断的运行（默认最近一次）
 :project <dir>     切换目标项目
-:agent <名称>      切换编程 agent：claude / codex / opencode / dsh
+:agent <名称>      切换编程 agent：claude / codex / opencode / workbuddy / dsh
 :status            上一次运行结果
 :help / :q"""
 
@@ -67,7 +67,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--port", type=int, default=8765, help="agent ui 的端口（默认 8765）")
     ap.add_argument("--no-browser", action="store_true", help="agent ui 启动后不自动打开浏览器")
     ap.add_argument("--project", help="目标前端项目目录（默认当前目录）")
-    ap.add_argument("--agent", help="写代码用哪个 agent：claude / codex / opencode / dsh（默认取配置 code.agent）")
+    ap.add_argument("--agent", help="写代码用哪个 agent：claude / codex / opencode / workbuddy / dsh（默认取配置 code.agent）")
+    ap.add_argument("--fix-agent", help="修复用哪个 agent，可选项同 --agent（默认取配置 fix，即 dsh）")
     ap.add_argument("--review", choices=["auto", "api", "dsh", "skip"],
                     help="验收审阅方式：auto（默认，有 DeepSeek Key 用 API，否则用 dsh）/ api / dsh / skip")
     ap.add_argument("--config", help="额外的 agent.config.json")
@@ -89,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = load_config(args.project, args.config)
     agent = args.agent
-    deps = default_deps(cfg, coding_agent=agent, review_backend=args.review)
+    deps = default_deps(cfg, coding_agent=agent, review_backend=args.review, fix_agent=args.fix_agent)
 
     if args.verify:
         r = deps.gate()
@@ -133,12 +134,12 @@ def main(argv: list[str] | None = None) -> int:
                 design_ref = None if arg in ("", "off") else arg
                 print(f"design = {design_ref}")
             elif cmd == ":agent":
-                deps = default_deps(cfg, coding_agent=arg or None, review_backend=args.review)
+                deps = default_deps(cfg, coding_agent=arg or None, review_backend=args.review, fix_agent=args.fix_agent)
                 agent = arg or None
                 print(f"编程 agent = {agent or cfg['code'].get('agent')}")
             elif cmd == ":project":
                 cfg = load_config(arg or None, args.config)
-                deps = default_deps(cfg, coding_agent=agent, review_backend=args.review)
+                deps = default_deps(cfg, coding_agent=agent, review_backend=args.review, fix_agent=args.fix_agent)
                 print(f"project = {cfg.project_root}")
             elif cmd == ":verify":
                 r = deps.gate()

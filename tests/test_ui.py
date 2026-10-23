@@ -74,14 +74,19 @@ class LocalConsoleTest(unittest.TestCase):
         status, body, _ = self.request("GET", "/api/agents")
         self.assertEqual(status, 200)
         self.assertEqual(body["default"], "claude")
-        self.assertEqual([a["key"] for a in body["agents"]], ["claude", "codex", "opencode", "dsh"])
+        self.assertEqual([a["key"] for a in body["agents"]], ["claude", "codex", "opencode", "workbuddy", "dsh"])
+        self.assertEqual(body["fix_default"], "dsh")
         self.assertTrue(all("available" in a and a["label"] for a in body["agents"]))
         _, graphs, _ = self.request("GET", "/api/graphs")
         form = next(g for g in graphs if g["name"] == N.PIPELINE_NAME)["input_schema"]["properties"]
         self.assertEqual(form["coding_agent"]["title"], "编程 agent")
+        self.assertEqual(form["fix_agent"]["title"], "修复 agent")
         status, body, _ = self.request("POST", "/api/runs", {"graph": N.PIPELINE_NAME, "input": {
             "project_root": str(temp_dir(self)), "requirement": "x", "coding_agent": "cursor"}})
         self.assertEqual((status, body["error"]), (400, "未知的编程 agent：cursor"))
+        status, body, _ = self.request("POST", "/api/runs", {"graph": N.FIX_LOOP_NAME, "input": {
+            "project_root": str(temp_dir(self)), "fix_agent": "cursor"}})
+        self.assertEqual((status, body["error"]), (400, "未知的修复 agent：cursor"))
         _, body, _ = self.request("GET", "/api/agents")
         self.assertEqual([r["key"] for r in body["reviewers"]], ["auto", "api", "dsh", "skip"])
         self.assertEqual(body["review_default"], "auto")

@@ -55,6 +55,13 @@
       "command": ["opencode", "acp"],
       "requires": "opencode"
     },
+    "workbuddy": {
+      "label": "WorkBuddy（CodeBuddy）",
+      "backend": "acp",
+      "agent": "workbuddy",
+      "command": ["codebuddy", "--acp"],
+      "requires": "codebuddy"
+    },
     "dsh": {
       "label": "DeepSeek Harness",
       "backend": "dsh_cli",

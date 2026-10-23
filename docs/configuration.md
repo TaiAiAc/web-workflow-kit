@@ -78,7 +78,7 @@
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `code.agent` | `"claude"` | 默认的编程 agent：`claude` / `codex` / `opencode` / `dsh`；每次运行可在控制台或 `--agent` 改 |
+| `code.agent` | `"claude"` | 默认的编程 agent：`claude` / `codex` / `opencode` / `workbuddy` / `dsh`；每次运行可在控制台或 `--agent` 改 |
 | `code.timeout_sec` | `1800` | 写代码的超时，所有 agent 共用 |
 
 `coding_agents.<名称>` 的字段：
@@ -106,7 +106,7 @@
 }
 ```
 
-控制台的下拉框只列出包内默认的四个选项；项目里新增的 agent 用命令行 `--agent gemini`，或像上例那样设为 `code.agent` 默认使用。
+控制台的下拉框只列出包内默认的五个选项；项目里新增的 agent 用命令行 `--agent gemini`，或像上例那样设为 `code.agent` 默认使用。
 
 ### review
 
@@ -123,7 +123,7 @@
 
 ### fix
 
-修复 agent（按审阅计划和失败项改代码）。
+修复 agent（按审阅计划和失败项改代码）。每次运行也可以在控制台的「修复 agent」或 `--fix-agent` 里选一个 `coding_agents` 预设代替这一段（超时仍取这里的 `timeout_sec`）；下拉框默认选中命令与这一段相同的预设。
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |

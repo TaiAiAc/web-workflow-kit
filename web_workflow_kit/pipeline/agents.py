@@ -118,6 +118,26 @@ def build_coding_agent(cfg: Config, choice: str | None = None) -> Agent:
     return build_agent({**common, **presets[key]}, cfg, "code-task")
 
 
+def build_fix_agent(cfg: Config, choice: str | None = None) -> Agent:
+    """“修复”的 agent：不选用 fix 段本身（默认 dsh）；选了就用同名预设，超时等公共项仍取 fix 段。"""
+    if not choice:
+        return build_agent(cfg["fix"], cfg, "fix-task")
+    presets = coding_agent_choices(cfg)
+    if choice not in presets:
+        raise ValueError(f"未知的修复 agent：{choice}（可选：{', '.join(presets)}）")
+    common = {k: v for k, v in cfg["fix"].items() if k == "timeout_sec"}
+    return build_agent({**common, **presets[choice]}, cfg, "fix-task")
+
+
+def default_fix_choice(cfg: Config) -> str:
+    """fix 段对应哪个预设（命令相同即算），用来在下拉框里默认选中；对不上返回空串。"""
+    fix = cfg["fix"]
+    for key, p in coding_agent_choices(cfg).items():
+        if p.get("backend") == fix.get("backend") and p.get("command") == fix.get("command"):
+            return key
+    return ""
+
+
 def build_agent(section: dict, cfg: Config, task_name: str) -> Agent:
     backend = section.get("backend", "claude_cli")
     if backend == "claude_cli":
