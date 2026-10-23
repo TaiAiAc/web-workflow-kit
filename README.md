@@ -38,6 +38,18 @@ python -m venv $env:USERPROFILE\wwk-venv
 & $env:USERPROFILE\wwk-venv\Scripts\python.exe -m pip install "web-workflow-kit[all] @ git+https://github.com/TaiAiAc/web-workflow-kit"
 ```
 
+macOS / Linux：
+
+```bash
+python3 -m venv ~/wwk-venv
+```
+
+```bash
+~/wwk-venv/bin/python -m pip install "web-workflow-kit[all] @ git+https://github.com/TaiAiAc/web-workflow-kit"
+```
+
+macOS 自带的 `python3` 是 3.9，需要先装更新的版本（如 `brew install python@3.12`，再用 `python3.12 -m venv`）。
+
 网络需要代理时，先设置 `$env:HTTPS_PROXY = 'http://127.0.0.1:7897'`（换成你的代理地址）。
 
 **2. 准备要用到的 agent**
