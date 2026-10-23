@@ -1,233 +1,215 @@
 # web-workflow-kit
 
-一个独立的 LangGraph 应用：本地前端交付流水线。`pip install` 后在任何目录可用——`agent ui` 打开纯本地的中文网页控制台，`agent` 进命令行 REPL。
+本地前端交付流水线：把“提需求 → 读设计稿 → 写 Spec → 写代码 → 构建 → 门禁 → 验收 → 失败回环 → 交付”串成一条自动流程，覆盖 **Web 中后台、UniApp、微信/支付宝小程序、Electron 桌面端**。
+
+它是一个独立的 LangGraph 应用：`pip install` 后在任何目录可用，用 `agent ui` 打开纯本地的中文网页控制台，或用 `agent` 命令行。
 
 ```
-需求 → 设计稿 → Spec → 写代码 → verify.ts 门禁 ─┬─ exit 0 → 交付（待人工签字）
-                                    ▲          ├─ exit 1 且未超限 → DeepSeek 审阅 → dsh 修复 ─┐
-                                    └──────────┼──────────────────────────────────────────────┘
-                                               └─ exit 2 / 超限 / needs_human / agent error → 熔断 + 邮件
+需求 ─→ 编码（设计稿 → Spec → 写代码）─→ 门禁 ─┬─ 通过 ──────────────→ 交付（代码不提交，等人签字发布）
+                                         ▲     ├─ 失败且未超限 → 审阅修复 ─┐
+                                         └─────┼───────────────────────────┘
+                                               └─ 规则错误 / 修复到上限 / 需要人决定 / agent 出错 → 熔断（邮件通知，人介入）
 ```
 
-Web、UniApp、小程序、Electron 共用同一张图；场景差异只在 `rules.yaml` 里配置。
+## 设计原则
 
-## 原则在代码里的落点
-
-| 原则 | 落点 |
+| 原则 | 含义 |
 | --- | --- |
-| 门禁唯一 | `main_graph.route_after_verify` 只看 `verify_exit`；`deps.validate_plan` 丢弃顾问输出里的 `pass` 字段 |
-| 零 token 优先 | 门禁全绿直接 `deliver`，不调审阅；`:verify` 只跑脚本 |
-| 硬性熔断 | `attempt` 计数在 `verify_node` 里累加，`attempt > max_retries` 必进 `breaker` |
-| 模型异构 | 写代码 `code.backend=claude_cli`；审阅 `review` 走 DeepSeek；修复 `fix` 走 `dsh headless` |
-| 输入最小化 | `diffs.changed_hunks` 只取本次改动块（失败点名的文件优先，按字符预算截断）；门禁只回传失败项且只留输出尾部；审阅每次只有 system + 本轮 payload |
+| 门禁唯一 | 只有门禁脚本的退出码能放行；任何模型都无权覆盖 |
+| 零 token 优先 | 能用脚本判定的绝不调模型；门禁全绿直接交付 |
+| 硬性熔断 | 修复轮数上限写死在代码里，到上限必熔断，邮件通知人介入 |
+| 模型异构 | 写代码、验收、修复可以用不同的 agent，避免同源偏差 |
+| 输入最小化 | 只传本次改动块和失败项，验收每次无状态 |
+| 多端通用 | 四类项目共用同一张图，差异只在 `rules.yaml` |
 
-## 目录
+人仍在两处签字：熔断时、发布前。流水线交付后**不会提交代码**。
 
-```
-langgraph.json                      LangGraph 应用描述：登记 4 张图，供 langgraph dev / Studio 加载
-web_workflow_kit/                   Python 包（pip 安装的就是它）
-  graph.py                          应用入口：pipeline、fix_loop、codegraph、reviewgraph
-  cli.py                            `agent` 命令（ui / REPL / --once / --verify / --init）
-  ui/server.py                      本地网页控制台的服务（标准库，只监听本机）
-  pipeline/                         图与节点：main_graph、codegraph、reviewgraph、门禁调用、各后端
-  assets/                           随包分发的默认值
-    agent.config.json               版本、重试上限、各节点后端
-    rules.yaml                      门禁规则（project_type + 各端 profiles）
-    prompts/review-prompt.md        验收顾问契约（输入/输出 JSON、失败码表）
-    prompts/*.md                    Spec / 编码 / 修复提示词
-    verify.mjs                      门禁脚本的单文件打包产物（生成文件，勿手改）
-    ui/index.html                   本地网页控制台（单文件，不加载任何外部资源）
-verify/                             门禁源码（TypeScript）与测试；`pnpm build` 生成 assets/verify.mjs
-tests/                              Python 测试
-.env.example                        SMTP / API Key 模板
-```
+## 快速开始
 
-## 安装
+需要 **Python ≥ 3.10** 和 **Node ≥ 22**。门禁已打包成单文件，不需要 `npm install`。
 
-运行时只需要 **Python ≥ 3.10** 和 **Node ≥ 22**（门禁已打包成单文件，不需要 `npm install`）。
+**1. 安装**（建议放在独立的虚拟环境里）
 
 ```bash
-pip install "web-workflow-kit[all] @ git+https://github.com/TaiAiAc/web-workflow-kit"
+python -m venv $env:USERPROFILE\wwk-venv
 ```
-
-可选能力按需装：`[checkpoint]`（`:resume` 断点恢复）、`[mcp]`（MasterGo 设计稿）、`[acp]`（ACP 编码后端）、`[repl]`（历史记录）、`[studio]`（`langgraph dev` / Studio，可选调试工具）；`[all]` 全装。本地控制台 `agent ui` 不需要任何额外依赖。
-
-密钥与 SMTP 放用户级 `~/.web-workflow-kit/.env`（所有项目共用，可用 `WWK_HOME` 改位置），或项目根目录的 `.env`（优先）。模板见 `.env.example`。
-
-在前端项目里生成可改的配置（已存在的文件不覆盖）：
 
 ```bash
-agent --project ../my-app --init
+& $env:USERPROFILE\wwk-venv\Scripts\python.exe -m pip install "web-workflow-kit[all] @ git+https://github.com/TaiAiAc/web-workflow-kit"
 ```
 
-## 使用
+网络需要代理时，先设置 `$env:HTTPS_PROXY = 'http://127.0.0.1:7897'`（换成你的代理地址）。
 
-只跑门禁（任何项目，零 token；退出码即结论，可直接放进 CI）：
+**2. 准备要用到的 agent**
+
+| 用途 | 需要 |
+| --- | --- |
+| 生成 Spec、写代码（默认） | 安装并登录 [Claude Code](https://claude.com/claude-code)：终端里运行一次 `claude` 按提示登录 |
+| 修复（默认） | 安装 DeepSeek Harness（`dsh` 命令可用） |
+| 验收审阅 | 可选：配置 `DEEPSEEK_API_KEY`；不配则自动改用 dsh，见[验收审阅](#验收审阅) |
+| 熔断邮件 | 可选：SMTP 配置 |
+
+密钥和 SMTP 写在 `~/.web-workflow-kit/.env`（所有项目共用），模板见 [.env.example](.env.example)。
+
+**3. 在前端项目里生成配置**
 
 ```bash
-agent --project ../my-app --verify
+agent --project D:/projects/my-app --init
 ```
 
-### 本地控制台（推荐）
+会在项目根目录生成 `rules.yaml`（门禁规则）和 `agent.config.json`（流水线配置），已存在的文件不会覆盖。**打开 `rules.yaml`，把 `project_type` 和各项命令改成你项目里真实存在的命令**，再把 `.agent/` 加进项目的 `.gitignore`。
+
+**4. 先只跑门禁，确认规则对得上**
+
+```bash
+agent --project D:/projects/my-app --verify
+```
+
+退出码就是结论：`0` 通过、`1` 未通过、`2` 规则或环境有误。
+
+**5. 打开控制台**
 
 ```bash
 agent ui
 ```
 
-浏览器会自动打开 `http://127.0.0.1:8765/`（`--port` 换端口，`--no-browser` 不自动打开）。全中文界面：
+## 本地控制台
 
-- 左侧选图（前端交付流水线 / 门禁修复回环 / 编码子图 / 审阅修复子图），点「浏览…」用系统窗口选项目目录（也可直接输入或从最近项目里选），填需求，点「运行」。选好目录后会提示有没有 package.json、rules.yaml、是不是 git 仓库。浏览器拿不到所选目录的完整路径，所以选择窗口由本地服务弹出。
-- 右侧是流程图：节点按执行实时变色（运行中 / 完成 / 熔断），实际走过的路径高亮；下方是中文结论、门禁失败项（失败码、检查项、出错位置）和实时日志（含门禁每项检查的输出）。
-- 左下是本次服务启动以来的运行记录，点开可回看。服务重启后记录清空；每次交付的记录仍写在项目的 `.agent/delivery.json`。
+`agent ui` 启动后浏览器自动打开 `http://127.0.0.1:8765/`（`--port` 换端口，`--no-browser` 不自动打开）。
 
-纯本地：服务只监听 `127.0.0.1`，页面不加载任何外部网站或 CDN 资源。门禁会执行 `rules.yaml` 里的命令，所以服务只接受本机地址的请求，且每次启动生成随机令牌、只嵌在本页面里，其他网站无法借你的浏览器触发运行。同一个项目同时只允许一次运行（两次运行同时改同一个仓库会互相覆盖）。
+**左侧：发起运行**
+1. 选一张图：
+   - **前端交付流水线**：从需求开始，完整跑一遍；
+   - **门禁修复回环**：不写新代码，对现有改动跑门禁，失败就审阅修复，人工改完后复验也用它；
+   - **编码子图 / 审阅修复子图**：单独调试某一段。
+2. 点「浏览…」选项目目录（也可以手输，或从最近项目里选）。选好后会提示有没有 `package.json`、`rules.yaml`、是不是 git 仓库。
+3. 填需求，按需选择「编程 agent」「验收审阅」和设计稿，点「运行」。
 
-| 图 | 节点 | 输入 |
-| --- | --- | --- |
-| 前端交付流水线 | 编码 → 门禁 ⇄ 审阅修复 → 交付 / 熔断 | 项目路径、需求、设计稿（可选） |
-| 门禁修复回环 | 门禁 ⇄ 审阅修复 → 交付 / 熔断 | 项目路径 |
-| 编码子图 | 读取设计稿 → 生成Spec → 写代码 | 同上 |
-| 审阅修复子图 | 验收审阅 → 执行修复 | 项目路径、门禁失败项等 |
+**右侧：看结果**
+- 流程图：节点实时变色（运行中蓝、完成绿、熔断红），实际走过的路径高亮；
+- 结论：中文的一句话结论，例如“已交付：门禁通过，本次改动 3 个文件……”或“已熔断：……”；
+- 门禁失败项：失败码、检查项、出错位置；
+- 日志：实时输出，包括门禁每一项检查的 ✔ / ✘。
 
-“项目路径”填目标前端项目的绝对路径；每次运行都按该项目的 `agent.config.json` / `.env` / `rules.yaml` 现取配置，改了配置下次运行就生效。
+左下的运行记录可以回看本次服务启动以来的运行；服务重启后清空，交付记录始终保存在项目的 `.agent/delivery.json`。
 
-界面显示是中文；机器可读的字段保持英文不变：输入/状态字段名、`status`（`delivered` / `broken`）、`break_reason`、失败码——邮件去重、验收顾问契约和调用方都依赖它们。
+控制台只在本机运行，页面不加载任何外部资源。安全细节见 [docs/architecture.md](docs/architecture.md#安全)。
 
-### 可选：LangGraph Studio（调试用）
-
-在本仓库根目录（`langgraph.json` 所在处）启动 LangGraph 开发服务：
-
-```bash
-$env:PYTHONUTF8 = '1'; langgraph dev
-```
-
-然后打开 `https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024`。注意它**不是纯本地**：Studio 页面从 LangChain 网站加载、通常要登录 LangSmith，再由浏览器连本机服务（图仍在本机执行）；部分浏览器（包括 Claude 应用内置浏览器）会拦截网页访问本机地址。图名同时是 API 的 `assistant_id`，例如 `{"assistant_id": "门禁修复回环", "input": {"project_root": "..."}}`。`PYTHONUTF8=1` 是因为 langgraph-api 读取自带的 `openapi.json` 时没指定编码，中文 Windows 默认 GBK 会启动失败。
-
-### REPL
+## 命令行
 
 ```bash
-agent --project ../my-app
+agent --project D:/projects/my-app
 ```
 
-| 输入 | 作用 |
+不带命令即进入 REPL，直接输入需求就跑完整流水线。
+
+| REPL 输入 | 作用 |
 | --- | --- |
-| 需求原文 | 完整流水线 |
-| `:design <ref>` | 下一条需求附带设计稿：本地 `.json`，或 `mastergo`（读 MasterGo 当前选中图层 + 文件变量） |
-| `:code <需求>` | 只跑 codegraph |
+| 需求原文 | 跑完整流水线 |
 | `:verify` | 只跑门禁 |
-| `:fix` | 对当前工作区跑门禁 ⇄ 修复闭环 |
-| `:resume [thread]` | 从检查点继续被中断的运行（默认最近一次） |
-| `:status` / `:project <dir>` / `:q` | |
+| `:fix` | 对当前改动跑门禁 ⇄ 审阅修复 |
+| `:code <需求>` | 只生成 Spec 并写代码，不过门禁 |
+| `:design <ref>` | 下一条需求附带设计稿：本地 `.json`，或 `mastergo` |
+| `:agent <名称>` | 切换编程 agent |
+| `:resume [线程]` | 从断点继续被中断的运行 |
+| `:project <目录>` / `:status` / `:help` / `:q` | 切换项目 / 上次结果 / 帮助 / 退出 |
 
-非交互：`agent --project ../my-app --once "需求"`，退出码 0 = 交付，1 = 熔断。
+| 参数 | 作用 |
+| --- | --- |
+| `agent ui [--port 8765] [--no-browser]` | 打开本地控制台 |
+| `--project <目录>` | 目标项目（默认当前目录） |
+| `--once "需求"` | 非交互跑一次，退出码 0 = 交付、1 = 熔断 |
+| `--verify` | 只跑门禁，退出码 0/1/2 |
+| `--init` | 复制默认 `rules.yaml`、`agent.config.json` 到项目 |
+| `--agent claude\|codex\|opencode\|dsh` | 写代码用哪个 agent |
+| `--review auto\|api\|dsh\|skip` | 验收审阅方式 |
+| `--config <文件>` / `--version` | 额外配置文件 / 版本 |
 
-运行产物在目标项目的 `.agent/`：`spec.md`、`verify-report.json`、`fix-task.md`、`delivery.json`、`checkpoints.sqlite`、`.notify_cache`。请把 `.agent/` 加进目标项目的 `.gitignore`。
+## 编程 agent
 
-### MasterGo 设计稿
-
-`@mastergo/vibe-mcp` 连的是**本机正在运行的 MasterGo 客户端**（默认 `http://localhost:30678`），不按链接取稿：
-
-1. `pip install -e .[mcp]`，`agent.config.json` 里设 `design.enabled: true`（端口不同就改 `design.mcp.url`）。
-2. 在 MasterGo 里选中目标页面或图层。
-3. REPL 里 `:design mastergo`，再输入需求。
-
-读取 `design.tools`（默认 `get_selection_node`、`get_variables`）：选中图层拆成 `summary` + `code`（HTML），变量压成 `{变量名: 值}` 的 token 表；每个工具单独按 `max_chars` 分预算。没选中图层会直接以 `DESIGN_ERROR` 停下（不发邮件），选中后重跑即可。
-
-### 编程 agent（可选）
-
-“写代码”这一步可以选用哪个 agent：控制台表单里是下拉框「编程 agent」，命令行用 `--agent`，REPL 里用 `:agent <名称>`，不选则用配置里的 `code.agent`（默认 `claude`）。
+“写代码”这一步可以换 agent：控制台的「编程 agent」下拉框、`--agent`、REPL 的 `:agent`，或配置 `code.agent`（默认 `claude`）。
 
 | 选项 | 调用方式 | 前提 |
 | --- | --- | --- |
-| `claude` · Claude Code | `claude -p` 命令行 | 已安装并登录 Claude Code |
-| `codex` · Codex | ACP，经 `npx @agentclientprotocol/codex-acp` 按需拉起 | 有 npx；已登录 Codex / 配好 OpenAI Key |
-| `opencode` · OpenCode | ACP，`opencode acp` | 已安装并登录 OpenCode |
-| `dsh` · DeepSeek Harness | `dsh headless`，任务写进 `.agent/code-task.md` | 已安装 DeepSeek Harness |
+| Claude Code（`claude`） | `claude -p` | 安装并登录 Claude Code |
+| Codex（`codex`） | ACP 协议，经 npx 按需拉起适配器 | 有 npx，已登录 Codex 或配好 OpenAI Key |
+| OpenCode（`opencode`） | ACP 协议，`opencode acp` | 安装并登录 OpenCode |
+| DeepSeek Harness（`dsh`） | `dsh headless` | 安装 DeepSeek Harness |
 
-经 ACP 的 Codex / OpenCode 受下面的权限策略约束（改不了门禁文件、写不了项目外）。各 agent 的启动命令在 `coding_agents.<名称>` 里，项目自己的 `agent.config.json` 可以覆盖。控制台会标出本机找不到命令的选项；登录状态只有真正调用时才知道。Spec 生成不受此选项影响，仍按 `spec.backend`（默认 Claude Code，可改为 GPT）。
+经 ACP 的 Codex / OpenCode 受权限策略约束：改不了 `rules.yaml`、门禁文件和流水线配置，也写不到项目以外。控制台会标出本机找不到命令的选项；是否已登录只有真正调用时才知道。
 
-### 验收审阅（可选）
+生成 Spec 不受这个选项影响，默认仍用 Claude Code（可改为 GPT，见 [docs/configuration.md](docs/configuration.md#spec)）。
 
-门禁失败后由“验收顾问”出修复计划，再交给修复 agent。审阅方式可选：控制台表单的「验收审阅」下拉框、命令行 `--review`，或配置 `review.backend`。
+## 验收审阅
+
+门禁失败后，先由“验收顾问”读失败项和改动块，给出修复计划，再交给修复 agent（默认 dsh）去改。
 
 | 选项 | 行为 |
 | --- | --- |
-| `auto` 自动（默认） | 配了 `DEEPSEEK_API_KEY` 用 API；没配但装了 dsh 用 dsh；都没有就跳过 |
-| `api` DeepSeek API | 直接调接口，天然只读，强制 JSON 输出 |
-| `dsh` DeepSeek Harness | `dsh headless` 跑审阅提示词，从输出里取 JSON；审阅前后比对项目文件指纹，顾问若改动了任何文件即判违规 → 熔断，列出被改的文件交给人处理（不自动回滚） |
-| `skip` 跳过 | 不出修复计划，修复 agent 直接按门禁失败码和出错位置修 |
+| 自动（默认） | 配了 `DEEPSEEK_API_KEY` 用 API；没配但装了 dsh 就用 dsh；都没有就跳过 |
+| DeepSeek API | 直接调接口：天然只读，强制 JSON 输出 |
+| DeepSeek Harness | 用 dsh 审阅；审阅前后比对项目文件，顾问若改动了任何文件即判违规并熔断，列出被改文件交给人处理 |
+| 跳过 | 不出计划，修复 agent 直接按失败码和出错位置修 |
 
-所以 **DeepSeek API Key 不是必需的**：只装了 DeepSeek Harness 也能跑完整的“门禁 ⇄ 审阅修复”回环。无论哪种方式，顾问都没有放行权，输出里的 `pass` 字段一律丢弃。
+所以 **DeepSeek API Key 不是必需的**。无论哪种方式，顾问都没有放行权。
 
-### ACP 编码后端
+## 设计稿（MasterGo）
 
-Codex / OpenCode 走 ACP（也可以在 `coding_agents` 里加一个 `"backend": "acp"` 的预设，用 `command` 指定任意 ACP CLI）。stop_reason 直接取自 ACP 协议。写文件要经 `session/request_permission`，由流水线应答：
+流水线可以把设计稿交给 Spec 生成：
 
-- 默认只批准 `read` / `search` / `think` / `edit`，`execute` 等一律拒绝（`code.allow_kinds` 可改）；
-- 写到项目外、或命中 `code.protected`（默认 `rules.yaml`、`verify/*`、`agent.config.json`、`.agent/*`、`.github/*`、`.env*`）的编辑一律拒绝——门禁文件在协议层就改不了；
-- 被拒的请求会附在结果文本里。
+- **本地文件**：设计稿字段填导出的 `.json` 路径；
+- **MasterGo**：安装 `[mcp]` 可选依赖，在项目的 `agent.config.json` 里设 `design.enabled: true`，在 MasterGo 客户端里**选中目标页面或图层**，设计稿字段填 `mastergo`。
 
-Claude 适配器经 `npx @agentclientprotocol/claude-agent-acp` 拉起，需要本机已登录 Claude Code 或设置 `ANTHROPIC_API_KEY`。
+读取的是本机正在运行的 MasterGo 客户端（默认 `http://localhost:30678`）里当前选中的图层和文件变量，不是按链接取稿。没选中图层时会以“设计稿读取失败”停下，不发邮件，选中后重跑即可。
 
-### 断点恢复
+## Electron 视觉验收
 
-装了 `.[checkpoint]` 后，主图每个节点结束都会把 state 写进 `.agent/checkpoints.sqlite`。进程崩溃或被中断后 `:resume` 从最后完成的节点继续，已完成的节点（例如已写完的代码）不会重跑；中断时正在跑的那个节点会重跑。`checkpoint.enabled: false` 可关闭。
+门禁可以真正启动打包后的 exe，检查首屏：期望的文字和元素是否出现、是否白屏、渲染进程有没有未捕获异常，并截图到 `.agent/visual.png`。纯脚本判定，不调模型。默认关闭，在 `rules.yaml` 的 Electron 配置里把 `visual` 加进 `checks` 即可，见 [docs/rules.md](docs/rules.md#visual视觉验收)。
 
-### 网络代理
+## 运行产物
 
-`gh`、`npx` 和 Python 不会读 `.gitconfig` 里的代理。如果 git 走代理才能访问 GitHub/npm，先在终端里设置 `HTTPS_PROXY`（例如 `$env:HTTPS_PROXY = 'http://127.0.0.1:7897'`）。
+都在目标项目的 `.agent/` 目录下：
 
-## rules.yaml
+| 文件 | 内容 |
+| --- | --- |
+| `spec.md` | 本次生成的 Spec |
+| `verify-report.json` | 最近一次门禁报告（含全部失败项） |
+| `code-task.md` / `fix-task.md` / `review-task.md` | 交给命令行 agent 的任务 |
+| `delivery.json` | 交付记录：需求、修复轮数、改动文件、各轮门禁结果 |
+| `checkpoints.sqlite` | 断点（`:resume` 用） |
+| `visual.png` | Electron 视觉验收截图 |
+| `.notify_cache` | 熔断邮件去重记录 |
 
-- `project_type`：`electron | web | uniapp | miniprogram`，可被 `--type` / `agent.config.json` 的 `verify.type` 覆盖。
-- `commands`：各端共用的命令检查；`profiles.<type>.<id>` 同名条目覆盖它。
-- 任何带 `run` 的条目都是命令检查，失败码默认 `<ID>_FAIL`，可用 `code:` 指定。
-- 内置检查：`artifacts`、`package_size`（小程序主包，自动排除 `subPackages`）、`unpacked`（asar 条目 + 版本）、`installer`（latest.yml 版本与 sha512、可选 SHA256SUMS、文件名含版本）、`smoke`（启动后存活 `alive_ms`）。
-- `build` 失败时，依赖产物的检查直接 `skip`，不制造连带失败项。
-- `visual`（Electron，可选）：带 `--remote-debugging-port=0` 起应用，经 Chrome DevTools Protocol 连渲染进程，在 `timeout_ms` 内等 `expect_text` / `expect_selector` 成立，检查白屏、`forbid_text`、未捕获异常，并截图到 `.agent/visual.png`。纯脚本判定，不调模型；应用若禁用了远程调试则报 `VISUAL_UNAVAILABLE`。没有用 agent-electron：它对打包后应用的启动仍标为 WIP，而门禁验的正是 `win-unpacked` 里的 exe。
+## 常见问题
 
-失败码表见 [web_workflow_kit/assets/prompts/review-prompt.md](web_workflow_kit/assets/prompts/review-prompt.md)，新增失败码时同步更新。
+**`--verify` 一上来就是一串 `*_FAIL`**
+默认 `rules.yaml` 里的命令（`pnpm exec vue-tsc` 等）不一定和你的项目一致。用 `--init` 生成后，按项目实际的 `package.json` 脚本改。
 
-## 开发
+**结论是 `GATE_CONFIG_ERROR`（门禁规则或运行环境有误）**
+`rules.yaml` 写错或 Node 不可用。这类错误模型无权也无法修，流水线直接熔断。具体原因在门禁失败项里。
 
-```bash
-python -m venv .venv
-```
+**Spec 生成失败：`Not logged in · Please run /login`**
+Claude Code 没登录。终端运行 `claude` 登录后重试。
 
-```bash
-.venv/Scripts/python -m pip install -e ".[all]"
-```
+**控制台运行时报“拒绝访问”**
+运行控制台的 Python 没有权限写目标项目目录。用普通权限的终端、在独立虚拟环境里启动 `agent ui`。
 
-```bash
-cd verify && pnpm install
-```
+**中文显示成 `?`**
+控制台编码不是 UTF-8 时，打不出的字符会被替换（不会再导致崩溃）。可以在 Windows 终端里改用 UTF-8，或设置 `$env:PYTHONUTF8 = '1'`。
 
-改了 `verify/` 下的 TypeScript 后必须重新打包并提交产物（CI 会校验两者一致）：
+**`pip` / `npx` / `gh` 访问 GitHub、npm 超时**
+它们不读 `.gitconfig` 里的代理，需要设置 `HTTPS_PROXY` 环境变量。
 
-```bash
-cd verify && pnpm build
-```
+## 已知限制
 
-构建后端是 hatchling：setuptools 的 editable 构建会在临时目录里嵌套很深的 egg-info，路径较深的工作区在 Windows 上会超过 260 字符。
+- 控制台的运行记录只在内存里，服务重启后清空（交付记录仍在 `.agent/delivery.json`）。
+- 同一个项目同一时间只能有一次运行。
+- Codex、OpenCode、dsh 作为编程 agent，以及 dsh 作为审阅顾问，目前只用模拟 agent 验证过接入，还没在真实项目上跑过完整流程。
+- Electron 视觉验收只在 Windows 上用 Electron 45 实测过；应用若在生产包里禁用了远程调试，会报 `VISUAL_UNAVAILABLE`。
 
-## 测试
+## 文档
 
-```bash
-cd verify && pnpm test
-```
-
-```bash
-python -m unittest discover tests
-```
-
-`verify/test/visual.test.ts` 用本机 Edge/Chrome 代替 Electron 跑真实 CDP（同一协议），找不到浏览器时跳过，可用 `CHROME_PATH` 指定。`tests/stub_acp_agent.py` 是一个不调模型的 ACP 桩，ACP 测试走真实的 langgraph-acp 客户端与 stdio 协议。CI（`.github/workflows/ci.yml`）在 Ubuntu 和 Windows 上跑两套测试、校验 `verify.mjs` 与源码一致，并把 wheel 装进干净的 venv、在仓库外的目录跑 `agent --init` / `--verify`。`tests/test_app.py` 按服务端方式调用 `graph.py` 里的图（依赖由输入的 `project_root` 现建，门禁走随包的 `verify.mjs`）。
-
-## 进度
-
-- [x] Day 1：verify.ts + rules.yaml + review-prompt.md
-- [x] Day 2：codegraph、codereviewgraph 子图（可单独运行：`:code`、`:fix`）
-- [x] Day 3：主图平铺 + REPL + 熔断邮件
-- [x] Day 4：MasterGo MCP（已连本机 MasterGo 实测选中图层、变量读取与未选中报错）、ACP 编码后端（权限策略保护门禁文件）、checkpoint 断点恢复、CI
-- [x] Electron 视觉验收：`visual` 检查（CDP）。自动化测试用 Edge/Chrome；另用 Electron 45 按 electron-builder 布局（`win-unpacked` + `app.asar`）手工实测过通过、白屏、渲染异常、主进程崩溃四种场景
-- [x] 独立 LangGraph 应用：`langgraph.json` + `graph.py`，已用 `langgraph dev` 经 HTTP API 实跑；prompts / 门禁 / 默认配置随包分发，wheel 在仓库外可用
-- [x] 本地中文网页控制台 `agent ui`：已在浏览器里实跑交付与熔断两种路径
+- [docs/configuration.md](docs/configuration.md)：`agent.config.json` 与 `.env` 全部配置项
+- [docs/rules.md](docs/rules.md)：`rules.yaml`、各项检查与失败码
+- [docs/architecture.md](docs/architecture.md)：图与节点、原则如何落地、安全模型、LangGraph Studio / API
+- [docs/development.md](docs/development.md)：开发、测试、打包、CI

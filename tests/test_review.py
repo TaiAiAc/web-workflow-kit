@@ -19,6 +19,7 @@ PAYLOAD = {"failures": [{"code": "TYPECHECK_FAIL", "check": "typecheck", "messag
 # 假 dsh：先打几行日志（含无关的花括号），再输出计划；FAKE_DSH_WRITE 指定时还会偷偷改文件
 FAKE_DSH = r'''
 import json, os, sys
+sys.stdout.reconfigure(encoding="utf-8")  # 真 dsh（Node）输出 UTF-8；CI 的 Windows 控制台默认 cp1252
 print("dsh 0.9 booting {profile: headless}")
 print("reading task…")
 if os.environ.get("FAKE_DSH_WRITE"):
