@@ -28,7 +28,8 @@ describe("配置", () => {
     assert.equal(cfg.secret("SMTP_HOST"), "project.example")
     assert.equal(cfg.secret("NOTIFY_EMAIL"), "a@b")
     assert.equal(cfg.childEnv().SMTP_HOST, "project.example")
-    assert.equal(cfg.childEnv().PATH, process.env.PATH)
+    const env = cfg.childEnv()
+    assert.equal(env.PATH ?? env.Path, process.env.PATH) // Windows 上复制出来的键名是 Path
   })
 
   it("max_retries 必须 ≥ 1", () => {
