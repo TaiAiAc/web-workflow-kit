@@ -51,7 +51,7 @@ python -m venv .venv
 
 构建后端是 hatchling：setuptools 的 editable 构建会在临时目录里嵌套很深的 egg-info，路径较深的工作区在 Windows 上会超过 260 字符。
 
-可选：`pip install -e .[repl]`（历史记录）、`.[mcp]`（MasterGo 设计稿）、`.[acp]`（ACP，Day 4）。
+可选能力按需装：`.[checkpoint]`（`:resume` 断点恢复）、`.[mcp]`（MasterGo 设计稿）、`.[acp]`（ACP 编码后端）、`.[repl]`（历史记录）；`.[all]` 全装。
 
 复制 `.env.example` 为 `.env` 并填写 `DEEPSEEK_API_KEY`、SMTP 配置。
 
@@ -72,15 +72,44 @@ agent --project ../my-app
 | 输入 | 作用 |
 | --- | --- |
 | 需求原文 | 完整流水线 |
-| `:design <ref>` | 下一条需求附带设计稿（本地 `.json`，或开启 MCP 后的 MasterGo 链接） |
+| `:design <ref>` | 下一条需求附带设计稿：本地 `.json`，或 `mastergo`（读 MasterGo 当前选中图层 + 文件变量） |
 | `:code <需求>` | 只跑 codegraph |
 | `:verify` | 只跑门禁 |
 | `:fix` | 对当前工作区跑门禁 ⇄ 修复闭环 |
+| `:resume [thread]` | 从检查点继续被中断的运行（默认最近一次） |
 | `:status` / `:project <dir>` / `:q` | |
 
 非交互：`agent --project ../my-app --once "需求"`，退出码 0 = 交付，1 = 熔断。
 
-运行产物在目标项目的 `.agent/`：`spec.md`、`verify-report.json`、`fix-task.md`、`delivery.json`、`.notify_cache`。请把 `.agent/` 加进目标项目的 `.gitignore`。
+运行产物在目标项目的 `.agent/`：`spec.md`、`verify-report.json`、`fix-task.md`、`delivery.json`、`checkpoints.sqlite`、`.notify_cache`。请把 `.agent/` 加进目标项目的 `.gitignore`。
+
+### MasterGo 设计稿
+
+`@mastergo/vibe-mcp` 连的是**本机正在运行的 MasterGo 客户端**（默认 `http://localhost:30678`），不按链接取稿：
+
+1. `pip install -e .[mcp]`，`agent.config.json` 里设 `design.enabled: true`（端口不同就改 `design.mcp.url`）。
+2. 在 MasterGo 里选中目标页面或图层。
+3. REPL 里 `:design mastergo`，再输入需求。
+
+读取 `design.tools`（默认 `get_selection_node`、`get_variables`），每个工具单独按 `max_chars` 分预算。没选中图层会直接以 `DESIGN_ERROR` 停下（不发邮件），选中后重跑即可。
+
+### ACP 编码后端
+
+`agent.config.json` 里把 `code.backend` 设为 `"acp"`（`code.agent` 可选 `claude` / `codex`，或用 `code.command` 指定任意 ACP CLI）。stop_reason 直接取自 ACP 协议。写文件要经 `session/request_permission`，由流水线应答：
+
+- 默认只批准 `read` / `search` / `think` / `edit`，`execute` 等一律拒绝（`code.allow_kinds` 可改）；
+- 写到项目外、或命中 `code.protected`（默认 `rules.yaml`、`verify/*`、`agent.config.json`、`.agent/*`、`.github/*`、`.env*`）的编辑一律拒绝——门禁文件在协议层就改不了；
+- 被拒的请求会附在结果文本里。
+
+Claude 适配器经 `npx @agentclientprotocol/claude-agent-acp` 拉起，需要本机已登录 Claude Code 或设置 `ANTHROPIC_API_KEY`。
+
+### 断点恢复
+
+装了 `.[checkpoint]` 后，主图每个节点结束都会把 state 写进 `.agent/checkpoints.sqlite`。进程崩溃或被中断后 `:resume` 从最后完成的节点继续，已完成的节点（例如已写完的代码）不会重跑；中断时正在跑的那个节点会重跑。`checkpoint.enabled: false` 可关闭。
+
+### 网络代理
+
+`gh`、`npx` 和 Python 不会读 `.gitconfig` 里的代理。如果 git 走代理才能访问 GitHub/npm，先在终端里设置 `HTTPS_PROXY`（例如 `$env:HTTPS_PROXY = 'http://127.0.0.1:7897'`）。
 
 ## rules.yaml
 
@@ -102,9 +131,12 @@ cd verify && pnpm test
 python -m unittest discover tests
 ```
 
+`tests/stub_acp_agent.py` 是一个不调模型的 ACP 桩，ACP 测试走真实的 langgraph-acp 客户端与 stdio 协议。CI（`.github/workflows/ci.yml`）在 Ubuntu 和 Windows 上跑两套测试。
+
 ## 进度
 
 - [x] Day 1：verify.ts + rules.yaml + review-prompt.md
 - [x] Day 2：codegraph、codereviewgraph 子图（可单独运行：`:code`、`:fix`）
 - [x] Day 3：主图平铺 + REPL + 熔断邮件
-- [ ] Day 4+：MasterGo MCP 实测（`design.py` 已接 langchain-mcp-adapters，需填 `design.tool`）、ACP 后端（`agents.build_agent` 中 `backend: acp` 预留）、Electron 视觉验收、checkpoint 断点恢复
+- [x] Day 4：MasterGo MCP（已连本机 MasterGo 实测变量读取与未选中报错）、ACP 编码后端（权限策略保护门禁文件）、checkpoint 断点恢复、CI
+- [ ] Electron 视觉验收（agent-electron 等，可选）

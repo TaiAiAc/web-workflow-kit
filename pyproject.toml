@@ -14,10 +14,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Day 4+：MasterGo 设计稿读取、ACP 触发。主流程不依赖它们。
-mcp = ["langchain-mcp-adapters"]
-acp = ["langgraph-acp"]
+# 主流程不依赖它们，按需安装；all = 全部可选能力
+mcp = ["langchain-mcp-adapters"]          # MasterGo 设计稿（design.enabled）
+acp = ["langgraph-acp>=1.10"]             # code.backend = "acp"
+checkpoint = ["langgraph-checkpoint-sqlite"]  # :resume 断点恢复
 repl = ["prompt-toolkit"]
+all = ["web-workflow-kit[mcp,acp,checkpoint,repl]"]
 
 [project.scripts]
 agent = "scripts.agent_cli:main"

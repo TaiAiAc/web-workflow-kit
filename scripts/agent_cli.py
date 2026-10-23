@@ -15,6 +15,7 @@ HELP = """\
 :code <需求>       只跑 codegraph（Spec + 写代码），不过门禁
 :verify            只跑门禁 verify.ts（零 token）
 :fix               对当前工作区跑 门禁 ⇄ 审阅/修复 闭环（人工修完后复验也用它）
+:resume [thread]   从检查点继续被中断的运行（默认最近一次）
 :project <dir>     切换目标项目
 :status            上一次运行结果
 :help / :q"""
@@ -38,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     from .pipeline.codegraph import build_codegraph
-    from .pipeline.main_graph import run_fix_loop, run_pipeline
+    from .pipeline.main_graph import resume, run_fix_loop, run_pipeline
 
     cfg = load_config(args.project, args.config)
     deps = default_deps(cfg)
@@ -88,6 +89,9 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  {f.get('code')}: {f.get('message')}")
             elif cmd == ":fix":
                 last = run_fix_loop(deps)
+                print(_summary(last))
+            elif cmd == ":resume":
+                last = resume(deps, arg or None)
                 print(_summary(last))
             elif cmd == ":code":
                 if not arg:

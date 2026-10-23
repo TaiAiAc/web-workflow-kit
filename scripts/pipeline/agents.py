@@ -101,5 +101,8 @@ def build_agent(section: dict, cfg: Config, task_name: str) -> Agent:
     if backend in ("dsh_cli", "command"):
         return CommandAgent(section["command"], cfg.state_dir / f"{task_name}.md", int(section.get("timeout_sec", 1800)))
     if backend == "acp":
-        raise NotImplementedError("ACP backend (langgraph-acp) is planned for Day 4; use claude_cli / dsh_cli for now")
+        from .acp_agent import DEFAULT_ALLOW_KINDS, DEFAULT_PROTECTED, ACPAgent
+        return ACPAgent(section.get("agent", "claude"), section.get("command"),
+                        section.get("allow_kinds", DEFAULT_ALLOW_KINDS),
+                        section.get("protected", DEFAULT_PROTECTED), int(section.get("timeout_sec", 1800)))
     raise ValueError(f"unknown agent backend: {backend}")

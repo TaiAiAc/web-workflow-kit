@@ -14,7 +14,7 @@ from scripts.pipeline.config import load_config
 from scripts.pipeline.deps import Deps, validate_plan
 from scripts.pipeline.diffs import changed_hunks, snapshot, split_hunks
 from scripts.pipeline.gate import GateResult
-from scripts.pipeline.main_graph import build_main_graph, route_after_verify, run_fix_loop, run_pipeline
+from scripts.pipeline.main_graph import build_main_graph, resume, route_after_verify, run_fix_loop, run_pipeline
 from scripts.pipeline.notify import mark_sent, should_send
 
 FAIL = GateResult(1, [{"code": "TYPECHECK_FAIL", "check": "typecheck", "message": "x", "locations": ["src/a.ts:1"]}])
@@ -110,6 +110,18 @@ class PipelineTest(unittest.TestCase):
         deps, _ = make_deps(self.tmp, [GateResult(2, [{"code": "CONFIG_ERROR", "check": "rules", "message": "m"}])])
         self.assertEqual(run_pipeline(deps, "req")["break_reason"], "GATE_CONFIG_ERROR")
 
+    def test_design_failure_stops_without_email(self):
+        deps, sent = make_deps(self.tmp, [])
+
+        def no_selection(ref):
+            raise RuntimeError("MasterGo get_selection_node: ❌ 没有选中图层")
+
+        deps.design = no_selection
+        s = run_pipeline(deps, "req", design_ref="mastergo")
+        self.assertTrue(s["break_reason"].startswith("DESIGN_ERROR"))
+        self.assertNotIn("spec", s)
+        self.assertEqual(sent, [])
+
     def test_code_agent_error_breaks_before_gate(self):
         deps, _ = make_deps(self.tmp, [], coder=FakeAgent(ERROR))
         self.assertTrue(run_pipeline(deps, "req")["break_reason"].startswith("CODE_AGENT_ERROR"))
@@ -119,6 +131,25 @@ class PipelineTest(unittest.TestCase):
         deps, _ = make_deps(self.tmp, [FAIL, PASS], coder=coder)
         self.assertEqual(run_fix_loop(deps)["status"], "delivered")
         self.assertEqual(coder.calls, [])
+
+    def test_resume_after_crash_skips_finished_nodes(self):
+        coder = FakeAgent()
+        calls = iter([RuntimeError("process killed"), PASS])
+
+        def gate():
+            r = next(calls)
+            if isinstance(r, Exception):
+                raise r
+            return r
+
+        deps, _ = make_deps(self.tmp, [], coder=coder)
+        deps.gate = gate
+        with self.assertRaises(RuntimeError):
+            run_pipeline(deps, "req")
+        s = resume(deps)
+        self.assertEqual(s["status"], "delivered")
+        self.assertEqual(len(coder.calls), 1)       # codegraph 不会重跑
+        self.assertEqual(resume(deps)["status"], "delivered")  # 已结束的线程直接返回
 
     def test_route(self):
         self.assertEqual(route_after_verify({"verify_exit": 0, "attempt": 9}, 3), "deliver")

@@ -10,6 +10,7 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from .checkpoint import entry_of, last_thread, new_thread_id, open_checkpointer, remember
 from .codegraph import build_codegraph
 from .deps import Deps
 from .diffs import changed_hunks
@@ -36,7 +37,7 @@ def route_after_verify(state: PipelineState, max_retries: int) -> str:
     return "review"
 
 
-def build_main_graph(deps: Deps, entry: str = "code"):
+def build_main_graph(deps: Deps, entry: str = "code", checkpointer: Any = None):
     """entry="verify" 跳过 codegraph，直接对当前工作区跑门禁闭环。"""
     cfg, log = deps.cfg, deps.log
     codegraph, reviewgraph = build_codegraph(deps), build_reviewgraph(deps)
@@ -81,7 +82,9 @@ def build_main_graph(deps: Deps, entry: str = "code"):
         return {"status": "delivered"}
 
     def breaker_node(state: PipelineState) -> PipelineState:
-        result = deps.notifier(dict(state))
+        reason = state.get("break_reason", "")
+        # 设计稿读取失败是人就在 REPL 前的操作问题（如没选中图层），不发邮件
+        result = "skipped(local error)" if reason.startswith("DESIGN_ERROR") else deps.notifier(dict(state))
         log(f"[breaker] {state.get('break_reason', 'unknown')} — notify: {result}")
         return {"status": "broken"}
 
@@ -99,7 +102,7 @@ def build_main_graph(deps: Deps, entry: str = "code"):
     g.add_conditional_edges("review", lambda s: "breaker" if s.get("break_reason") else "verify", ["verify", "breaker"])
     g.add_edge("deliver", END)
     g.add_edge("breaker", END)
-    return g.compile()
+    return g.compile(checkpointer=checkpointer)
 
 
 def recursion_limit(max_retries: int) -> int:
@@ -107,8 +110,28 @@ def recursion_limit(max_retries: int) -> int:
     return 10 + 3 * (max_retries + 2)
 
 
+def _run(deps: Deps, entry: str, init: PipelineState | None, thread_id: str) -> PipelineState:
+    """init=None 表示从 thread_id 的最后一个检查点继续。"""
+    with open_checkpointer(deps.cfg) as saver:
+        if init is None and saver is None:
+            raise RuntimeError("resume needs langgraph-checkpoint-sqlite (pip install .[checkpoint])")
+        graph = build_main_graph(deps, entry, checkpointer=saver)
+        config = {"recursion_limit": recursion_limit(deps.cfg.max_retries),
+                  "configurable": {"thread_id": thread_id}}
+        if saver is not None:
+            remember(deps.cfg, thread_id)
+            deps.log(f"[run] thread {thread_id}")
+        if init is None:
+            snapshot = graph.get_state(config)
+            if not snapshot.values:
+                raise RuntimeError(f"no checkpoint for thread {thread_id}")
+            if not snapshot.next:
+                deps.log(f"[run] thread {thread_id} already finished ({snapshot.values.get('status')})")
+                return snapshot.values
+        return graph.invoke(init, config)
+
+
 def run_pipeline(deps: Deps, requirement: str, design_ref: str | None = None) -> PipelineState:
-    graph = build_main_graph(deps)
     init: PipelineState = {
         "requirement": requirement,
         "project_root": str(deps.cfg.project_root),
@@ -116,16 +139,23 @@ def run_pipeline(deps: Deps, requirement: str, design_ref: str | None = None) ->
         "attempt": 0,
         "history": [],
     }
-    return graph.invoke(init, {"recursion_limit": recursion_limit(deps.cfg.max_retries)})
+    return _run(deps, "code", init, new_thread_id("code"))
 
 
 def run_fix_loop(deps: Deps) -> PipelineState:
     """不写新代码，只对当前工作区跑 verify ⇄ review/fix 闭环（人修完后复验也用它）。"""
-    graph = build_main_graph(deps, entry="verify")
     init: PipelineState = {
         "requirement": "(修复当前工作区)",
         "project_root": str(deps.cfg.project_root),
         "attempt": 0,
         "history": [],
     }
-    return graph.invoke(init, {"recursion_limit": recursion_limit(deps.cfg.max_retries)})
+    return _run(deps, "verify", init, new_thread_id("verify"))
+
+
+def resume(deps: Deps, thread_id: str | None = None) -> PipelineState:
+    """从检查点继续一次被中断的运行；默认取最近一次。"""
+    thread_id = thread_id or last_thread(deps.cfg)
+    if not thread_id:
+        raise RuntimeError("no previous run to resume")
+    return _run(deps, entry_of(thread_id), None, thread_id)

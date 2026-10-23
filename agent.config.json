@@ -15,11 +15,12 @@
   "design": {
     "enabled": false,
     "max_chars": 20000,
-    "tool": null,
+    "tools": ["get_selection_node", "get_variables"],
     "mcp": {
       "command": "npx",
-      "args": ["-y", "@mastergo/vibe-mcp"],
-      "env_keys": ["MASTERGO_TOKEN"]
+      "args": ["-y", "@mastergo/vibe-mcp@1.0.31"],
+      "url": "http://localhost:30678",
+      "env_keys": []
     }
   },
   "spec": {
@@ -47,5 +48,8 @@
   },
   "notify": {
     "dedup_hours": 24
+  },
+  "checkpoint": {
+    "enabled": true
   }
 }

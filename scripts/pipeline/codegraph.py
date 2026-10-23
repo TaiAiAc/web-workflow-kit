@@ -20,9 +20,9 @@ def build_codegraph(deps: Deps):
             design = deps.design(ref)
             log(f"[design] loaded {ref}")
             return {"design": design}
-        except Exception as e:  # 设计稿读不到不拦流程，Spec 里会出现“待确认”
-            log(f"[design] skipped: {e}")
-            return {"design": None}
+        except Exception as e:  # 明确指定了设计稿却读不到：停下，别让 Spec 凭空编
+            log(f"[design] failed: {e}")
+            return {"design": None, "break_reason": f"DESIGN_ERROR: {e}"}
 
     def spec_node(state: PipelineState) -> PipelineState:
         log("[spec] generating…")
@@ -52,7 +52,7 @@ def build_codegraph(deps: Deps):
     g.add_node("spec", spec_node)
     g.add_node("code", code_node)
     g.add_edge(START, "design")
-    g.add_edge("design", "spec")
+    g.add_conditional_edges("design", lambda s: END if s.get("break_reason") else "spec", ["spec", END])
     g.add_conditional_edges("spec", lambda s: END if s.get("break_reason") else "code", ["code", END])
     g.add_edge("code", END)
     return g.compile()
