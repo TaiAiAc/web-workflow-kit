@@ -65,13 +65,14 @@ form { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
 label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: 13px; }
 label .req { color: var(--bad); margin-left: 2px; }
 label .hint { font-weight: 400; color: var(--muted); font-size: 12px; line-height: 1.5; }
-input, textarea {
+input, textarea, select {
   font: inherit; font-weight: 400; color: var(--text); background: var(--panel); border: 1px solid var(--line-2);
   border-radius: 8px; padding: 8px 10px; width: 100%;
 }
 textarea { min-height: 84px; resize: vertical; }
 textarea.json { font-family: var(--mono); font-size: 12px; min-height: 110px; }
-input:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+select { cursor: pointer; }
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 .primary {
   font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 10px 14px; cursor: pointer;
   background: var(--accent); color: #fff;
@@ -266,12 +267,27 @@ function fieldFor(key, prop, required, saved) {
   const isInt = types.includes("integer") || types.includes("number");
   const val = saved ?? "";
   let control;
+  if (key === "coding_agent" && AGENTS.agents?.length) {
+    const chosen = val || AGENTS.default;
+    control = `<select id="${id}" name="${key}">${AGENTS.agents.map((a) =>
+      `<option value="${esc(a.key)}" ${a.key === chosen ? "selected" : ""}>${esc(a.label)}${a.available ? "" : "（未找到）"}</option>`).join("")}</select>`;
+    const a = AGENTS.agents.find((x) => x.key === chosen);
+    const extra = `<span class="hint" id="agent-note">${esc(agentNote(a))}</span>`;
+    return `<label for="${id}"><span>${esc(title)}</span>${control}${hint}${extra}</label>`;
+  }
   if (key === "requirement") control = `<textarea id="${id}" name="${key}" placeholder="例如：登录页加“记住我”，勾选后 7 天免登录">${esc(val)}</textarea>`;
   else if (isJson) control = `<textarea class="json" id="${id}" name="${key}" data-json="1" placeholder='${types.includes("array") ? '[{"code": "TYPECHECK_FAIL", "check": "typecheck", "message": "..."}]' : "{}"}'>${esc(val)}</textarea>`;
   else if (isInt) control = `<input id="${id}" name="${key}" type="number" min="0" value="${esc(val)}" data-int="1">`;
   else control = `<input id="${id}" name="${key}" value="${esc(val)}" ${key === "project_root" ? 'list="recent-projects" placeholder="D:/projects/my-app" spellcheck="false"' : ""} ${key === "design_ref" ? 'placeholder="design/login.json 或 mastergo"' : ""}>`;
   return `<label for="${id}"><span>${esc(title)}${required ? '<span class="req" aria-hidden="true">*</span>' : ""}</span>${control}${hint}</label>`;
 }
+
+let AGENTS = { default: "claude", agents: [] };
+function agentNote(a) {
+  if (!a) return "";
+  return a.available ? `经 ${a.via} 调用；首次使用前请确认该 agent 已登录` : `${a.detail}：请先安装，或在 PATH 中可用后再运行`;
+}
+const agentLabel = (key) => AGENTS.agents.find((a) => a.key === key)?.label || key;
 
 function selectGraph(name) {
   selected = name;
@@ -285,14 +301,17 @@ function selectGraph(name) {
   if (!draft.project_root && recent[0]) draft.project_root = recent[0];
   $("fields").innerHTML = Object.entries(schema.properties || {}).map(([k, p]) => fieldFor(k, p, req.has(k), draft[k])).join("");
   $("fields").style.display = "flex"; $("fields").style.flexDirection = "column"; $("fields").style.gap = "14px";
-  $("fields").oninput = () => store.set("wwk.draft." + name, collect(false).values);
+  $("fields").oninput = $("fields").onchange = (e) => {
+    store.set("wwk.draft." + name, collect(false).values);
+    if (e?.target?.name === "coding_agent") $("agent-note").textContent = agentNote(AGENTS.agents.find((a) => a.key === e.target.value));
+  };
   $("form-error").textContent = "";
 }
 
 function collect(strict) {
   const values = {};
   let error = "";
-  $("fields").querySelectorAll("input, textarea").forEach((el) => {
+  $("fields").querySelectorAll("input, textarea, select").forEach((el) => {
     const v = el.value.trim();
     if (!v) return;
     if (el.dataset.json) {
@@ -345,7 +364,7 @@ let current = null;
 async function refreshRuns() {
   const runs = await api("/api/runs");
   $("runs").innerHTML = runs.length ? runs.map((r) =>
-    `<li><button type="button" data-id="${r.id}" aria-current="${r.id === current?.id}">${chip(r)}<span class="t">${esc(r.graph)}${r.requirement ? "：" + esc(r.requirement) : ""}</span><span class="meta">${fmtTime(r.started)} · ${esc(r.project_root)}</span></button></li>`).join("")
+    `<li><button type="button" data-id="${r.id}" aria-current="${r.id === current?.id}">${chip(r)}<span class="t">${esc(r.graph)}${r.requirement ? "：" + esc(r.requirement) : ""}</span><span class="meta">${fmtTime(r.started)}${r.coding_agent ? " · " + esc(agentLabel(r.coding_agent)) : ""} · ${esc(r.project_root)}</span></button></li>`).join("")
     : '<li class="empty">还没有运行记录</li>';
   $("runs").querySelectorAll("button").forEach((b) => b.onclick = () => openRun(b.dataset.id));
 }
@@ -408,7 +427,8 @@ function renderRun(data) {
   $("v-graph").textContent = data.graph;
   $("v-status").outerHTML = chip(data).replace('class="chip', 'id="v-status" class="chip');
   const end = data.finished || Date.now() / 1000;
-  $("v-elapsed").textContent = `开始于 ${fmtTime(data.started)} · 用时 ${Math.max(0, end - data.started).toFixed(1)} 秒`;
+  $("v-elapsed").textContent = `开始于 ${fmtTime(data.started)} · 用时 ${Math.max(0, end - data.started).toFixed(1)} 秒`
+    + (data.coding_agent ? ` · 编程 agent：${agentLabel(data.coding_agent)}` : "");
   $("v-project").textContent = data.project_root;
   if (g) $("diagram").innerHTML = drawGraph(g, current);
 
@@ -523,7 +543,7 @@ function drawGraph(g, run) {
 // ---------- 启动 ----------
 (async () => {
   try {
-    GRAPHS = await api("/api/graphs");
+    [GRAPHS, AGENTS] = await Promise.all([api("/api/graphs"), api("/api/agents")]);
     setConn(true, "已连接本地服务");
   } catch (err) {
     setConn(false, err.message);

@@ -69,6 +69,19 @@ class LocalConsoleTest(unittest.TestCase):
         self.assertEqual(loop["input_schema"]["properties"]["project_root"]["title"], "项目路径")
         self.assertTrue(loop["description"])
 
+    def test_agents_dropdown_data(self):
+        status, body, _ = self.request("GET", "/api/agents")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["default"], "claude")
+        self.assertEqual([a["key"] for a in body["agents"]], ["claude", "codex", "opencode", "dsh"])
+        self.assertTrue(all("available" in a and a["label"] for a in body["agents"]))
+        _, graphs, _ = self.request("GET", "/api/graphs")
+        form = next(g for g in graphs if g["name"] == N.PIPELINE_NAME)["input_schema"]["properties"]
+        self.assertEqual(form["coding_agent"]["title"], "编程 agent")
+        status, body, _ = self.request("POST", "/api/runs", {"graph": N.PIPELINE_NAME, "input": {
+            "project_root": str(temp_dir(self)), "requirement": "x", "coding_agent": "cursor"}})
+        self.assertEqual((status, body["error"]), (400, "未知的编程 agent：cursor"))
+
     def test_bad_input_gets_chinese_error(self):
         status, body, _ = self.request("POST", "/api/runs", {"graph": N.FIX_LOOP_NAME, "input": {}})
         self.assertEqual((status, body["error"]), (400, "请填写项目路径"))

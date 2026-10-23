@@ -13,6 +13,10 @@ ProjectRoot = Annotated[str, Field(
     description="目标前端项目的绝对路径，如 D:/projects/my-app；流水线按该项目的 agent.config.json、.env、rules.yaml 运行",
 )]
 Requirement = Annotated[str, Field(title="需求", description="需求原文，一句话或一段话")]
+CodingAgent = Annotated[Literal["claude", "codex", "opencode", "dsh"] | None, Field(
+    title="编程 agent",
+    description="写代码这一步用哪个 agent：Claude Code / Codex / OpenCode / DeepSeek Harness；不选则用配置里的 code.agent",
+)]
 DesignRef = Annotated[str | None, Field(
     title="设计稿（可选）",
     description="本地导出的设计稿 .json 路径；或填 mastergo，读取本机 MasterGo 当前选中的图层和文件变量",
@@ -38,6 +42,7 @@ class PipelineInput(TypedDict, total=False):
     __pydantic_config__ = ConfigDict(title="前端交付流水线 · 输入")  # type: ignore[misc]
     project_root: Required[ProjectRoot]
     requirement: Required[Requirement]
+    coding_agent: CodingAgent
     design_ref: DesignRef
 
 
@@ -58,6 +63,7 @@ class PipelineState(TypedDict, total=False):
     # 输入
     requirement: str
     project_root: str
+    coding_agent: str | None
     design_ref: str | None
     # codegraph
     design: dict[str, Any] | None

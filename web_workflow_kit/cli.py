@@ -20,6 +20,7 @@ HELP = """\
 :fix               对当前工作区跑 门禁 ⇄ 审阅/修复 闭环（人工修完后复验也用它）
 :resume [thread]   从检查点继续被中断的运行（默认最近一次）
 :project <dir>     切换目标项目
+:agent <名称>      切换编程 agent：claude / codex / opencode / dsh
 :status            上一次运行结果
 :help / :q"""
 
@@ -72,6 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--port", type=int, default=8765, help="agent ui 的端口（默认 8765）")
     ap.add_argument("--no-browser", action="store_true", help="agent ui 启动后不自动打开浏览器")
     ap.add_argument("--project", help="目标前端项目目录（默认当前目录）")
+    ap.add_argument("--agent", help="写代码用哪个 agent：claude / codex / opencode / dsh（默认取配置 code.agent）")
     ap.add_argument("--config", help="额外的 agent.config.json")
     ap.add_argument("--once", metavar="需求", help="非交互：跑一次需求后退出，退出码 0=交付 1=熔断")
     ap.add_argument("--verify", action="store_true", help="只跑门禁，退出码即门禁结论（0/1/2），可直接用在 CI")
@@ -90,7 +92,8 @@ def main(argv: list[str] | None = None) -> int:
         return _init(Path(args.project or os.getcwd()).resolve())
 
     cfg = load_config(args.project, args.config)
-    deps = default_deps(cfg)
+    agent = args.agent
+    deps = default_deps(cfg, coding_agent=agent)
 
     if args.verify:
         r = deps.gate()
@@ -133,9 +136,13 @@ def main(argv: list[str] | None = None) -> int:
             elif cmd == ":design":
                 design_ref = None if arg in ("", "off") else arg
                 print(f"design = {design_ref}")
+            elif cmd == ":agent":
+                deps = default_deps(cfg, coding_agent=arg or None)
+                agent = arg or None
+                print(f"编程 agent = {agent or cfg['code'].get('agent')}")
             elif cmd == ":project":
                 cfg = load_config(arg or None, args.config)
-                deps = default_deps(cfg)
+                deps = default_deps(cfg, coding_agent=agent)
                 print(f"project = {cfg.project_root}")
             elif cmd == ":verify":
                 r = deps.gate()

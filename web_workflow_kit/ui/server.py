@@ -24,7 +24,8 @@ from urllib.parse import parse_qs, urlparse
 
 from ..pipeline import names as N
 from ..pipeline.codegraph import build_codegraph
-from ..pipeline.config import ASSETS_DIR, load_config
+from ..pipeline.agents import agent_availability
+from ..pipeline.config import ASSETS_DIR, DEFAULTS, load_config
 from ..pipeline.deps import default_deps, deps_from_state
 from ..pipeline.main_graph import build_main_graph
 from ..pipeline.reviewgraph import build_reviewgraph
@@ -61,6 +62,17 @@ def describe_graphs() -> list[dict[str, Any]]:
     return out
 
 
+def describe_agents() -> dict[str, Any]:
+    """编程 agent 下拉框：标签、是否在本机找到命令（登录状态要真正调用时才知道）。每次请求现查。"""
+    presets = DEFAULTS.get("coding_agents", {})
+    items = []
+    for key, p in presets.items():
+        ok, detail = agent_availability(p)
+        items.append({"key": key, "label": p.get("label", key), "available": ok, "detail": detail,
+                      "via": {"claude_cli": "Claude Code CLI", "acp": "ACP 协议", "dsh_cli": "命令行"}.get(p.get("backend"), p.get("backend"))})
+    return {"default": DEFAULTS.get("code", {}).get("agent", "claude"), "agents": items}
+
+
 class Run:
     def __init__(self, graph: str, payload: dict[str, Any]):
         self.id = uuid.uuid4().hex[:12]
@@ -90,6 +102,7 @@ class Run:
         return {
             "id": self.id, "graph": self.graph, "status": self.status,
             "project_root": self.project_root, "requirement": self.input.get("requirement", ""),
+            "coding_agent": self.input.get("coding_agent", ""),
             "summary": self.result.get("summary", self.error), "result_status": self.result.get("status"),
             "started": self.started, "finished": self.finished,
         }
@@ -97,7 +110,8 @@ class Run:
     def execute(self) -> None:
         def source(state: dict[str, Any]):
             root = state.get("project_root") or self.project_root
-            return default_deps(load_config(root), log=self.log)
+            return default_deps(load_config(root), log=self.log,
+                                coding_agent=state.get("coding_agent") or self.input.get("coding_agent"))
 
         try:
             graph = BUILDERS[self.graph](source).with_config({"recursion_limit": 200})
@@ -195,6 +209,8 @@ def make_handler(store: RunStore, token: str, port: int, graphs: list[dict[str, 
             parts = url.path.strip("/").split("/")
             if parts == ["api", "graphs"]:
                 return self._json(HTTPStatus.OK, graphs)
+            if parts == ["api", "agents"]:
+                return self._json(HTTPStatus.OK, describe_agents())
             if parts == ["api", "runs"]:
                 runs = sorted(store.runs.values(), key=lambda r: r.started, reverse=True)
                 return self._json(HTTPStatus.OK, [r.brief() for r in runs])
@@ -223,6 +239,9 @@ def make_handler(store: RunStore, token: str, port: int, graphs: list[dict[str, 
                 if graph not in BUILDERS:
                     raise ValueError(f"未知的图：{graph}")
                 payload = {k: v for k, v in (body.get("input") or {}).items() if v not in (None, "")}
+                agent = payload.get("coding_agent")
+                if agent and agent not in DEFAULTS.get("coding_agents", {}):
+                    raise ValueError(f"未知的编程 agent：{agent}")
                 run = store.start(graph, payload)
             except (ValueError, json.JSONDecodeError) as e:
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})

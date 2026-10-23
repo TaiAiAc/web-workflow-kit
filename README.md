@@ -133,9 +133,22 @@ agent --project ../my-app
 
 读取 `design.tools`（默认 `get_selection_node`、`get_variables`）：选中图层拆成 `summary` + `code`（HTML），变量压成 `{变量名: 值}` 的 token 表；每个工具单独按 `max_chars` 分预算。没选中图层会直接以 `DESIGN_ERROR` 停下（不发邮件），选中后重跑即可。
 
+### 编程 agent（可选）
+
+“写代码”这一步可以选用哪个 agent：控制台表单里是下拉框「编程 agent」，命令行用 `--agent`，REPL 里用 `:agent <名称>`，不选则用配置里的 `code.agent`（默认 `claude`）。
+
+| 选项 | 调用方式 | 前提 |
+| --- | --- | --- |
+| `claude` · Claude Code | `claude -p` 命令行 | 已安装并登录 Claude Code |
+| `codex` · Codex | ACP，经 `npx @agentclientprotocol/codex-acp` 按需拉起 | 有 npx；已登录 Codex / 配好 OpenAI Key |
+| `opencode` · OpenCode | ACP，`opencode acp` | 已安装并登录 OpenCode |
+| `dsh` · DeepSeek Harness | `dsh headless`，任务写进 `.agent/code-task.md` | 已安装 DeepSeek Harness |
+
+经 ACP 的 Codex / OpenCode 受下面的权限策略约束（改不了门禁文件、写不了项目外）。各 agent 的启动命令在 `coding_agents.<名称>` 里，项目自己的 `agent.config.json` 可以覆盖。控制台会标出本机找不到命令的选项；登录状态只有真正调用时才知道。Spec 生成不受此选项影响，仍按 `spec.backend`（默认 Claude Code，可改为 GPT）。
+
 ### ACP 编码后端
 
-`agent.config.json` 里把 `code.backend` 设为 `"acp"`（`code.agent` 可选 `claude` / `codex`，或用 `code.command` 指定任意 ACP CLI）。stop_reason 直接取自 ACP 协议。写文件要经 `session/request_permission`，由流水线应答：
+Codex / OpenCode 走 ACP（也可以在 `coding_agents` 里加一个 `"backend": "acp"` 的预设，用 `command` 指定任意 ACP CLI）。stop_reason 直接取自 ACP 协议。写文件要经 `session/request_permission`，由流水线应答：
 
 - 默认只批准 `read` / `search` / `think` / `edit`，`execute` 等一律拒绝（`code.allow_kinds` 可改）；
 - 写到项目外、或命中 `code.protected`（默认 `rules.yaml`、`verify/*`、`agent.config.json`、`.agent/*`、`.github/*`、`.env*`）的编辑一律拒绝——门禁文件在协议层就改不了；

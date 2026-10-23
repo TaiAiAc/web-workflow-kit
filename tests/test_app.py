@@ -43,7 +43,7 @@ class LangGraphAppTest(unittest.TestCase):
         from web_workflow_kit import graph
 
         props = graph.pipeline.get_input_jsonschema()["properties"]
-        self.assertEqual(set(props), {"project_root", "requirement", "design_ref"})
+        self.assertEqual(set(props), {"project_root", "requirement", "coding_agent", "design_ref"})
         self.assertEqual(set(graph.fix_loop.get_input_jsonschema()["properties"]), {"project_root"})
 
     def test_studio_shows_chinese_names_and_labels(self):

@@ -83,7 +83,8 @@ class CommandAgent:
         self.task_file.parent.mkdir(parents=True, exist_ok=True)
         self.task_file.write_text(prompt, encoding="utf-8")
         rel = self.task_file.relative_to(cwd) if self.task_file.is_relative_to(cwd) else self.task_file
-        short = f"Read {rel.as_posix()} and apply the fixes it describes, then stop."
+        # 同一个 agent 既可能写代码也可能修复：指令保持通用，具体任务在文件里
+        short = f"Read {rel.as_posix()} and carry out the task it describes, then stop."
         cmd = [exe, *(a.replace("{prompt}", short) for a in self.command[1:])]
         try:
             r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
@@ -91,6 +92,30 @@ class CommandAgent:
         except subprocess.TimeoutExpired:
             return AgentResult(ERROR, f"{self.command[0]} timed out after {self.timeout}s")
         return AgentResult(END_TURN if r.returncode == 0 else ERROR, (r.stdout + r.stderr)[-4000:])
+
+
+def coding_agent_choices(cfg: Config) -> dict[str, dict]:
+    """可选的编程 agent：{key: 预设}。项目的 agent.config.json 可以改预设或加新的。"""
+    return cfg.raw.get("coding_agents", {})
+
+
+def agent_availability(preset: dict) -> tuple[bool, str]:
+    """只查命令在不在 PATH 上；登录状态要真正调用时才知道。"""
+    exe = preset.get("requires") or (preset.get("command") or [None])[0]
+    if not exe:
+        return True, ""
+    found = _resolve(exe)
+    return (True, found) if found else (False, f"未找到 {exe} 命令")
+
+
+def build_coding_agent(cfg: Config, choice: str | None = None) -> Agent:
+    """按选择构建“写代码”的 agent：预设（coding_agents.<key>）+ code 段的公共项（如超时）。"""
+    key = choice or cfg["code"].get("agent", "claude")
+    presets = coding_agent_choices(cfg)
+    if key not in presets:
+        raise ValueError(f"未知的编程 agent：{key}（可选：{', '.join(presets)}）")
+    common = {k: v for k, v in cfg["code"].items() if k != "agent"}
+    return build_agent({**common, **presets[key]}, cfg, "code-task")
 
 
 def build_agent(section: dict, cfg: Config, task_name: str) -> Agent:

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from . import llm
-from .agents import Agent, ClaudeCodeCLI, END_TURN, build_agent
+from .agents import Agent, ClaudeCodeCLI, END_TURN, build_agent, build_coding_agent
 from .config import Config, prompt, render
 from .design import load_design
 from .gate import GateResult, run_gate
@@ -92,12 +92,14 @@ def _reviewer_fn(cfg: Config) -> Callable[[dict[str, Any]], dict[str, Any]]:
     return run
 
 
-def default_deps(cfg: Config, log: Callable[[str], None] | None = None) -> Deps:
+def default_deps(cfg: Config, log: Callable[[str], None] | None = None,
+                 coding_agent: str | None = None) -> Deps:
+    """coding_agent：本次运行选的编程 agent（claude / codex / opencode / dsh），空则用 code.agent。"""
     return Deps(
         cfg=cfg,
         design=lambda ref: load_design(ref, cfg),
         spec=_spec_fn(cfg),
-        coder=build_agent(cfg["code"], cfg, "code-task"),
+        coder=build_coding_agent(cfg, coding_agent),
         # 指定了 log（如本地网页界面）时，门禁逐项输出也走 log；否则直接打到终端
         gate=lambda: run_gate(cfg, log=log),
         reviewer=_reviewer_fn(cfg),
@@ -122,7 +124,7 @@ def deps_from_state(state: dict[str, Any]) -> Deps:
     root = state.get("project_root")
     if not root:
         raise ValueError("input.project_root is required: the absolute path of the front-end project to work on")
-    return default_deps(load_config(root))
+    return default_deps(load_config(root), coding_agent=state.get("coding_agent"))
 
 
 def code_prompt(requirement: str, spec: str) -> str:

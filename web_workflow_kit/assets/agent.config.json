@@ -29,11 +29,38 @@
     "timeout_sec": 600
   },
   "code": {
-    "backend": "claude_cli",
-    "model": null,
-    "max_turns": 60,
-    "permission_mode": "acceptEdits",
+    "agent": "claude",
     "timeout_sec": 1800
+  },
+  "coding_agents": {
+    "claude": {
+      "label": "Claude Code",
+      "backend": "claude_cli",
+      "requires": "claude",
+      "model": null,
+      "max_turns": 60,
+      "permission_mode": "acceptEdits"
+    },
+    "codex": {
+      "label": "Codex",
+      "backend": "acp",
+      "agent": "codex",
+      "command": null,
+      "requires": "npx"
+    },
+    "opencode": {
+      "label": "OpenCode",
+      "backend": "acp",
+      "agent": "opencode",
+      "command": ["opencode", "acp"],
+      "requires": "opencode"
+    },
+    "dsh": {
+      "label": "DeepSeek Harness",
+      "backend": "dsh_cli",
+      "command": ["dsh", "headless", "{prompt}"],
+      "requires": "dsh"
+    }
   },
   "review": {
     "base_url": "https://api.deepseek.com",
