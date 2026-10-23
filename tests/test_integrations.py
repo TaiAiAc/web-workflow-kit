@@ -7,7 +7,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from web_workflow_kit.pipeline.acp_agent import DEFAULT_ALLOW_KINDS, DEFAULT_PROTECTED, ACPAgent, is_allowed, map_stop_reason
+from web_workflow_kit.pipeline.acp_agent import (
+    DEFAULT_ALLOW_KINDS, DEFAULT_PROTECTED, ACPAgent, is_allowed, local_adapter, map_stop_reason,
+)
 from web_workflow_kit.pipeline.agents import END_TURN, ERROR, MAX_TOKENS
 from web_workflow_kit.pipeline.design import _clip_each, _decode
 from tests.test_pipeline import temp_dir
@@ -49,6 +51,18 @@ class PermissionPolicyTest(unittest.TestCase):
         self.assertEqual(map_stop_reason("max_turn_requests"), MAX_TOKENS)
         for r in ("refusal", "cancelled", None):
             self.assertEqual(map_stop_reason(r), ERROR)
+
+    def test_local_adapter_preferred_over_npx(self):
+        npx = ("npx", "--yes", "@agentclientprotocol/codex-acp@1.13.0")
+        with mock.patch("web_workflow_kit.pipeline.acp_agent.shutil.which", return_value=None):
+            self.assertEqual(local_adapter(npx), list(npx))                       # 没装就照旧走 npx
+        with mock.patch("web_workflow_kit.pipeline.acp_agent.shutil.which",
+                        side_effect=lambda c: f"/bin/{c}" if c == "codex-acp" else None):
+            self.assertEqual(local_adapter(npx), ["/bin/codex-acp"])               # 装了同名命令就直接用
+        with mock.patch("web_workflow_kit.pipeline.acp_agent.shutil.which", side_effect=lambda c: f"/bin/{c}"):
+            self.assertEqual(local_adapter(("npx", "--yes", "plain-acp@2.0")), ["/bin/plain-acp"])
+            self.assertEqual(local_adapter(["opencode", "acp"]), ["opencode", "acp"])  # 不是 npx 的不动
+        self.assertIsNone(local_adapter(None))
 
 
 @unittest.skipUnless(_has_acp(), "langgraph-acp not installed (pip install .[acp])")

@@ -152,6 +152,8 @@ agent --project D:/projects/my-app
 | WorkBuddy（`workbuddy`） | ACP 协议，`codebuddy --acp` | 安装 WorkBuddy 的引擎 CodeBuddy Code（`npm install -g @tencent-ai/codebuddy-code`），运行一次 `codebuddy` 登录 |
 | DeepSeek Harness（`dsh`） | `dsh headless` | 安装 DeepSeek Harness |
 
+Codex 的 ACP 适配器默认每次经 npx 下载，网络不稳时会在开始写代码前就失败；先全局安装一次（`npm install -g @agentclientprotocol/codex-acp@1.13.0`），之后直接用本机的 `codex-acp`，不再访问 npm。
+
 经 ACP 的 Codex / OpenCode / WorkBuddy 受权限策略约束：改不了 `rules.yaml`、门禁文件和流水线配置，也写不到项目以外。控制台会标出本机找不到命令的选项；是否已登录只有真正调用时才知道。
 
 生成 Spec 不受这个选项影响，默认仍用 Claude Code（可改为 GPT，见 [docs/configuration.md](docs/configuration.md#spec)）。

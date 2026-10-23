@@ -89,7 +89,7 @@
 | `backend` | 全部 | `claude_cli` / `acp` / `dsh_cli`（任意命令行 agent） |
 | `requires` | 全部 | 用来判断“本机是否已安装”的命令名 |
 | `model` / `max_turns` / `permission_mode` | `claude_cli` | 传给 `claude -p` 的模型、最大轮数、权限模式（默认 `acceptEdits`：允许改文件） |
-| `agent` | `acp` | ACP agent 名称，`claude` / `codex` 时可省略 `command`，使用内置的适配器 |
+| `agent` | `acp` | ACP agent 名称，`claude` / `codex` 时可省略 `command`，使用内置的适配器（默认经 npx 拉起；本机装了同名命令 `codex-acp` / `claude-agent-acp` 时直接用它） |
 | `command` | `acp`、`dsh_cli` | 启动命令；`dsh_cli` 中 `{prompt}` 会替换成“读取任务文件并执行”的一句话 |
 | `allow_kinds` | `acp` | 批准的操作类型，默认 `read` / `search` / `think` / `edit` |
 | `protected` | `acp` | 禁止编辑的路径，默认 `rules.yaml`、`verify/*`、`agent.config.json`、`.agent/*`、`.github/*`、`.env`、`.env.*` |
