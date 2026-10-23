@@ -13,7 +13,8 @@
   "scripts": {
     "cli": "tsx src/cli.ts",
     "test": "tsx --test test/*.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "node build.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^2.0.1",
@@ -28,6 +29,7 @@
     "@types/node": "^22.0.0",
     "@types/nodemailer": "^7.0.0",
     "tsx": "^4.19.0",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "esbuild": "0.28.2"
   }
 }

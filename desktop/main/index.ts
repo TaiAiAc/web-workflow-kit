@@ -1,10 +1,11 @@
 import type { IpcMainInvokeEvent, MenuItemConstructorOptions } from 'electron'
+import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from 'electron'
 import { Backend } from './backend'
-import { findPython, inheritShellPath, probe, saveSettings } from './python'
+import { coreBundle, inheritShellPath } from './env'
 
 const isDev = process.env.NODE_ENV === 'development'
 const BOOT_URL = isDev
@@ -29,22 +30,20 @@ function showBootPage(): void {
     void win.loadURL(BOOT_URL)
 }
 
-/** 找 Python → 起后端 → 窗口切到控制台；任何一步失败都停在启动页上显示原因 */
+/** 起后端（TS 核心，跑在 Electron 自带的 Node 上）→ 窗口切到控制台；失败时停在启动页上显示原因 */
 async function boot(): Promise<void> {
   if (booting)
     return
   booting = true
   try {
     showBootPage()
-    setStatus({ phase: 'starting', message: '正在查找 Python…' })
-    const { python, failures } = await findPython(py => setStatus({ phase: 'starting', message: `正在检查 ${py.label}…` }))
-    if (!python) {
-      setStatus({ phase: 'error', message: '没有找到可以运行流水线的 Python', failures })
+    if (!existsSync(coreBundle())) {
+      setStatus({ phase: 'error', message: `找不到 ${coreBundle()}`, log: '开发时先在 desktop/ 里运行 pnpm core（或在 core/ 里 pnpm build）生成它。' })
       return
     }
-    setStatus({ phase: 'starting', message: `正在启动本地服务（${python.label}）…` })
+    setStatus({ phase: 'starting', message: '正在启动本地服务…' })
     try {
-      const url = await backend.start(python)
+      const url = await backend.start()
       await win?.loadURL(url)
     }
     catch (e) {
@@ -97,24 +96,6 @@ handle('wwk:pick-file', async (initial: string | null) => {
     filters: [{ name: '设计稿 JSON', extensions: ['json'] }],
   })
   return r.canceled || !r.filePaths[0] ? null : r.filePaths[0].replace(BACKSLASH, '/')
-})
-
-handle('wwk:choose-python', async () => {
-  const r = await dialog.showOpenDialog(win!, {
-    title: '选择 Python 解释器（已安装 web-workflow-kit 依赖的那个）',
-    properties: ['openFile'],
-    filters: process.platform === 'win32' ? [{ name: 'Python', extensions: ['exe'] }] : [],
-  })
-  const path = r.filePaths[0]
-  if (r.canceled || !path)
-    return
-  const error = await probe({ command: path, args: [], label: path })
-  if (error) {
-    setStatus({ phase: 'error', message: '所选解释器不能运行流水线', failures: [{ label: path, error }] })
-    return
-  }
-  saveSettings({ pythonPath: path })
-  await boot()
 })
 
 // ---------- 窗口 ----------

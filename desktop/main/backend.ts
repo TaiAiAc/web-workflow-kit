@@ -1,11 +1,10 @@
 import type { Buffer } from 'node:buffer'
 import type { ChildProcess } from 'node:child_process'
-import type { PythonCommand } from './python'
 import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import process from 'node:process'
-import { pythonEnv } from './python'
+import { assetsDir, coreBundle } from './env'
 
 // 固定端口：页面把主题、草稿、最近项目存在 localStorage 里，端口一变就丢了
 const PREFERRED_PORTS = [18765, 18766, 18767, 18768, 18769]
@@ -85,15 +84,16 @@ export class Backend {
     return this.log.slice(-n).join('\n')
   }
 
-  /** 启动 `web_workflow_kit.cli ui`，等它打印出地址后返回 */
-  async start(py: PythonCommand): Promise<string> {
+  /** 用 Electron 自带的 Node 启动 TS 核心的 `wwk ui`，等它打印出地址后返回 */
+  async start(): Promise<string> {
     await this.stop()
     this.stopping = false
     this.log.length = 0
     const port = await pickPort()
-    const args = [...py.args, '-m', 'web_workflow_kit.cli', 'ui', '--port', String(port), '--no-browser']
+    const args = [coreBundle(), 'ui', '--port', String(port), '--no-browser']
     // cwd 放在用户目录：门禁和 agent 都按页面上填的项目路径工作，不依赖这里
-    const child = spawn(py.command, args, { env: pythonEnv(), cwd: homedir(), windowsHide: true })
+    const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', WWK_ASSETS: assetsDir() }
+    const child = spawn(process.execPath, args, { env, cwd: homedir(), windowsHide: true })
     this.child = child
 
     return new Promise<string>((resolvePromise, reject) => {
@@ -122,7 +122,7 @@ export class Backend {
       }
       child.stdout?.on('data', onData)
       child.stderr?.on('data', onData)
-      child.on('error', e => fail(`无法启动 Python：${e.message}`))
+      child.on('error', e => fail(`无法启动本地服务：${e.message}`))
       child.on('exit', (code) => {
         if (this.child === child)
           this.child = undefined

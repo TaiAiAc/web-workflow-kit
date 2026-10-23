@@ -8,15 +8,16 @@
   "author": "quiteer",
   "main": "dist/resource/electron.cjs",
   "scripts": {
-    "dev": "electronup",
-    "build": "electronup build",
-    "build:dir": "electronup build --dir",
-    "build:win": "electronup build --win x64",
-    "build:mac": "electronup build --mac",
-    "build:linux": "electronup build --linux",
+    "dev": "pnpm core && electronup",
+    "build": "pnpm core && electronup build",
+    "build:dir": "pnpm core && electronup build --dir",
+    "build:win": "pnpm core && electronup build --win x64",
+    "build:mac": "pnpm core && electronup build --mac",
+    "build:linux": "pnpm core && electronup build --linux",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "core": "pnpm --dir ../core install --frozen-lockfile && pnpm --dir ../core build"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^7.6.1",

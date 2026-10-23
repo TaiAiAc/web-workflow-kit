@@ -42,6 +42,20 @@ export function resolveBackend(cfg: Config, choice?: string | null): [string, st
   return ["skip", "未配置 API Key，本机也没有 dsh"]
 }
 
+/** 给控制台：每种审阅方式现在能不能用。 */
+export function availability(cfg: Config): { key: string, label: string, available: boolean, detail: string }[] {
+  const keyEnv = apiKeyEnv(cfg)
+  const dsh = which(dshCommand(cfg)[0], cfg.childEnv())
+  const [auto, why] = resolveBackend(cfg, "auto")
+  const key = !!apiKey(cfg)
+  return [
+    { key: "auto", label: `自动（当前会用：${BACKENDS[auto]}）`, available: true, detail: why },
+    { key: "api", label: BACKENDS.api, available: key, detail: key ? "只读、强制 JSON 输出" : `未配置 ${keyEnv}` },
+    { key: "dsh", label: BACKENDS.dsh, available: !!dsh, detail: dsh ? "经 dsh headless；审阅前后校验没有改动文件" : "未找到 dsh 命令" },
+    { key: "skip", label: BACKENDS.skip, available: true, detail: "修复者直接按门禁失败码修" },
+  ]
+}
+
 export function fingerprint(root: string): Map<string, string> {
   const out = new Map<string, string>()
   const walk = (dir: string) => {

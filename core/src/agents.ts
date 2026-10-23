@@ -96,6 +96,16 @@ export function agentAvailability(preset: Record<string, any>, env?: NodeJS.Proc
   return found ? [true, found] : [false, `未找到 ${exe} 命令`]
 }
 
+/** fix 段对应哪个预设（命令相同即算），用来在下拉框里默认选中；对不上返回空串。 */
+export function defaultFixChoice(cfg: Config): string {
+  const fix = cfg.get("fix")
+  for (const [key, p] of Object.entries(codingAgentChoices(cfg))) {
+    if (p.backend === fix.backend && JSON.stringify(p.command) === JSON.stringify(fix.command))
+      return key
+  }
+  return ""
+}
+
 /** 按选择构建“写代码”的 agent：预设（coding_agents.<key>）+ code 段的公共项（如超时）。 */
 export function buildCodingAgent(cfg: Config, choice?: string | null): Agent {
   const code = cfg.get("code")

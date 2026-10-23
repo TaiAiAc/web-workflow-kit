@@ -1,48 +1,36 @@
 # 桌面端
 
-`desktop/` 是基于 [electronup-template](https://github.com/QuiteerJs/electronup-template) 的 Electron 应用，把本地控制台（`agent ui`）包成一个桌面程序：双击打开，不用开终端、不用记端口。
+`desktop/` 是基于 [electronup-template](https://github.com/QuiteerJs/electronup-template) 的 Electron 应用，把本地控制台包成一个桌面程序：双击打开，不用开终端、不用记端口，**也不需要装 Python**。
 
 ## 工作方式
 
 ```
-Electron 主进程 ──启动──→ python -m web_workflow_kit.cli ui --port 18765 --no-browser
+Electron 主进程 ──启动──→ Electron 自带的 Node 运行 resources/core/wwk.mjs ui --port 18765 --no-browser
       │                              │
-      └── 窗口加载 http://127.0.0.1:18765/ ←┘（就是原来的控制台页面）
+      └── 窗口加载 http://127.0.0.1:18765/ ←┘（就是控制台页面）
 ```
 
-- **后端仍是 Python**：流水线、门禁、agent 调用全部沿用 `web_workflow_kit`，桌面端只负责启动、展示和收尾。
-- **Python 源码随应用分发**：打包时把 `web_workflow_kit/` 复制到 `resources/python/`，运行时用它作 `PYTHONPATH`，所以桌面端的版本总是和应用一致，不依赖 pip 装的是哪个版本。
-- **依赖要求**：需要一个装好 `langgraph`、`python-dotenv` 等依赖的 Python ≥ 3.10。按 README 装好 `web-workflow-kit[all]` 的虚拟环境即可。
-- **固定端口**：优先用 18765（被占用时依次试 18766–18769），页面存在 localStorage 里的主题、草稿、最近项目才不会丢。
+- **后端是 TS 核心**：`core/` 打成单文件 `wwk.mjs`（依赖全部内联），用 Electron 自带的 Node（`ELECTRON_RUN_AS_NODE`）运行；流水线、门禁、agent 调用、工作空间都在里面，桌面端只负责启动、展示和收尾。
+- **随应用分发的文件**：`resources/core/wwk.mjs` 和 `resources/assets/`（默认配置、提示词、门禁脚本 `verify.mjs`、控制台页面），后端经 `WWK_ASSETS` 找到后者。
+- **不需要 Python**；门禁和 agent 仍要用到本机的命令（项目自己的 `pnpm` / `node`，以及 `claude`、`codex`、`dsh` 等），这些本来就是前端开发机上有的。本机没有 `node` 时，门禁会退回用 Electron 自带的 Node 跑 `verify.mjs`。
+- **固定端口**：优先用 18765（被占用时依次试 18766–18769），页面存在 localStorage 里的主题、草稿才不会丢。
 - **退出即停止**：退出时结束后端进程树，包括它拉起的门禁命令和编程 agent。Windows 关闭窗口即退出；macOS 按惯例关窗口后应用留在程序坞，`Cmd+Q` 才退出。
-- **继承 shell 的 PATH**（macOS / Linux）：从访达、程序坞启动的应用只有系统默认 PATH，启动时会向登录 shell 要一次 PATH，这样才能找到 Homebrew 的 Python、门禁要的 `node` 和 `claude` / `dsh` 等命令。
-
-## 查找 Python 的顺序
-
-1. 启动页上「选择 Python…」选过的解释器（存在用户数据目录的 `settings.json`）
-2. 环境变量 `WWK_PYTHON`
-3. `~/wwk-venv`（README 推荐的安装位置）
-4. 仓库根目录的 `.venv`（仅开发时）
-5. `py -3`（Windows），然后是 PATH 里的 `python` / `python3`
-
-macOS 自带的 `python3` 是 3.9，不满足要求；用 Homebrew 的 Python 3.12 建 `~/wwk-venv`（`brew install python@3.12`，再 `python3.12 -m venv ~/wwk-venv`）。
-
-每个候选都会先试着导入依赖，都不行时启动页会列出每个候选失败的原因，并给出安装命令。
+- **继承 shell 的 PATH**（macOS / Linux）：从访达、程序坞启动的应用只有系统默认 PATH，启动时会向登录 shell 要一次 PATH，这样才能找到 `node`、`pnpm` 和 `claude` / `codex` / `dsh` 等命令。
 
 ## 和浏览器版的区别
 
 | | 浏览器版（`agent ui`） | 桌面端 |
 | --- | --- | --- |
-| 启动 | 终端里运行命令 | 双击应用 |
-| 选择项目目录 | 后端用 tkinter 弹窗 | Electron 原生对话框 |
+| 启动 | 终端里运行 `wwk ui`（或 Python 版的 `agent ui`） | 双击应用 |
+| 选择项目目录 | 后端弹系统对话框（macOS 用 AppleScript，Windows 用 PowerShell，Linux 用 zenity） | Electron 原生对话框 |
 | 外部链接 | 浏览器内打开 | 系统浏览器打开 |
 | 后端异常退出 | 页面显示断开 | 回到启动页，显示最后的日志，可一键重试 |
 
-控制台页面里只多了一处判断：检测到 `window.wwkDesktop` 时用原生对话框选目录。preload 只暴露选择目录、启动状态、重试、选择解释器、复制这几个固定能力，主进程只接受来自启动页和本机控制台页的请求。
+控制台页面里只多了一处判断：检测到 `window.wwkDesktop` 时用原生对话框选目录和设计稿。preload 只暴露选择目录、选择文件、启动状态、重试、复制这几个固定能力，主进程只接受来自启动页和本机控制台页的请求。
 
 ## 开发
 
-需要 Node ≥ 22.18（electronup 的要求）和 pnpm。
+需要 Node ≥ 22.18（electronup 的要求）和 pnpm。`pnpm dev` 和各个打包命令会先运行 `pnpm core`：安装 `core/` 的依赖并打出 `core/dist/wwk.mjs`。
 
 ```bash
 cd desktop
@@ -56,11 +44,10 @@ pnpm install
 pnpm dev
 ```
 
-开发时会自动找到仓库根目录的 `.venv`（按 [development.md](development.md) 创建），也可以设 `WWK_PYTHON` 指定解释器。
-
 | 命令 | 作用 |
 | --- | --- |
-| `pnpm dev` | 渲染进程热更新，主进程改动后自动重启 |
+| `pnpm dev` | 渲染进程热更新，主进程改动后自动重启（改了 `core/` 要重新运行一次，后端用的是打好的 `wwk.mjs`） |
+| `pnpm core` | 只重新打 TS 核心 `core/dist/wwk.mjs` |
 | `pnpm build:dir` | 只生成免安装目录（Windows 是 `dist/out/win-unpacked`，macOS 是 `dist/out/mac-arm64`），用来快速检查打包结果 |
 | `pnpm build:win` / `build:mac` / `build:linux` | 生成安装包（mac 只能在 macOS 上打，linux 不能在 Windows 上打） |
 | `pnpm typecheck` / `pnpm lint` | 类型检查 / 代码风格 |
@@ -78,11 +65,11 @@ Windows PowerShell 里是 `$env:ELECTRON_MIRROR = '...'`。打安装包时 elect
 | 路径 | 内容 |
 | --- | --- |
 | `main/index.ts` | 窗口、菜单、IPC、生命周期 |
-| `main/python.ts` | 查找并检查 Python 解释器 |
+| `main/env.ts` | TS 核心与 assets 的位置；继承登录 shell 的 PATH |
 | `main/backend.ts` | 启动 / 停止控制台后端，解析地址，保留最近日志 |
 | `preload/index.ts` | 暴露给页面的 `window.wwkDesktop` |
-| `render/` | 启动页：启动进度、找不到 Python 或后端退出时的说明 |
-| `electronup.config.ts` | 构建与打包配置（含 Python 源码的 `extraResources`） |
+| `render/` | 启动页：启动进度，后端起不来或异常退出时显示日志、可重试 |
+| `electronup.config.ts` | 构建与打包配置（`extraResources` 带上 `wwk.mjs` 与 assets） |
 
 ## 常见问题
 
@@ -123,7 +110,6 @@ pnpm 12 默认不安装发布不到约一天的包。刚发布的依赖（如 el
 - 还没有应用图标，用的是 Electron 默认图标。
 - 安装包没有签名，Windows 首次运行可能出现 SmartScreen 提示；macOS 的 dmg 只有 ad-hoc 签名、没有公证，从网上下载后首次打开要在「系统设置 → 隐私与安全性」里点「仍要打开」。
 - macOS 安装包只打了 arm64（Apple 芯片）。
-- 不内置 Python 运行时，需要用户自己装好依赖。
-- Windows 实测过：`pnpm dev`（启动、找不到 Python 时的启动页、Ctrl-C 后无残留进程），以及免安装目录（`build:dir`）的启动、崩溃重试和退出清理；Windows 安装包还没实测。
-- macOS（Apple 芯片）实测过：`pnpm dev` 启动并加载控制台、自动找到仓库 `.venv`、退出后门禁命令无残留；dmg 打包，按访达的环境启动后找不到 Python 时的启动页、继承 shell PATH 后门禁能找到 `node`、退出后无残留。
+- 切到 TS 核心后，macOS（Apple 芯片）实测过：`pnpm dev` 启动并加载控制台（进程树里没有 Python）、读回原来的工作空间和运行记录、退出后门禁命令无残留；dmg 打包后按访达的环境启动，跑通一次真实门禁（`pnpm` / `node` 经继承的 PATH 找到），退出后无残留。
+- Windows 上的桌面端还没在 TS 核心上实测（TS 核心本身在 CI 的 Windows 上测试与 18 个场景都通过）。
 - Linux 还没实测。

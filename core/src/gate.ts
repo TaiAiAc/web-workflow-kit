@@ -1,6 +1,7 @@
 // 调用门禁脚本。放行只看退出码；报告 JSON 只用来把失败项喂给下游（与 Python 版 gate.py 一致）。
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
 import { join, resolve } from "node:path"
+import process from "node:process"
 import { type Config, VERIFY_BUNDLE } from "./config.ts"
 import { run, which } from "./proc.ts"
 
@@ -28,8 +29,12 @@ export class GateResult {
 
 /** log 为空时输出直接进终端；否则逐行转给 log（控制台靠它实时显示每项检查）。 */
 export async function runGate(cfg: Config, opts: { only?: string[], log?: (line: string) => void } = {}): Promise<GateResult> {
-  const env = cfg.childEnv()
-  const node = which("node", env)
+  let env = cfg.childEnv()
+  let node = which("node", env)
+  if (!node && process.versions.electron) { // 桌面端里没装 Node 时，用 Electron 自带的 Node 跑门禁
+    node = process.execPath
+    env = { ...env, ELECTRON_RUN_AS_NODE: "1" }
+  }
   if (!node)
     return new GateResult(2, [{ code: "CONFIG_ERROR", check: "gate", message: "node not found on PATH" }])
   if (!existsSync(VERIFY_BUNDLE))

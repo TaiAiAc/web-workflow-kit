@@ -103,26 +103,6 @@ h2 {
   color: var(--danger);
 }
 
-.failures {
-  margin: 0 0 16px;
-  padding: 0;
-  list-style: none;
-}
-
-.failures li {
-  display: flex;
-  flex-direction: column;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.failures li span {
-  color: var(--muted);
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 12px;
-  word-break: break-all;
-}
-
 .log {
   max-height: 220px;
   overflow: auto;
@@ -135,10 +115,6 @@ h2 {
   word-break: break-all;
 }
 
-.help p {
-  margin: 0 0 8px;
-}
-
 .note {
   color: var(--muted);
 }
@@ -146,21 +122,6 @@ h2 {
 code {
   font-family: ui-monospace, Consolas, monospace;
   font-size: 12px;
-}
-
-.cmd {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  padding: 8px 10px;
-  background: var(--code);
-  border-radius: 6px;
-}
-
-.cmd code {
-  flex: 1;
-  word-break: break-all;
 }
 
 .actions {
@@ -188,10 +149,4 @@ button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
-}
-
-.cmd button {
-  padding: 2px 10px;
-  font-size: 12px;
-  flex: none;
 }

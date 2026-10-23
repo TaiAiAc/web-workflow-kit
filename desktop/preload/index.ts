@@ -11,7 +11,6 @@ const api: WwkDesktop = {
     ipcRenderer.on('wwk:status', (_e, status: BootStatus) => listener(status))
   },
   retry: () => ipcRenderer.invoke('wwk:retry'),
-  choosePython: () => ipcRenderer.invoke('wwk:choose-python'),
   copy: text => ipcRenderer.invoke('wwk:copy', text),
 }
 

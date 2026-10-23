@@ -2,8 +2,6 @@
 interface BootStatus {
   phase: 'starting' | 'error'
   message: string
-  /** 出错时：每个候选解释器的失败原因 */
-  failures?: { label: string, error: string }[]
   /** 出错时：后端输出的最后几行 */
   log?: string
 }
@@ -18,8 +16,6 @@ interface WwkDesktop {
   getStatus: () => Promise<BootStatus>
   onStatus: (listener: (status: BootStatus) => void) => void
   retry: () => Promise<void>
-  /** 选一个 python 可执行文件，记住它并重试 */
-  choosePython: () => Promise<void>
   copy: (text: string) => Promise<void>
 }
 
