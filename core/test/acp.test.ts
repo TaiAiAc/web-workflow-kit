@@ -52,7 +52,9 @@ describe("权限策略", () => {
     assert.deepEqual(localAdapter(npx, { PATH: "" }), npx)
     const dir = dirname(process.execPath)
     const name = process.execPath.split(/[\\/]/).pop()!.replace(/\.exe$/i, "")
-    assert.deepEqual(localAdapter(["npx", "--yes", `${name}@2.0`], { PATH: dir, PATHEXT: process.env.PATHEXT }), [process.execPath])
+    const found = localAdapter(["npx", "--yes", `${name}@2.0`], { PATH: dir, PATHEXT: process.env.PATHEXT })!
+    assert.equal(found.length, 1)
+    assert.equal(found[0].toLowerCase(), process.execPath.toLowerCase()) // Windows 上按 PATHEXT 找到的是 node.EXE
     assert.deepEqual(localAdapter(["opencode", "acp"]), ["opencode", "acp"])
   })
 })
