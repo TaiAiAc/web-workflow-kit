@@ -8,7 +8,7 @@
 import { readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { type Config, prompt, relativeTo, writeText } from "./config.ts"
-import { chat, LLMError, matchBrace, parseJson } from "./llm.ts"
+import { chat, LLMError, matchBracket, parseJson } from "./llm.ts"
 import { run, which } from "./proc.ts"
 
 export const BACKENDS: Record<string, string> = {
@@ -82,7 +82,7 @@ export function extractPlan(text: string): Plan {
   for (let i = 0; i < text.length; i++) {
     if (text[i] !== "{")
       continue
-    const end = matchBrace(text, i)
+    const end = matchBracket(text, i)
     if (end < 0)
       continue
     try {

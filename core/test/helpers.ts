@@ -14,7 +14,13 @@ import type { Plan } from "../src/review.ts"
 process.env.WWK_HOME = mkdtempSync(join(tmpdir(), "wwk-home-"))
 
 const dirs: string[] = []
-after(() => dirs.forEach(d => rmSync(d, { recursive: true, force: true })))
+// Windows 上刚结束的子进程可能还占着目录（taskkill 是异步的）：重试几次，仍删不掉就留给系统清临时目录
+after(() => dirs.forEach((d) => {
+  try {
+    rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+  }
+  catch {}
+}))
 
 export function tempDir(): string {
   const d = mkdtempSync(join(tmpdir(), "wwk-core-"))

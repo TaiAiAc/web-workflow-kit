@@ -43,9 +43,12 @@ export function parseJson(text: string): Record<string, any> {
   return JSON.parse(t.slice(start, end + 1))
 }
 
-/** 从 i 处的 `{` 开始找到配对的 `}`（跳过字符串里的括号），返回结束下标；不完整返回 -1。 */
-export function matchBrace(text: string, i: number): number {
-  let depth = 0
+/** 从 i 处的 `{` 或 `[` 开始找到配对的结束括号（跳过字符串里的括号），返回结束下标；不完整或不是括号返回 -1。 */
+export function matchBracket(text: string, i: number): number {
+  const close: Record<string, string> = { "{": "}", "[": "]" }
+  if (!(text[i] in close))
+    return -1
+  const stack: string[] = []
   let inStr = false
   for (let j = i; j < text.length; j++) {
     const ch = text[j]
@@ -58,11 +61,14 @@ export function matchBrace(text: string, i: number): number {
     else if (ch === "\"") {
       inStr = true
     }
-    else if (ch === "{") {
-      depth++
+    else if (ch in close) {
+      stack.push(close[ch])
     }
-    else if (ch === "}" && --depth === 0) {
-      return j
+    else if (ch === "}" || ch === "]") {
+      if (stack.pop() !== ch)
+        return -1
+      if (!stack.length)
+        return j
     }
   }
   return -1

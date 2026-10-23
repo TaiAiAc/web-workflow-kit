@@ -8,7 +8,8 @@ import { ERROR } from "../src/agents.ts"
 import { validatePlan } from "../src/deps.ts"
 import { changedHunks, snapshot, splitHunks } from "../src/diffs.ts"
 import { GateResult } from "../src/gate.ts"
-import { buildMainGraph, explainBreak, routeAfterVerify, runFixLoop, runPipeline } from "../src/graph.ts"
+import { lastThread, openCheckpointer } from "../src/checkpoint.ts"
+import { buildMainGraph, explainBreak, resume, routeAfterVerify, runFixLoop, runPipeline } from "../src/graph.ts"
 import * as N from "../src/names.ts"
 import { markSent, shouldSend } from "../src/notify.ts"
 import type { State } from "../src/state.ts"
@@ -102,6 +103,49 @@ describe("主图", () => {
     assert.equal(s.status, "delivered")
     assert.deepEqual(coder.calls, [])
     assert.match(s.summary, /工作区有 0 个未提交的改动文件，经过 1 轮自动修复/)
+  })
+
+  it("崩溃后从检查点继续：已完成的编码不重跑，已结束的线程直接返回", async () => {
+    const coder = new FakeAgent()
+    const { deps, cfg } = makeDeps(tmp, [], { coder })
+    const calls: (Error | GateResult)[] = [new Error("process killed"), PASS]
+    deps.gate = async () => {
+      const r = calls.shift()!
+      if (r instanceof Error)
+        throw r
+      return r
+    }
+    await assert.rejects(runPipeline(deps, "req"), /process killed/)
+    assert.ok(existsSync(join(cfg.stateDir, "checkpoints.sqlite")))
+    assert.ok(lastThread(cfg)?.startsWith("code-"))
+    const s = await resume(deps)
+    assert.equal(s.status, "delivered")
+    assert.equal(coder.calls.length, 1) // codegraph 不会重跑
+    assert.equal((await resume(deps)).status, "delivered") // 已结束的线程直接返回
+    await assert.rejects(resume(deps, "bogus-1"), /unknown thread id/)
+  })
+
+  it("检查点落盘：换一个进程（新的 saver）也读得回来", async () => {
+    const { deps, cfg } = makeDeps(tmp, [FAIL, PASS])
+    const s = await runFixLoop(deps)
+    const cp = (await openCheckpointer(cfg))!
+    try {
+      const graph = buildMainGraph(deps, "verify", cp.saver)
+      const snap = await graph.getState({ configurable: { thread_id: lastThread(cfg)! } })
+      assert.equal((snap.values as typeof s).status, "delivered")
+      assert.deepEqual((snap.values as typeof s).history.map(h => h.exit), [1, 0])
+    }
+    finally {
+      cp.close()
+    }
+  })
+
+  it("关掉检查点：不落盘，也不能恢复", async () => {
+    const { deps, cfg } = makeDeps(tmp, [PASS])
+    cfg.raw.checkpoint = { enabled: false }
+    assert.equal((await runFixLoop(deps)).status, "delivered")
+    assert.equal(existsSync(join(cfg.stateDir, "checkpoints.sqlite")), false)
+    await assert.rejects(resume(deps, "verify-1"), /resume needs checkpoints/)
   })
 
   it("路由", () => {
