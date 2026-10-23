@@ -130,6 +130,20 @@ test('electron: version/hash/smoke failures are reported with codes', async () =
   assert.deepEqual(codes(r).sort(), ['HASH_MISMATCH', 'SMOKE_CRASH', 'VERSION_MISMATCH', 'VERSION_MISMATCH'])
 })
 
+test('electron: visual is skipped when smoke already failed', async () => {
+  const root = project({}, {
+    project_type: 'electron',
+    profiles: { electron: {
+      checks: ['smoke', 'visual'],
+      smoke: { exe: process.execPath, args: ['-e', 'process.exit(3)'], alive_ms: 500 },
+      visual: { exe: process.execPath },
+    } },
+  })
+  const r = await verify({ cwd: root })
+  assert.deepEqual(codes(r), ['SMOKE_CRASH'])
+  assert.deepEqual(r.checks.map(c => [c.id, c.status, c.reason]), [['smoke', 'fail', undefined], ['visual', 'skip', 'smoke failed']])
+})
+
 test('glob and location helpers', () => {
   assert.ok(globToRegExp('*Setup*.exe').test('App-Setup-1.0.0.exe'))
   assert.ok(!globToRegExp('*.exe').test('sub/a.exe'))

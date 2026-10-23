@@ -6,6 +6,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -27,9 +28,20 @@ def _force_remove(func, path, _exc):
     func(path)
 
 
+def _remove_tree(path: Path) -> None:
+    # Windows 上句柄（sqlite、杀毒扫描）偶尔晚释放一下，WinError 32；重试几次，清理失败不算测试失败
+    for _ in range(10):
+        try:
+            shutil.rmtree(path, onerror=_force_remove)
+            return
+        except PermissionError:
+            time.sleep(0.2)
+    shutil.rmtree(path, ignore_errors=True)
+
+
 def temp_dir(case: unittest.TestCase) -> Path:
     path = Path(tempfile.mkdtemp(prefix="wwk-test-"))
-    case.addCleanup(shutil.rmtree, path, onerror=_force_remove)
+    case.addCleanup(_remove_tree, path)
     return path
 
 

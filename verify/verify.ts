@@ -29,7 +29,13 @@ export interface Report {
   generated_at: string
 }
 
-const KIT_RULES = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'rules.yaml')
+// 前置检查失败时，后面依赖它的检查直接 skip，不制造连带失败项
+const DEPENDS_ON: Record<string, Set<string>> = {
+  build: ARTIFACT_CHECKS,
+  smoke: new Set(['visual']), // 主进程都起不来，视觉验收只会再报一次 VISUAL_UNAVAILABLE
+}
+
+const KIT_RULES =resolve(dirname(fileURLToPath(import.meta.url)), '..', 'rules.yaml')
 
 export interface VerifyOptions {
   cwd?: string
@@ -84,13 +90,14 @@ export async function verify(opts: VerifyOptions = {}): Promise<Report> {
     .filter((id: string) => !opts.only?.length || opts.only.includes(id))
     .filter((id: string) => !opts.skip?.includes(id))
 
-  let buildFailed = false
+  const failed = new Set<string>()
   let stop = false
   for (const id of ids) {
     const rule = profile[id] ?? rules.commands?.[id] ?? {}
     const started = Date.now()
-    if (stop || (buildFailed && ARTIFACT_CHECKS.has(id))) {
-      report.checks.push({ id, status: 'skip', duration_ms: 0, reason: stop ? 'fail_fast' : 'build failed' })
+    const blockedBy = [...failed].find(dep => DEPENDS_ON[dep]?.has(id))
+    if (stop || blockedBy) {
+      report.checks.push({ id, status: 'skip', duration_ms: 0, reason: stop ? 'fail_fast' : `${blockedBy} failed` })
       log(`- ${id}: skip`)
       continue
     }
@@ -107,8 +114,8 @@ export async function verify(opts: VerifyOptions = {}): Promise<Report> {
     report.checks.push({ id, status, duration_ms: Date.now() - started })
     report.failures.push(...failures)
     log(`${status === 'pass' ? '✔' : '✘'} ${id} (${Date.now() - started}ms)${failures.map(f => `\n    ${f.code}: ${f.message}`).join('')}`)
-    if (failures.length && id === 'build')
-      buildFailed = true
+    if (failures.length)
+      failed.add(id)
     if (failures.length && defaults.fail_fast)
       stop = true
   }

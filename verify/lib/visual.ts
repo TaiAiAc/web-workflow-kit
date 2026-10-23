@@ -134,11 +134,18 @@ async function findPage(port: number, deadline: number): Promise<string> {
   throw new Error(`no renderer page appeared on port ${port} (${last})`)
 }
 
+// elements 只数“看得见”的元素：真实白屏往往是空的 #app 加一堆 <script>，按元素总数算会漏判
 const PROBE = (selectors: string[]) => `(() => {
   const sel = ${JSON.stringify(selectors)};
+  const hidden = new Set(['SCRIPT', 'STYLE', 'LINK', 'META', 'TEMPLATE', 'NOSCRIPT', 'TITLE']);
+  const visible = document.body ? [...document.body.querySelectorAll('*')].filter(el => {
+    if (hidden.has(el.tagName)) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }).length : 0;
   return JSON.stringify({
     text: document.body ? document.body.innerText : '',
-    elements: document.body ? document.body.querySelectorAll('*').length : 0,
+    elements: visible,
     missing: sel.filter(s => !document.querySelector(s)),
   });
 })()`
@@ -201,7 +208,7 @@ export async function runVisual(rule: VisualRule, cwd: string, maxDetail: number
 
     const issues: VisualIssue[] = []
     if (state.elements === 0 && !state.text.trim()) {
-      issues.push({ code: 'VISUAL_BLANK', message: 'renderer page is blank (no elements in <body>)' })
+      issues.push({ code: 'VISUAL_BLANK', message: `renderer page is blank after ${timeout}ms (no visible element or text)` })
     }
     else {
       for (const t of want.filter(t => !state.text.includes(t)))

@@ -140,4 +140,4 @@ python -m unittest discover tests
 - [x] Day 2：codegraph、codereviewgraph 子图（可单独运行：`:code`、`:fix`）
 - [x] Day 3：主图平铺 + REPL + 熔断邮件
 - [x] Day 4：MasterGo MCP（已连本机 MasterGo 实测选中图层、变量读取与未选中报错）、ACP 编码后端（权限策略保护门禁文件）、checkpoint 断点恢复、CI
-- [x] Electron 视觉验收：`visual` 检查（CDP，已用真实 Edge 测试文本/选择器、白屏、异常、截图）
+- [x] Electron 视觉验收：`visual` 检查（CDP）。自动化测试用 Edge/Chrome；另用 Electron 45 按 electron-builder 布局（`win-unpacked` + `app.asar`）手工实测过通过、白屏、渲染异常、主进程崩溃四种场景

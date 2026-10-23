@@ -36,7 +36,8 @@ const skip = browser ? false : 'no Chromium-based browser found (set CHROME_PATH
 const PAGES = {
   good: `<body><script>setTimeout(() => { document.body.innerHTML = '<div id="app"><h1>登录</h1><button>提交</button></div>' }, 500)</script></body>`,
   broken: `<body><p>加载失败</p><script>setTimeout(() => { throw new Error('boom from renderer') }, 50)</script></body>`,
-  blank: `<body></body>`,
+  // 真实白屏：挂载点在、脚本在，但什么都没渲染出来
+  blank: `<body><div id="app"></div><script>void 0</script></body>`,
 }
 
 function visualFor(page: keyof typeof PAGES, extra: object = {}) {
