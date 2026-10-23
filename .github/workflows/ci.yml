@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -40,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -52,13 +52,19 @@ jobs:
           node-version: 22
       - run: python -m pip install -e ".[checkpoint,acp]"
       - run: python -m unittest discover tests -v
+      - name: gate and fix-loop scenarios (.fx-stage)
+        shell: bash
+        run: |
+          node .fx-stage/run-all.mjs --verbose \
+            --verify "$PWD/web_workflow_kit/assets/verify.mjs" \
+            --python "$(python -c 'import sys; print(sys.executable)')"
 
   package:
     name: wheel works outside the repo (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

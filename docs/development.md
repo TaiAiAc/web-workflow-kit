@@ -12,6 +12,16 @@ python -m venv .venv
 .venv/Scripts/python -m pip install -e ".[all]"
 ```
 
+macOS / Linux 上解释器在 `.venv/bin/python`。macOS 自带的 `python3` 是 3.9，版本不够，可以用 Homebrew 的 Python，或用 uv 建：
+
+```bash
+uv venv --python 3.12 .venv
+```
+
+```bash
+uv pip install --python .venv/bin/python -e ".[all]"
+```
+
 ```bash
 cd verify && pnpm install
 ```
@@ -53,14 +63,22 @@ python -m unittest discover tests
 | `tests/test_review.py` | 审阅后端选择、dsh 输出解析、只读违规检测 |
 | `tests/test_integrations.py` | ACP 权限策略（经真实的 langgraph-acp 客户端连 `tests/stub_acp_agent.py`）、设计稿解析 |
 
+场景夹具在 `.fx-stage/`：18 个场景覆盖 web / 小程序 / Electron 门禁的通过与各类失败、规则错误，以及修复回环的交付、重试熔断和配置熔断。一键跑全部（路径按 `.fx-stage` 解析，写绝对路径最省事）：
+
+```bash
+node .fx-stage/run-all.mjs --verify "$PWD/web_workflow_kit/assets/verify.mjs" --python "$PWD/.venv/bin/python"
+```
+
+Windows 上 `--python` 换成 `.venv/Scripts/python.exe`。只跑部分场景加 `--only 02,16`，看失败时的完整输出加 `--verbose`。场景素材由 `.fx-stage/tools/gen-scenarios.mjs` 生成，改期望要改生成器再重跑它，不要手改 `expected.json`。
+
 `tests/stub_acp_agent.py` 是一个不调模型的 ACP 桩：按环境变量申请写文件权限，获批才写，用来验证权限策略和 stop_reason 映射。
 
 ## CI
 
-[.github/workflows/ci.yml](../.github/workflows/ci.yml) 在 Ubuntu 和 Windows 上分别：
+[.github/workflows/ci.yml](../.github/workflows/ci.yml) 在 Ubuntu、Windows 和 macOS 上分别：
 
 1. 门禁：类型检查、测试，并重新打包校验 `verify.mjs` 与源码一致；
-2. 流水线：安装 `.[checkpoint,acp]` 后跑全部 Python 测试；
+2. 流水线：安装 `.[checkpoint,acp]` 后跑全部 Python 测试和 `.fx-stage` 的全部场景；
 3. 打包：构建 wheel，装进干净的虚拟环境，在仓库外的目录运行 `agent --version` / `--init` / `--verify`。
 
 ## Windows 上的注意事项
