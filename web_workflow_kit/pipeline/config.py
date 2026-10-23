@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,18 @@ def user_home() -> Path:
 
 
 DEFAULTS: dict[str, Any] = json.loads(DEFAULT_CONFIG.read_text(encoding="utf-8"))
+
+
+def init_project(root: str | Path) -> list[tuple[Path, bool]]:
+    """把默认 rules.yaml、agent.config.json 复制到项目根目录供修改，已存在的不覆盖。返回 [(目标文件, 是否新建)]。"""
+    out = []
+    for src in (DEFAULT_RULES, DEFAULT_CONFIG):
+        dst = Path(root) / src.name
+        created = not dst.exists()
+        if created:
+            shutil.copyfile(src, dst)
+        out.append((dst, created))
+    return out
 
 
 def _merge(base: dict, override: dict) -> dict:

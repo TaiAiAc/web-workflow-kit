@@ -25,7 +25,7 @@ from urllib.parse import parse_qs, urlparse
 from ..pipeline import names as N
 from ..pipeline.codegraph import build_codegraph
 from ..pipeline.agents import agent_availability
-from ..pipeline.config import ASSETS_DIR, DEFAULTS, load_config
+from ..pipeline.config import ASSETS_DIR, DEFAULTS, init_project, load_config
 from ..pipeline.deps import default_deps, deps_from_state
 from ..pipeline.main_graph import build_main_graph
 from ..pipeline.review import BACKENDS as REVIEW_BACKENDS
@@ -285,10 +285,25 @@ def make_handler(store: RunStore, token: str, port: int, graphs: list[dict[str, 
             url = urlparse(self.path)
             if not self._guard(api=True):
                 return
-            if url.path not in ("/api/runs", "/api/pick-folder"):
+            if url.path not in ("/api/runs", "/api/pick-folder", "/api/init"):
                 return self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             if not self.headers.get("Content-Type", "").startswith("application/json"):
                 return self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "需要 application/json"})
+            if url.path == "/api/init":  # 等同 agent --init：复制默认配置，已存在的不覆盖
+                try:
+                    body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0) or 0)) or b"{}")
+                    raw = str(body.get("path") or "").strip()
+                    if not raw:
+                        raise ValueError("请填写项目路径")
+                    root = Path(raw)
+                    if not root.is_dir():
+                        raise ValueError(f"项目路径不存在或不是目录：{raw}")
+                    files = init_project(root)
+                except (ValueError, OSError, json.JSONDecodeError) as e:
+                    return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+                return self._json(HTTPStatus.OK, {"created": [p.name for p, c in files if c],
+                                                  "skipped": [p.name for p, c in files if not c],
+                                                  "inspect": inspect_folder(str(root))})
             if url.path == "/api/pick-folder":
                 try:
                     body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0) or 0)) or b"{}")
