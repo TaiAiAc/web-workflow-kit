@@ -36,6 +36,8 @@ def main() -> int:
         os.close(saved)
     keep = {k: state.get(k) for k in ("status", "break_reason", "attempt", "verify_exit", "summary")}
     keep["failures"] = [f.get("code") for f in state.get("failures", [])]
+    # Windows runner 的 stdout 是 cp1252，中文会编码失败；run-all.mjs 按 UTF-8 读
+    sys.stdout.reconfigure(encoding="utf-8")
     print(json.dumps(keep, ensure_ascii=False, indent=2))
     return 0 if state.get("status") == "delivered" else 1
 
