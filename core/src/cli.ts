@@ -49,7 +49,7 @@ async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = positionals
   if (values.help || !command) {
     console.log(USAGE)
-    return command ? 0 : 2
+    return values.help ? 0 : 2 // 显式 --help 算成功；什么命令都没给算用法错误
   }
   // --json：stdout 留给结果，日志一律走 stderr
   const log = values.json ? (line: string) => process.stderr.write(line + "\n") : (line: string) => console.log(line)
