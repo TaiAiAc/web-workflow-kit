@@ -1,5 +1,5 @@
 import type { Buffer } from 'node:buffer'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -21,6 +21,7 @@ export interface ProbeFailure {
 const isWin = process.platform === 'win32'
 const LINE_BREAK = /\r?\n/
 const MISSING_DEPS = /No module named '(?:langgraph|dotenv)'/
+const PATH_MARK = '__WWK_PATH__'
 
 // 后端只需要这几个模块；web_workflow_kit 由 PYTHONPATH 指向随应用分发的源码
 const PROBE = [
@@ -36,6 +37,23 @@ export function packageRoot(): string {
   return app.isPackaged
     ? join(process.resourcesPath, 'python')
     : resolve(__dirname, '../../..')
+}
+
+/**
+ * 从 Finder / Dock 启动的应用只有 `/usr/bin:/bin:/usr/sbin:/sbin`，找不到 Homebrew 的 Python、
+ * 门禁要的 node 和 claude / dsh 等命令。启动时向登录 shell 要一次 PATH，放在前面。
+ */
+export function inheritShellPath(): void {
+  if (isWin)
+    return
+  const shell = process.env.SHELL || '/bin/zsh'
+  // -i 会加载 .zshrc，其中的输出可能混在前面，用标记把 PATH 摘出来
+  const r = spawnSync(shell, ['-ilc', `printf '${PATH_MARK}%s${PATH_MARK}' "$PATH"`], { encoding: 'utf-8', timeout: 5000 })
+  const found = (r.stdout || '').split(PATH_MARK)[1]
+  if (!found)
+    return
+  const merged = [...found.split(':'), ...(process.env.PATH || '').split(':')].filter(Boolean)
+  process.env.PATH = [...new Set(merged)].join(':')
 }
 
 export function pythonEnv(): NodeJS.ProcessEnv {

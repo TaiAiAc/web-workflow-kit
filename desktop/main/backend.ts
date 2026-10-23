@@ -12,6 +12,7 @@ const PREFERRED_PORTS = [18765, 18766, 18767, 18768, 18769]
 const START_TIMEOUT = 60_000
 const LOG_LINES = 200
 const LINE_BREAK = /\r?\n/
+const WHITESPACE = /\s+/
 const SERVER_URL = /http:\/\/127\.0\.0\.1:\d+\//
 
 function portFree(port: number): Promise<boolean> {
@@ -28,6 +29,38 @@ async function pickPort(): Promise<number> {
       return port
   }
   return 0 // 都被占用时交给系统分配
+}
+
+/**
+ * 列出 pid 的全部子孙进程。门禁给每条检查命令开了独立进程组（超时好整组杀），
+ * 按进程组杀够不着它们；后端一退出它们又会被 launchd 收养，所以要先把整棵树记下来再杀。
+ */
+function descendants(pid: number): number[] {
+  const r = spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf-8' })
+  const children = new Map<number, number[]>()
+  for (const line of (r.stdout || '').split(LINE_BREAK)) {
+    const [p, pp] = line.trim().split(WHITESPACE).map(Number)
+    if (p && pp)
+      children.set(pp, [...(children.get(pp) ?? []), p])
+  }
+  const out: number[] = []
+  const queue = [pid]
+  while (queue.length) {
+    for (const c of children.get(queue.shift()!) ?? []) {
+      out.push(c)
+      queue.push(c)
+    }
+  }
+  return out
+}
+
+function signal(pids: number[], sig: NodeJS.Signals): void {
+  for (const pid of pids) {
+    try {
+      process.kill(pid, sig)
+    }
+    catch {} // 已经退出
+  }
 }
 
 export class Backend {
@@ -113,6 +146,7 @@ export class Backend {
       spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true })
       return
     }
+    const tree = child.pid ? descendants(child.pid) : []
     await new Promise<void>((resolvePromise) => {
       const timer = setTimeout(() => {
         child.kill('SIGKILL')
@@ -123,6 +157,11 @@ export class Backend {
         resolvePromise()
       })
       child.kill('SIGTERM')
+      signal(tree, 'SIGTERM')
     })
+    // 子孙和后端一起收到 SIGTERM，后端退出后再稍等片刻，还在的强杀（这期间 pid 被复用的概率可以忽略）
+    if (tree.length)
+      await new Promise(r => setTimeout(r, 300))
+    signal(tree, 'SIGKILL')
   }
 }
