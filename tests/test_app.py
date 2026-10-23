@@ -30,11 +30,14 @@ class LangGraphAppTest(unittest.TestCase):
         from web_workflow_kit import graph
 
         spec = json.loads((REPO / "langgraph.json").read_text(encoding="utf-8"))
-        for name, entry in spec["graphs"].items():
+        self.assertEqual(len(spec["graphs"]), 4)
+        for graph_id, entry in spec["graphs"].items():
             path, attr = (entry["path"] if isinstance(entry, dict) else entry).split(":")
             self.assertTrue((REPO / path).is_file(), path)
-            self.assertTrue(hasattr(graph.pipeline.__class__, "invoke"))
-            self.assertIs(getattr(graph, attr), getattr(graph, name))
+            compiled = getattr(graph, attr)
+            self.assertTrue(hasattr(compiled, "invoke"))
+            # Studio 的图下拉框显示图 ID、助手名取 compiled.name：两者一致，界面才统一是中文
+            self.assertEqual(compiled.name, graph_id)
 
     def test_studio_input_form_fields(self):
         from web_workflow_kit import graph

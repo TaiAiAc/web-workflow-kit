@@ -3,21 +3,21 @@
   "python_version": "3.12",
   "dependencies": ["."],
   "graphs": {
-    "pipeline": {
+    "前端交付流水线": {
       "path": "./web_workflow_kit/graph.py:pipeline",
-      "description": "前端交付流水线：需求 → 设计稿 → Spec → 写代码 → 门禁 ⇄ 审阅修复 → 交付 / 熔断。放行只看门禁退出码。"
+      "description": "需求 → 设计稿 → Spec → 写代码 → 门禁 ⇄ 审阅修复 → 交付 / 熔断。放行只看门禁退出码。"
     },
-    "fix_loop": {
+    "门禁修复回环": {
       "path": "./web_workflow_kit/graph.py:fix_loop",
-      "description": "门禁修复回环：不写新代码，对现有工作区跑门禁，失败则审阅修复，直到通过或熔断。人工修完后复验也用它。"
+      "description": "不写新代码，对现有工作区跑门禁，失败则审阅修复，直到通过或熔断。人工修完后复验也用它。"
     },
-    "codegraph": {
+    "编码子图": {
       "path": "./web_workflow_kit/graph.py:codegraph",
-      "description": "编码子图（单独调试用）：读取设计稿 → 生成 Spec → 写代码，不过门禁。"
+      "description": "单独调试用：读取设计稿 → 生成 Spec → 写代码，不过门禁。"
     },
-    "reviewgraph": {
+    "审阅修复子图": {
       "path": "./web_workflow_kit/graph.py:reviewgraph",
-      "description": "审阅修复子图（单独调试用）：验收顾问按失败项出修复计划 → 修复 agent 改文件。输入需带上一轮门禁的 failures。"
+      "description": "单独调试用：验收顾问按失败项出修复计划 → 修复 agent 改文件。输入需带上一轮门禁的失败项。"
     }
   }
 }

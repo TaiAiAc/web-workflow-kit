@@ -20,7 +20,8 @@ WRITE_CODE = "写代码"
 ADVISE = "验收审阅"
 FIX = "执行修复"
 
-# 图的显示名（Studio 的助手名）；图 ID 仍是 langgraph.json 里的英文 key
+# 图名：既是 Studio 的助手名，也是 langgraph.json 里的图 ID（Studio 的图下拉框显示的是图 ID）。
+# 两处必须一致，tests/test_app.py 会校验。API 调用时 assistant_id 直接传这些中文名。
 PIPELINE_NAME = "前端交付流水线"
 FIX_LOOP_NAME = "门禁修复回环"
 CODEGRAPH_NAME = "编码子图"
