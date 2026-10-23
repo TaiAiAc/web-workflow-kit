@@ -1,9 +1,10 @@
 // 主图（平铺）：codegraph → verify ⇄ reviewgraph → deliver | breaker（与 Python 版 main_graph.py 一致）。
 // 放行只看 verify_exit == 0；熔断由 attempt 计数在代码里强制，与模型输出无关。
 import { relative } from "node:path"
-import type { LangGraphRunnableConfig } from "@langchain/langgraph"
+import type { BaseCheckpointSaver, LangGraphRunnableConfig } from "@langchain/langgraph"
 import { END, START, StateGraph } from "@langchain/langgraph"
 import { END_TURN, ERROR } from "./agents.ts"
+import { type Entry, entryOf, lastThread, newThreadId, openCheckpointer, remember } from "./checkpoint.ts"
 import { writeText } from "./config.ts"
 import { codePrompt, type Deps, fixPrompt } from "./deps.ts"
 import { changedHunks, snapshot } from "./diffs.ts"
@@ -156,7 +157,7 @@ export function explainBreak(state: State, notify: string): string {
 }
 
 /** entry="verify" 跳过 codegraph，直接对当前工作区跑门禁闭环。 */
-export function buildMainGraph(source: Source, entry: "code" | "verify" = "code") {
+export function buildMainGraph(source: Source, entry: Entry = "code", checkpointer?: BaseCheckpointSaver) {
   const codegraph = buildCodeGraph(source)
   const reviewgraph = buildReviewGraph(source)
 
@@ -226,21 +227,53 @@ export function buildMainGraph(source: Source, entry: "code" | "verify" = "code"
   g.addConditionalEdges(N.REVIEW, (s: State) => (s.break_reason ? N.BREAKER : N.VERIFY), [N.VERIFY, N.BREAKER])
   g.addEdge(N.DELIVER, END)
   g.addEdge(N.BREAKER, END)
-  return g.compile({ name: entry === "code" ? N.PIPELINE_NAME : N.FIX_LOOP_NAME })
+  return g.compile({ checkpointer, name: entry === "code" ? N.PIPELINE_NAME : N.FIX_LOOP_NAME })
 }
 
 /** 每轮 verify + review 两步；留余量，但真正的上限是 attempt 计数。 */
 export const recursionLimit = (maxRetries: number): number => 10 + 3 * (maxRetries + 2)
 
+/** init=null 表示从 threadId 的最后一个检查点继续。 */
+async function runThread(deps: Deps, entry: Entry, init: Update | null, threadId: string): Promise<State> {
+  const cp = await openCheckpointer(deps.cfg)
+  try {
+    if (init === null && !cp)
+      throw new Error("resume needs checkpoints; set checkpoint.enabled=true in agent.config.json")
+    const graph = buildMainGraph(deps, entry, cp?.saver)
+    const config = { recursionLimit: recursionLimit(deps.cfg.maxRetries), configurable: { thread_id: threadId } }
+    if (cp) {
+      remember(deps.cfg, threadId)
+      deps.log(`[运行] 线程 ${threadId}`)
+    }
+    if (init === null) {
+      const snapshot = await graph.getState(config)
+      if (!snapshot.values || !Object.keys(snapshot.values).length)
+        throw new Error(`no checkpoint for thread ${threadId}`)
+      if (!snapshot.next.length) {
+        deps.log(`[运行] 线程 ${threadId} 已结束（${(snapshot.values as State).status}）`)
+        return snapshot.values as State
+      }
+    }
+    return await graph.invoke(init, config) as State
+  }
+  finally {
+    cp?.close()
+  }
+}
+
 export async function runPipeline(deps: Deps, requirement: string, designRef?: string | null): Promise<State> {
-  const graph = buildMainGraph(deps, "code")
-  return graph.invoke({ requirement, project_root: deps.cfg.projectRoot, design_ref: designRef ?? null, attempt: 0 },
-    { recursionLimit: recursionLimit(deps.cfg.maxRetries) })
+  return runThread(deps, "code", { requirement, project_root: deps.cfg.projectRoot, design_ref: designRef ?? null, attempt: 0 }, newThreadId("code"))
 }
 
 /** 不写新代码，只对当前工作区跑 verify ⇄ review/fix 闭环（人修完后复验也用它）。 */
 export async function runFixLoop(deps: Deps): Promise<State> {
-  const graph = buildMainGraph(deps, "verify")
-  return graph.invoke({ requirement: "(修复当前工作区)", project_root: deps.cfg.projectRoot, attempt: 0 },
-    { recursionLimit: recursionLimit(deps.cfg.maxRetries) })
+  return runThread(deps, "verify", { requirement: "(修复当前工作区)", project_root: deps.cfg.projectRoot, attempt: 0 }, newThreadId("verify"))
+}
+
+/** 从检查点继续一次被中断的运行；默认取最近一次。 */
+export async function resume(deps: Deps, threadId?: string | null): Promise<State> {
+  const id = threadId || lastThread(deps.cfg)
+  if (!id)
+    throw new Error("no previous run to resume")
+  return runThread(deps, entryOf(id), null, id)
 }

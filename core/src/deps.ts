@@ -1,14 +1,13 @@
 // 节点依赖的外部能力。图只依赖这里的接口，测试时整体替换成假实现（与 Python 版 deps.py 一致）。
-import { existsSync, readFileSync } from "node:fs"
 import { type Agent, buildAgent, buildCodingAgent, ClaudeCodeCLI, END_TURN } from "./agents.ts"
-import { absoluteIn, type Config, loadConfig, prompt, render } from "./config.ts"
+import { type Config, loadConfig, prompt, render } from "./config.ts"
+import { loadDesign } from "./design.ts"
 import { type Failure, type GateResult, runGate } from "./gate.ts"
 import { chat, LLMError } from "./llm.ts"
 import { notifyBreaker } from "./notify.ts"
 import { makeReviewer, type Plan } from "./review.ts"
 
 const VERDICTS = new Set(["fixable", "needs_human"])
-const MASTERGO_REFS = new Set(["mastergo", "mastergo:selection", "selection"])
 
 export interface Deps {
   cfg: Config
@@ -41,26 +40,6 @@ function specFn(cfg: Config) {
       throw new Error(`spec agent stop_reason=${r.stopReason}: ${r.text.slice(-500)}`)
     return r.text
   }
-}
-
-function clip(data: unknown, maxChars: number): Record<string, unknown> {
-  const text = JSON.stringify(data)
-  if (text.length <= maxChars)
-    return data && typeof data === "object" && !Array.isArray(data) ? data as Record<string, unknown> : { data }
-  return { truncated: true, raw: text.slice(0, maxChars) }
-}
-
-/** 本地导出的 .json；MasterGo（MCP）在第二阶段移植。 */
-export async function loadDesign(ref: string | null | undefined, cfg: Config): Promise<Record<string, unknown> | null> {
-  if (!ref)
-    return null
-  const maxChars = Number(cfg.get("design").max_chars ?? 20000)
-  if (MASTERGO_REFS.has(ref.trim().toLowerCase()))
-    throw new Error("TS 核心暂不支持读取 MasterGo（第二阶段），请先导出设计稿 .json")
-  const path = absoluteIn(cfg.projectRoot, ref)
-  if (path.endsWith(".json") && existsSync(path))
-    return clip(JSON.parse(readFileSync(path, "utf8")), maxChars)
-  throw new Error(`design ref ${JSON.stringify(ref)} is neither a local .json file nor 'mastergo'`)
 }
 
 export function validatePlan(plan: unknown): Plan {

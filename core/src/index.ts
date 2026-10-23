@@ -1,7 +1,10 @@
 // TS 核心的公开接口：控制台 / 桌面端 / 命令行都从这里取。
+export * from "./acp.ts"
 export * from "./agents.ts"
+export * from "./checkpoint.ts"
 export * from "./config.ts"
 export * from "./deps.ts"
+export * from "./design.ts"
 export * from "./diffs.ts"
 export * from "./gate.ts"
 export * from "./graph.ts"

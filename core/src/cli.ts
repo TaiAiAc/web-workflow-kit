@@ -3,6 +3,7 @@
 //   wwk fix    [--project <dir>]       对当前工作区跑门禁 ⇄ 审阅修复回环
 //   wwk verify [--project <dir>]       只跑一次门禁，退出码 0/1/2
 //   wwk run "<需求>" [--project <dir>]  完整流水线
+//   wwk resume [线程] [--project <dir>] 从检查点继续被中断的运行（默认最近一次）
 //   wwk init   [--project <dir>]       复制默认 rules.yaml、agent.config.json
 // 公共参数：--agent / --fix-agent / --review / --config；--json 时 stdout 只输出结果 JSON，日志走 stderr。
 // 退出码：0 交付 / 通过；1 熔断 / 门禁失败；2 用法或配置错误。
@@ -10,10 +11,10 @@ import process from "node:process"
 import { parseArgs } from "node:util"
 import { initProject, loadConfig } from "./config.ts"
 import { defaultDeps } from "./deps.ts"
-import { runFixLoop, runPipeline } from "./graph.ts"
+import { resume, runFixLoop, runPipeline } from "./graph.ts"
 import type { State } from "./state.ts"
 
-const USAGE = `用法：wwk <fix|verify|run|init> [需求] [--project <dir>] [--agent <名称>] [--fix-agent <名称>] [--review auto|api|dsh|skip] [--config <文件>] [--json]`
+const USAGE = `用法：wwk <fix|verify|run|resume|init> [需求] [--project <dir>] [--agent <名称>] [--fix-agent <名称>] [--review auto|api|dsh|skip] [--config <文件>] [--json]`
 
 function summary(state: State) {
   return {
@@ -65,12 +66,12 @@ async function main(argv: string[]): Promise<number> {
       log(r.passed ? "PASS" : `FAIL (exit ${r.exitCode})`)
     return r.exitCode
   }
-  if (command === "fix" || command === "run") {
+  if (command === "fix" || command === "run" || command === "resume") {
     if (command === "run" && !rest[0]) {
       console.error("缺少需求：wwk run \"<需求>\"")
       return 2
     }
-    const state = command === "fix" ? await runFixLoop(deps) : await runPipeline(deps, rest[0])
+    const state = command === "fix" ? await runFixLoop(deps) : command === "run" ? await runPipeline(deps, rest[0]) : await resume(deps, rest[0])
     if (values.json)
       console.log(JSON.stringify(summary(state), null, 2))
     else

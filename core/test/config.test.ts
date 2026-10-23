@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import process from "node:process"
 import { describe, it } from "node:test"
+import { ACPAgent } from "../src/acp.ts"
 import { agentAvailability, buildCodingAgent, ClaudeCodeCLI, CommandAgent, END_TURN, ERROR } from "../src/agents.ts"
 import { DEFAULTS, loadConfig, render, userHome } from "../src/config.ts"
 import { buildFixAgent } from "../src/deps.ts"
@@ -51,11 +52,13 @@ describe("agent", () => {
     assert.throws(() => buildCodingAgent(cfg, "cursor"), /未知的编程 agent/)
   })
 
-  it("ACP agent 第二阶段才移植：调用时明确报错", async () => {
+  it("ACP 预设：codex 用内置适配器，opencode 用自带命令", () => {
     const cfg = loadConfig(tempDir())
-    const r = await buildCodingAgent(cfg, "codex").run("x", cfg.projectRoot)
-    assert.equal(r.stopReason, ERROR)
-    assert.match(r.text, /还没有移植到 TS 核心/)
+    const codex = buildCodingAgent(cfg, "codex") as ACPAgent
+    assert.ok(codex instanceof ACPAgent)
+    assert.deepEqual([codex.agent, codex.command], ["codex", null])
+    const opencode = buildCodingAgent(cfg, "opencode") as ACPAgent
+    assert.deepEqual([opencode.agent, opencode.command], ["opencode", ["opencode", "acp"]])
   })
 
   it("修复 agent：默认用 fix 段，选了预设就用预设", () => {

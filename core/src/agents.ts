@@ -1,20 +1,11 @@
 // 外部编程 agent 的统一接口：只关心 stop_reason，不解析自然语言（与 Python 版 agents.py 一致）。
 import { join } from "node:path"
+import { ACPAgent } from "./acp.ts"
+import { type Agent, type AgentResult, END_TURN, ERROR, MAX_TOKENS } from "./agent-result.ts"
 import { type Config, relativeTo, writeText } from "./config.ts"
 import { run, which } from "./proc.ts"
 
-export const END_TURN = "end_turn"
-export const MAX_TOKENS = "max_tokens"
-export const ERROR = "error"
-
-export interface AgentResult {
-  stopReason: string
-  text: string
-}
-
-export interface Agent {
-  run: (prompt: string, cwd: string) => Promise<AgentResult>
-}
+export { type Agent, type AgentResult, END_TURN, ERROR, MAX_TOKENS }
 
 /** `claude -p --output-format json`，prompt 走 stdin，避开命令行长度和转义问题。 */
 export class ClaudeCodeCLI implements Agent {
@@ -91,18 +82,6 @@ export class CommandAgent implements Agent {
   }
 }
 
-/** ACP（Codex / OpenCode / WorkBuddy）在第二阶段移植；先明确报错，不要静默失败。 */
-class NotPortedAgent implements Agent {
-  readonly what: string
-  constructor(what: string) {
-    this.what = what
-  }
-
-  async run(): Promise<AgentResult> {
-    return { stopReason: ERROR, text: `${this.what} 还没有移植到 TS 核心（第二阶段），请先用 Python 版或换成 claude / dsh` }
-  }
-}
-
 /** 可选的编程 agent：{key: 预设}。项目的 agent.config.json 可以改预设或加新的。 */
 export function codingAgentChoices(cfg: Config): Record<string, Record<string, any>> {
   return cfg.raw.coding_agents ?? {}
@@ -137,6 +116,6 @@ export function buildAgent(section: Record<string, any>, cfg: Config, taskName: 
   if (backend === "dsh_cli" || backend === "command")
     return new CommandAgent(section.command, join(cfg.stateDir, `${taskName}.md`), timeoutSec, env)
   if (backend === "acp")
-    return new NotPortedAgent(`ACP agent「${section.agent ?? "?"}」`)
+    return new ACPAgent({ agent: section.agent, command: section.command, model: section.model, allowKinds: section.allow_kinds, protectedPaths: section.protected, timeoutSec, env })
   throw new Error(`unknown agent backend: ${backend}`)
 }
