@@ -79,6 +79,20 @@ def make_permission_policy(root: Path, allow_kinds: Iterable[str], protected: It
     return handle
 
 
+def local_adapter(command: Iterable[str] | None) -> list[str] | None:
+    """内置适配器默认经 `npx --yes <包>@<版本>` 拉起，每次运行都要访问 npm 仓库，网络一抖就失败。
+    本机已全局安装同名命令（如 `npm i -g @agentclientprotocol/codex-acp`）时直接用它。"""
+    if not command:
+        return None
+    command = list(command)
+    if command[0] != "npx":
+        return command
+    spec = command[-1]
+    package = spec[:spec.rfind("@")] if spec.rfind("@") > 0 else spec   # 去掉版本，保留 @scope
+    found = shutil.which(package.rsplit("/", 1)[-1])
+    return [found] if found else command
+
+
 class ACPAgent:
     def __init__(self, agent: str = "claude", command: list[str] | None = None,
                  allow_kinds: Iterable[str] = DEFAULT_ALLOW_KINDS,
@@ -90,7 +104,7 @@ class ACPAgent:
         import langgraph_acp as acp
 
         defaults = {"claude": acp.CLAUDE_ACP_COMMAND, "codex": acp.CODEX_ACP_COMMAND}
-        command = list(self.command or defaults.get(self.agent) or [])
+        command = list(self.command or local_adapter(defaults.get(self.agent)) or [])
         if not command:
             raise ValueError(f"no ACP command for agent {self.agent!r}; set code.command")
         # asyncio 子进程不按 PATHEXT 解析，Windows 上 npx 必须先解析成 npx.cmd / npx.exe

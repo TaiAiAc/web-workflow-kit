@@ -1,4 +1,4 @@
-"""编程 agent 可选：claude / codex / opencode / dsh。"""
+"""编程 / 修复 agent 可选：claude / codex / opencode / workbuddy / dsh。"""
 from __future__ import annotations
 
 import json
@@ -11,7 +11,8 @@ from tests.test_integrations import STUB, _has_acp
 from tests.test_pipeline import temp_dir
 from web_workflow_kit.pipeline.acp_agent import ACPAgent
 from web_workflow_kit.pipeline.agents import (
-    END_TURN, ClaudeCodeCLI, CommandAgent, agent_availability, build_coding_agent, coding_agent_choices,
+    END_TURN, ClaudeCodeCLI, CommandAgent, agent_availability, build_coding_agent, build_fix_agent,
+    coding_agent_choices, default_fix_choice,
 )
 from web_workflow_kit.pipeline.config import load_config
 from web_workflow_kit.pipeline.deps import default_deps, deps_from_state
@@ -21,10 +22,11 @@ class CodingAgentChoiceTest(unittest.TestCase):
     def setUp(self):
         self.cfg = load_config(temp_dir(self))
 
-    def test_four_choices_with_labels(self):
+    def test_five_choices_with_labels(self):
         choices = coding_agent_choices(self.cfg)
-        self.assertEqual(list(choices), ["claude", "codex", "opencode", "dsh"])
-        self.assertEqual([c["label"] for c in choices.values()], ["Claude Code", "Codex", "OpenCode", "DeepSeek Harness"])
+        self.assertEqual(list(choices), ["claude", "codex", "opencode", "workbuddy", "dsh"])
+        self.assertEqual([c["label"] for c in choices.values()],
+                         ["Claude Code", "Codex", "OpenCode", "WorkBuddy（CodeBuddy）", "DeepSeek Harness"])
 
     def test_each_choice_builds_its_driver(self):
         self.assertIsInstance(build_coding_agent(self.cfg, "claude"), ClaudeCodeCLI)
@@ -33,6 +35,8 @@ class CodingAgentChoiceTest(unittest.TestCase):
         self.assertEqual((codex.agent, codex.command), ("codex", None))   # 用 langgraph-acp 自带的 codex-acp 适配器
         opencode = build_coding_agent(self.cfg, "opencode")
         self.assertEqual((opencode.agent, opencode.command), ("opencode", ["opencode", "acp"]))
+        workbuddy = build_coding_agent(self.cfg, "workbuddy")                # WorkBuddy 的引擎 CodeBuddy Code 自带 ACP 模式
+        self.assertEqual((workbuddy.agent, workbuddy.command), ("workbuddy", ["codebuddy", "--acp"]))
         dsh = build_coding_agent(self.cfg, "dsh")
         self.assertIsInstance(dsh, CommandAgent)
         self.assertEqual(dsh.task_file.name, "code-task.md")              # 写代码与修复各用各的任务文件
@@ -48,8 +52,24 @@ class CodingAgentChoiceTest(unittest.TestCase):
             build_coding_agent(self.cfg, "cursor")
 
     def test_server_mode_reads_choice_from_input(self):
-        deps = deps_from_state({"project_root": str(self.cfg.project_root), "coding_agent": "opencode"})
-        self.assertEqual(deps.coder.agent, "opencode")
+        deps = deps_from_state({"project_root": str(self.cfg.project_root), "coding_agent": "opencode",
+                                "fix_agent": "workbuddy"})
+        self.assertEqual((deps.coder.agent, deps.fixer.agent), ("opencode", "workbuddy"))
+
+    def test_fix_agent_defaults_to_fix_section_and_can_be_chosen(self):
+        default = build_fix_agent(self.cfg)
+        self.assertIsInstance(default, CommandAgent)                       # fix 段默认 dsh
+        self.assertEqual(default.task_file.name, "fix-task.md")
+        self.assertEqual(default_fix_choice(self.cfg), "dsh")              # 下拉框据此默认选中 dsh
+        self.cfg.raw["fix"] = {**self.cfg["fix"], "timeout_sec": 77}
+        chosen = build_fix_agent(self.cfg, "opencode")
+        self.assertEqual((type(chosen), chosen.agent, chosen.timeout), (ACPAgent, "opencode", 77))
+        dsh = build_fix_agent(self.cfg, "dsh")
+        self.assertEqual(dsh.task_file.name, "fix-task.md")                # 选了预设也仍写修复的任务文件
+        with self.assertRaisesRegex(ValueError, "未知的修复 agent"):
+            build_fix_agent(self.cfg, "cursor")
+        self.cfg.raw["fix"] = {"backend": "command", "command": ["my-fixer", "{prompt}"]}
+        self.assertEqual(default_fix_choice(self.cfg), "")                 # 自定义命令对不上任何预设
 
     def test_availability_checks_the_command(self):
         self.assertEqual(agent_availability({"requires": "definitely-not-installed-xyz"}),

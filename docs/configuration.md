@@ -78,7 +78,7 @@
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `code.agent` | `"claude"` | 默认的编程 agent：`claude` / `codex` / `opencode` / `dsh`；每次运行可在控制台或 `--agent` 改 |
+| `code.agent` | `"claude"` | 默认的编程 agent：`claude` / `codex` / `opencode` / `workbuddy` / `dsh`；每次运行可在控制台或 `--agent` 改 |
 | `code.timeout_sec` | `1800` | 写代码的超时，所有 agent 共用 |
 
 `coding_agents.<名称>` 的字段：
@@ -89,7 +89,7 @@
 | `backend` | 全部 | `claude_cli` / `acp` / `dsh_cli`（任意命令行 agent） |
 | `requires` | 全部 | 用来判断“本机是否已安装”的命令名 |
 | `model` / `max_turns` / `permission_mode` | `claude_cli` | 传给 `claude -p` 的模型、最大轮数、权限模式（默认 `acceptEdits`：允许改文件） |
-| `agent` | `acp` | ACP agent 名称，`claude` / `codex` 时可省略 `command`，使用内置的适配器 |
+| `agent` | `acp` | ACP agent 名称，`claude` / `codex` 时可省略 `command`，使用内置的适配器（默认经 npx 拉起；本机装了同名命令 `codex-acp` / `claude-agent-acp` 时直接用它） |
 | `command` | `acp`、`dsh_cli` | 启动命令；`dsh_cli` 中 `{prompt}` 会替换成“读取任务文件并执行”的一句话 |
 | `allow_kinds` | `acp` | 批准的操作类型，默认 `read` / `search` / `think` / `edit` |
 | `protected` | `acp` | 禁止编辑的路径，默认 `rules.yaml`、`verify/*`、`agent.config.json`、`.agent/*`、`.github/*`、`.env`、`.env.*` |
@@ -106,7 +106,7 @@
 }
 ```
 
-控制台的下拉框只列出包内默认的四个选项；项目里新增的 agent 用命令行 `--agent gemini`，或像上例那样设为 `code.agent` 默认使用。
+控制台的下拉框只列出包内默认的五个选项；项目里新增的 agent 用命令行 `--agent gemini`，或像上例那样设为 `code.agent` 默认使用。
 
 ### review
 
@@ -123,7 +123,7 @@
 
 ### fix
 
-修复 agent（按审阅计划和失败项改代码）。
+修复 agent（按审阅计划和失败项改代码）。每次运行也可以在控制台的「修复 agent」或 `--fix-agent` 里选一个 `coding_agents` 预设代替这一段（超时仍取这里的 `timeout_sec`）；下拉框默认选中命令与这一段相同的预设。
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
