@@ -2,7 +2,7 @@
 
 本地前端交付流水线：把“提需求 → 读设计稿 → 写 Spec → 写代码 → 构建 → 门禁 → 验收 → 失败回环 → 交付”串成一条自动流程，覆盖 **Web 中后台、UniApp、微信/支付宝小程序、Electron 桌面端**。
 
-它是一个独立的 LangGraph 应用：`pip install` 后在任何目录可用，用 `agent ui` 打开纯本地的中文网页控制台，或用 `agent` 命令行。
+它是一个 TypeScript 写的 LangGraph 应用，只依赖 Node：可以用**桌面端**（双击打开），也可以装成 `wwk` 命令，用 `wwk ui` 打开纯本地的中文网页控制台，或直接在命令行里跑。
 
 ```
 需求 ─→ 编码（设计稿 → Spec → 写代码）─→ 门禁 ─┬─ 通过 ──────────────→ 交付（代码不提交，等人签字发布）
@@ -26,55 +26,48 @@
 
 ## 快速开始
 
-需要 **Python ≥ 3.10** 和 **Node ≥ 22**。门禁已打包成单文件，不需要 `npm install`。
+需要 **Node ≥ 22.18**（门禁和 agent 都要用到）。
 
-**1. 安装**（建议放在独立的虚拟环境里）
+**1. 安装**
+
+两种方式任选：
+
+- **桌面端**：按 [docs/desktop.md](docs/desktop.md) 打包或运行 `desktop/`，双击打开即可，不用开终端；
+- **命令行**：克隆仓库后装成全局的 `wwk` 命令（需要 pnpm）：
 
 ```bash
-python -m venv $env:USERPROFILE\wwk-venv
+git clone https://github.com/TaiAiAc/web-workflow-kit && cd web-workflow-kit/core
 ```
 
 ```bash
-& $env:USERPROFILE\wwk-venv\Scripts\python.exe -m pip install "web-workflow-kit[all] @ git+https://github.com/TaiAiAc/web-workflow-kit"
+pnpm install && pnpm build && npm install -g .
 ```
 
-macOS / Linux：
-
-```bash
-python3 -m venv ~/wwk-venv
-```
-
-```bash
-~/wwk-venv/bin/python -m pip install "web-workflow-kit[all] @ git+https://github.com/TaiAiAc/web-workflow-kit"
-```
-
-macOS 自带的 `python3` 是 3.9，需要先装更新的版本（如 `brew install python@3.12`，再用 `python3.12 -m venv`）。
-
-网络需要代理时，先设置 `$env:HTTPS_PROXY = 'http://127.0.0.1:7897'`（换成你的代理地址）。
+网络需要代理时，先设置 `HTTPS_PROXY`（如 `export HTTPS_PROXY=http://127.0.0.1:7890`，换成你的代理地址）。
 
 **2. 准备要用到的 agent**
 
 | 用途 | 需要 |
 | --- | --- |
-| 生成 Spec、写代码（默认） | 安装并登录 [Claude Code](https://claude.com/claude-code)：终端里运行一次 `claude` 按提示登录 |
-| 修复（默认） | 安装 DeepSeek Harness（`dsh` 命令可用）；也可以在控制台的「修复 agent」里换成其他已安装的 agent |
+| 生成 Spec、写代码（默认） | 安装并登录 [Claude Code](https://claude.com/claude-code)：`npm install -g @anthropic-ai/claude-code`，终端里运行一次 `claude` 按提示登录 |
+| 修复（默认） | 安装 DeepSeek Harness（`dsh` 命令可用）并配好 `DEEPSEEK_API_KEY`；也可以在控制台的「修复」里换成其他已安装的 agent |
 | 验收审阅 | 可选：配置 `DEEPSEEK_API_KEY`；不配则自动改用 dsh，见[验收审阅](#验收审阅) |
 | 熔断邮件 | 可选：SMTP 配置 |
 
-密钥和 SMTP 写在 `~/.web-workflow-kit/.env`（所有项目共用），模板见 [.env.example](.env.example)。
+这些都可以在控制台的**设置页**里看状态、点「登录」、填 Key 和代理：写进 `~/.web-workflow-kit/.env`（所有项目共用）或项目自己的 `.env`，模板见 [.env.example](.env.example)。
 
 **3. 在前端项目里生成配置**
 
 ```bash
-agent --project D:/projects/my-app --init
+wwk init --project /path/to/my-app
 ```
 
-会在项目根目录生成 `rules.yaml`（门禁规则）和 `agent.config.json`（流水线配置），已存在的文件不会覆盖。**打开 `rules.yaml`，把 `project_type` 和各项命令改成你项目里真实存在的命令**，再把 `.agent/` 加进项目的 `.gitignore`。
+会在项目根目录生成 `rules.yaml`（门禁规则）和 `agent.config.json`（流水线配置），已存在的文件不会覆盖。**打开 `rules.yaml`，把 `project_type` 和各项命令改成你项目里真实存在的命令**，再把 `.agent/` 加进项目的 `.gitignore`。控制台里对没有 `rules.yaml` 的项目也有「生成配置」按钮。
 
 **4. 先只跑门禁，确认规则对得上**
 
 ```bash
-agent --project D:/projects/my-app --verify
+wwk verify --project /path/to/my-app
 ```
 
 退出码就是结论：`0` 通过、`1` 未通过、`2` 规则或环境有误。
@@ -82,14 +75,14 @@ agent --project D:/projects/my-app --verify
 **5. 打开控制台**
 
 ```bash
-agent ui
+wwk ui
 ```
 
 ## 本地控制台
 
-`agent ui` 启动后浏览器自动打开 `http://127.0.0.1:8765/`（`--port` 换端口，`--no-browser` 不自动打开）。
+`wwk ui` 启动后浏览器自动打开 `http://127.0.0.1:8765/`（`--port` 换端口，`--no-browser` 不自动打开）。
 
-同一个控制台也有桌面端（`desktop/`，Electron）：双击打开，后端是 TS 核心、跑在 Electron 自带的 Node 上，**不需要装 Python**；用系统对话框选目录，退出即停止。见 [docs/desktop.md](docs/desktop.md)。TS 核心也能直接在浏览器里用：`core/` 里 `pnpm cli ui`，见 [core/README.md](core/README.md)。
+同一个控制台也有桌面端（`desktop/`，Electron）：双击打开，后端跑在 Electron 自带的 Node 上；用系统对话框选目录，退出即停止。见 [docs/desktop.md](docs/desktop.md)。
 
 控制台按**工作空间**管理项目，尽量用按钮代替输入：
 
@@ -106,6 +99,11 @@ agent ui
 - 门禁检查项：最近一次门禁的 typecheck / lint / test / build … 逐项 ✔ / ✘，以及已修复几轮；
 - 日志按步骤分组、可折叠，点进度条上的任一步只看那一步的日志；运行中自动跟随最新输出。
 
+**设置**（侧栏左下）
+- 各 agent 是否安装、是否已登录、版本；没装的给安装命令，可登录的点「登录」在系统终端里打开登录命令（带上配置的代理）；
+- 代理（可一键填入系统代理，并检测到 Anthropic / OpenAI / DeepSeek / npm 的连通性）、API Key（只写不读，DeepSeek Key 可一键测试）、熔断邮件；
+- 可以写全局，也可以只写当前项目的 `.env`（项目覆盖全局）；对下一次运行生效。
+
 运行记录在结束时写进项目的 `.agent/runs/`（每个项目保留最近 50 条），服务重启后仍可回看；交付记录另存 `.agent/delivery.json`。编码子图、审阅修复子图的单独调试在 LangGraph Studio 或 API 里用。
 
 控制台只在本机运行，页面不加载任何外部资源。安全细节见 [docs/architecture.md](docs/architecture.md#安全)。
@@ -113,12 +111,12 @@ agent ui
 ## 命令行
 
 ```bash
-agent --project D:/projects/my-app
+wwk --project /path/to/my-app
 ```
 
-不带命令即进入 REPL，直接输入需求就跑完整流水线。
+在终端里不带命令即进入交互模式，直接输入需求就跑完整流水线（`wwk repl` 不要求终端，可以用管道喂命令）。
 
-| REPL 输入 | 作用 |
+| 交互模式输入 | 作用 |
 | --- | --- |
 | 需求原文 | 跑完整流水线 |
 | `:verify` | 只跑门禁 |
@@ -129,39 +127,46 @@ agent --project D:/projects/my-app
 | `:resume [线程]` | 从断点继续被中断的运行 |
 | `:project <目录>` / `:status` / `:help` / `:q` | 切换项目 / 上次结果 / 帮助 / 退出 |
 
-| 参数 | 作用 |
+| 命令 | 作用 |
 | --- | --- |
-| `agent ui [--port 8765] [--no-browser]` | 打开本地控制台 |
+| `wwk run "需求" [--design <ref>]` | 非交互跑一次完整流水线，退出码 0 = 交付、1 = 熔断 |
+| `wwk fix` | 对当前改动跑门禁 ⇄ 审阅修复 |
+| `wwk verify` | 只跑门禁，退出码 0/1/2 |
+| `wwk resume [线程]` | 从断点继续被中断的运行 |
+| `wwk init` | 复制默认 `rules.yaml`、`agent.config.json` 到项目 |
+| `wwk ui [--port 8765] [--no-browser]` | 打开本地控制台 |
+
+| 公共参数 | 作用 |
+| --- | --- |
 | `--project <目录>` | 目标项目（默认当前目录） |
-| `--once "需求"` | 非交互跑一次，退出码 0 = 交付、1 = 熔断 |
-| `--verify` | 只跑门禁，退出码 0/1/2 |
-| `--init` | 复制默认 `rules.yaml`、`agent.config.json` 到项目 |
 | `--agent claude\|codex\|opencode\|workbuddy\|dsh` | 写代码用哪个 agent |
 | `--fix-agent <同上>` | 修复用哪个 agent（默认取配置 `fix`，即 dsh） |
 | `--review auto\|api\|dsh\|skip` | 验收审阅方式 |
-| `--config <文件>` / `--version` | 额外配置文件 / 版本 |
+| `--config <文件>` | 额外的配置文件 |
+| `--json` | stdout 只输出结果 JSON，日志走 stderr（给脚本用） |
+| `--version` / `--help` | 版本 / 用法 |
 
 ## 编程 agent
 
-“写代码”这一步可以换 agent：控制台的「编程 agent」下拉框、`--agent`、REPL 的 `:agent`，或配置 `code.agent`（默认 `claude`）。
+“写代码”这一步可以换 agent：控制台的「编程」按钮、`--agent`、交互模式的 `:agent`，或配置 `code.agent`（默认 `claude`）。
 
 | 选项 | 调用方式 | 前提 |
 | --- | --- | --- |
 | Claude Code（`claude`） | `claude -p` | 安装并登录 Claude Code |
-| Codex（`codex`） | ACP 协议，经 npx 按需拉起适配器 | 有 npx，已登录 Codex 或配好 OpenAI Key |
+| Codex（`codex`） | ACP 协议，适配器 `codex-acp` | 安装 Codex（`npm install -g @openai/codex`），已登录或在 `~/.codex/config.toml` 配好模型服务 |
 | OpenCode（`opencode`） | ACP 协议，`opencode acp` | 安装并登录 OpenCode |
 | WorkBuddy（`workbuddy`） | ACP 协议，`codebuddy --acp` | 安装 WorkBuddy 的引擎 CodeBuddy Code（`npm install -g @tencent-ai/codebuddy-code`），运行一次 `codebuddy` 登录 |
-| DeepSeek Harness（`dsh`） | `dsh headless` | 安装 DeepSeek Harness |
+| DeepSeek Harness（`dsh`） | `dsh headless` | 安装 DeepSeek Harness，配好 `DEEPSEEK_API_KEY` |
 
 Codex 的 ACP 适配器默认每次经 npx 下载，网络不稳时会在开始写代码前就失败；先全局安装一次（`npm install -g @agentclientprotocol/codex-acp@1.13.0`），之后直接用本机的 `codex-acp`，不再访问 npm。
 
-经 ACP 的 Codex / OpenCode / WorkBuddy 受权限策略约束：改不了 `rules.yaml`、门禁文件和流水线配置，也写不到项目以外。控制台会标出本机找不到命令的选项；是否已登录只有真正调用时才知道。
+经 ACP 的 Codex / OpenCode / WorkBuddy 受权限策略约束：改不了 `rules.yaml`、门禁文件和流水线配置，也写不到项目以外。ACP 预设可以用 `model` 指定模型（OpenCode 支持）。agent 一轮下来什么都没做（0 token、无输出，常见于 Key 失效或没登录）会按出错熔断，不会白白耗掉修复轮数。登录状态在设置页里看。
 
 生成 Spec 不受这个选项影响，默认仍用 Claude Code（可改为 GPT，见 [docs/configuration.md](docs/configuration.md#spec)）。
 
 ## 验收审阅
 
-门禁失败后，先由“验收顾问”读失败项和改动块，给出修复计划，再交给修复 agent（默认 dsh）去改。修复 agent 和编程 agent 一样可以选：控制台的「修复 agent」下拉框、`--fix-agent`，可选项相同；建议和编程 agent 选不同的，避免同源偏差。
+门禁失败后，先由“验收顾问”读失败项和改动块，给出修复计划，再交给修复 agent（默认 dsh）去改。修复 agent 和编程 agent 一样可以选：控制台的「修复」按钮、`--fix-agent`，可选项相同；建议和编程 agent 选不同的，避免同源偏差。
 
 | 选项 | 行为 |
 | --- | --- |
@@ -177,7 +182,7 @@ Codex 的 ACP 适配器默认每次经 npx 下载，网络不稳时会在开始�
 流水线可以把设计稿交给 Spec 生成：
 
 - **本地文件**：设计稿字段填导出的 `.json` 路径；
-- **MasterGo**：安装 `[mcp]` 可选依赖，在项目的 `agent.config.json` 里设 `design.enabled: true`，在 MasterGo 客户端里**选中目标页面或图层**，设计稿字段填 `mastergo`。
+- **MasterGo**：在项目的 `agent.config.json` 里设 `design.enabled: true`，在 MasterGo 客户端里**选中目标页面或图层**，设计稿字段填 `mastergo`（命令行是 `--design mastergo` 或交互模式的 `:design mastergo`）。
 
 读取的是本机正在运行的 MasterGo 客户端（默认 `http://localhost:30678`）里当前选中的图层和文件变量，不是按链接取稿。没选中图层时会以“设计稿读取失败”停下，不发邮件，选中后重跑即可。
 
@@ -196,7 +201,8 @@ Codex 的 ACP 适配器默认每次经 npx 下载，网络不稳时会在开始�
 | `code-task.md` / `fix-task.md` / `review-task.md` | 交给命令行 agent 的任务 |
 | `delivery.json` | 交付记录：需求、修复轮数、改动文件、各轮门禁结果 |
 | `runs/<id>.json` | 控制台的运行记录（步骤、日志、结论），最近 50 条 |
-| `checkpoints.sqlite` | 断点（`:resume` 用） |
+| `checkpoints.sqlite` / `last_thread.json` | 断点（`wwk resume`、`:resume` 用） |
+| `repl_history` | 交互模式的输入历史 |
 | `visual.png` | Electron 视觉验收截图 |
 | `.notify_cache` | 熔断邮件去重记录 |
 
@@ -211,19 +217,19 @@ Codex 的 ACP 适配器默认每次经 npx 下载，网络不稳时会在开始�
 **Spec 生成失败：`Not logged in · Please run /login`**
 Claude Code 没登录。终端运行 `claude` 登录后重试。
 
-**控制台运行时报“拒绝访问”**
-运行控制台的 Python 没有权限写目标项目目录。用普通权限的终端、在独立虚拟环境里启动 `agent ui`。
+**Claude Code 登录时报 `403`，或 claude / codex 连不上**
+国内网络访问 Anthropic、OpenAI 需要代理；命令行程序不会自动用系统代理。在设置页里填 `HTTPS_PROXY`（可一键填入系统代理）并点「检测连通性」，再用设置页的「登录」按钮重新登录。
 
-**中文显示成 `?`**
-控制台编码不是 UTF-8 时，打不出的字符会被替换（不会再导致崩溃）。可以在 Windows 终端里改用 UTF-8，或设置 `$env:PYTHONUTF8 = '1'`。
+**OpenCode / dsh 一轮下来什么都没改就熔断了：`agent 本轮没有任何输出`**
+多半是该 agent 自己的 Key 失效或没登录（比如 OpenCode 里存的 DeepSeek Key 无效）。在 agent 自己的配置里换一个能用的 Key，或在 `agent.config.json` 里给它的预设设 `model`。
 
-**`pip` / `npx` / `gh` 访问 GitHub、npm 超时**
+**`npx` / `gh` / `git` 访问 GitHub、npm 超时**
 它们不读 `.gitconfig` 里的代理，需要设置 `HTTPS_PROXY` 环境变量。
 
 ## 已知限制
 
 - 同一个项目同一时间只能有一次运行。
-- Codex、OpenCode、WorkBuddy、dsh 作为编程 / 修复 agent，以及 dsh 作为审阅顾问，目前只用模拟 agent 验证过接入，还没在真实项目上跑过完整流程。
+- 真实项目上跑通过完整流程的：Claude Code（编程）、Codex（编程、修复）。OpenCode 在本机因自身的 Key 失效没能完成修复（流水线按出错熔断并给出原因）；WorkBuddy、dsh 还没在真实项目上跑过。
 - Electron 视觉验收只在 Windows 上用 Electron 45 实测过；应用若在生产包里禁用了远程调试，会报 `VISUAL_UNAVAILABLE`。
 
 ## 文档
@@ -233,4 +239,4 @@ Claude Code 没登录。终端运行 `claude` 登录后重试。
 - [docs/architecture.md](docs/architecture.md)：图与节点、原则如何落地、安全模型、LangGraph Studio / API
 - [docs/development.md](docs/development.md)：开发、测试、打包、CI
 - [docs/desktop.md](docs/desktop.md)：桌面端（Electron）：工作方式、开发与打包
-- [core/README.md](core/README.md)：TS 核心：迁移进度、命令行与控制台
+- [core/README.md](core/README.md)：TS 核心：模块与实现要点
