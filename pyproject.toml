@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "web-workflow-kit"
+version = "0.2.0"
+description = "本地前端交付流水线（LangGraph 应用）：需求 → Spec → 代码 → 门禁 → 验收 → 回环 → 交付"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "langgraph>=1.0",
+    "python-dotenv",
+    "typing-extensions>=4.7",
+]
+
+[project.optional-dependencies]
+# 主流程不依赖它们，按需安装；all = 全部可选能力
+mcp = ["langchain-mcp-adapters"]               # MasterGo 设计稿（design.enabled）
+acp = ["langgraph-acp>=1.10"]                  # code.backend = "acp"
+checkpoint = ["langgraph-checkpoint-sqlite"]   # :resume 断点恢复
+repl = ["prompt-toolkit"]
+# langgraph dev / LangGraph Studio；Windows 上 dev server 的日志（structlog 彩色输出）缺 colorama 会直接起不来
+studio = ["langgraph-cli[inmem]", "colorama; sys_platform == 'win32'"]
+all = ["web-workflow-kit[mcp,acp,checkpoint,repl,studio]"]
+
+[project.scripts]
+agent = "web_workflow_kit.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["web_workflow_kit"]
+
+[tool.hatch.build.targets.wheel.force-include]
+# verify.mjs 是 verify/ 打包出的产物，单独点名，保证不会被 .gitignore 规则漏掉
+"web_workflow_kit/assets/verify.mjs" = "web_workflow_kit/assets/verify.mjs"
+
+[tool.hatch.build.targets.sdist]
+include = ["web_workflow_kit", "verify", "tests", "langgraph.json", "README.md", ".env.example"]
+exclude = ["verify/node_modules"]

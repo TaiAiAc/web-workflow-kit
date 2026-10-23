@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>前端交付流水线</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --panel-2: #f1f3f6; --line: #e2e5ea; --line-2: #cfd4dc;
+  --text: #1c2330; --muted: #5d6676; --faint: #8a93a3;
+  --accent: #2f6fed; --accent-soft: #e8efff;
+  --ok: #1a8a4f; --ok-soft: #e4f5ec; --bad: #cc3340; --bad-soft: #fdebed; --warn: #b76e00; --warn-soft: #fff3df;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, "SFMono-Regular", Menlo, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --radius: 10px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1218; --panel: #161a22; --panel-2: #1c212b; --line: #262c38; --line-2: #343c4b;
+    --text: #e6e9ef; --muted: #a0a9b8; --faint: #747e8f;
+    --accent: #6d9bff; --accent-soft: #1b2740;
+    --ok: #4cc38a; --ok-soft: #13291f; --bad: #ff6b76; --bad-soft: #33181c; --warn: #f0a947; --warn-soft: #2e2311;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1218; --panel: #161a22; --panel-2: #1c212b; --line: #262c38; --line-2: #343c4b;
+  --text: #e6e9ef; --muted: #a0a9b8; --faint: #747e8f;
+  --accent: #6d9bff; --accent-soft: #1b2740;
+  --ok: #4cc38a; --ok-soft: #13291f; --bad: #ff6b76; --bad-soft: #33181c; --warn: #f0a947; --warn-soft: #2e2311;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--text); font: 14px/1.6 var(--sans); }
+header {
+  display: flex; align-items: center; gap: 12px; padding: 14px 24px;
+  border-bottom: 1px solid var(--line); background: var(--panel);
+}
+header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .02em; }
+header .sub { color: var(--muted); font-size: 13px; }
+header .spacer { flex: 1; }
+.conn { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.dot.on { background: var(--ok); } .dot.off { background: var(--bad); }
+.icon-btn { border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 8px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+
+main { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 20px; padding: 20px 24px 40px; max-width: 1480px; margin: 0 auto; }
+@media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); padding: 16px; } header { padding: 12px 16px; } }
+
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.panel > h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.panel .body { padding: 16px; }
+aside { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+
+.graphs { display: flex; flex-direction: column; gap: 8px; }
+.graph-opt { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 10px 12px; cursor: pointer; color: inherit; font: inherit; }
+.graph-opt:hover { border-color: var(--line-2); }
+.graph-opt[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.graph-opt b { display: block; font-size: 14px; font-weight: 600; }
+.graph-opt span { display: block; color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 2px; }
+
+form { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
+label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: 13px; }
+label .req { color: var(--bad); margin-left: 2px; }
+label .hint { font-weight: 400; color: var(--muted); font-size: 12px; line-height: 1.5; }
+input, textarea, select {
+  font: inherit; font-weight: 400; color: var(--text); background: var(--panel); border: 1px solid var(--line-2);
+  border-radius: 8px; padding: 8px 10px; width: 100%;
+}
+textarea { min-height: 84px; resize: vertical; }
+textarea.json { font-family: var(--mono); font-size: 12px; min-height: 110px; }
+select { cursor: pointer; }
+.path-row { display: flex; gap: 8px; }
+.path-row input { flex: 1; min-width: 0; }
+.ghost { font: inherit; font-weight: 500; white-space: nowrap; border: 1px solid var(--line-2); background: var(--panel-2); color: var(--text); border-radius: 8px; padding: 0 14px; cursor: pointer; }
+.ghost:hover { border-color: var(--accent); color: var(--accent); }
+.ghost:disabled { opacity: .6; cursor: progress; }
+.check { font-weight: 400; font-size: 12px; line-height: 1.5; }
+.check.ok { color: var(--ok); } .check.warn { color: var(--warn); } .check.bad { color: var(--bad); }
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.primary {
+  font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 10px 14px; cursor: pointer;
+  background: var(--accent); color: #fff;
+}
+.primary:disabled { opacity: .55; cursor: not-allowed; }
+.form-error { color: var(--bad); font-size: 13px; min-height: 1em; }
+
+.runs { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow: auto; }
+.runs li button { width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; font: inherit; padding: 10px 16px; cursor: pointer; display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; }
+.runs li button:hover, .runs li button[aria-current="true"] { background: var(--panel-2); }
+.runs .meta { grid-column: 2; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.runs .t { grid-column: 2; font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.runs .empty { color: var(--faint); padding: 14px 16px; font-size: 13px; }
+
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 999px; background: var(--panel-2); color: var(--muted); white-space: nowrap; height: fit-content; }
+.chip.running { background: var(--accent-soft); color: var(--accent); }
+.chip.ok { background: var(--ok-soft); color: var(--ok); }
+.chip.bad { background: var(--bad-soft); color: var(--bad); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+
+section.view { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.view-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.view-head h2 { margin: 0; font-size: 18px; font-weight: 650; }
+.view-head .elapsed { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.view-head .proj { color: var(--muted); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; width: 100%; }
+
+.diagram { overflow-x: auto; padding: 8px 4px; }
+.diagram svg { display: block; margin: 0 auto; }
+.diagram text { font-family: var(--sans); }
+.n rect { fill: var(--panel); stroke: var(--line-2); stroke-width: 1.5; }
+.n text { fill: var(--text); font-size: 14px; font-weight: 600; }
+.n .count { fill: var(--muted); font-size: 11px; font-weight: 500; }
+.n.running rect { stroke: var(--accent); fill: var(--accent-soft); animation: pulse 1.2s ease-in-out infinite; }
+.n.done rect { stroke: var(--ok); fill: var(--ok-soft); }
+.n.fail rect, .n.stop rect { stroke: var(--bad); fill: var(--bad-soft); }
+.n.terminal circle { fill: var(--panel-2); stroke: var(--line-2); }
+.n.terminal text { fill: var(--muted); font-size: 12px; font-weight: 500; }
+@keyframes pulse { 50% { stroke-width: 3; } }
+@media (prefers-reduced-motion: reduce) { .n.running rect { animation: none; stroke-width: 3; } }
+.e { fill: none; stroke: var(--line-2); stroke-width: 1.5; }
+.e.cond { stroke-dasharray: 5 4; }
+.e.taken { stroke: var(--accent); }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 12px; padding: 0 16px 14px; }
+.legend i { display: inline-block; width: 18px; border-top: 1.5px solid var(--line-2); vertical-align: middle; margin-right: 6px; }
+.legend i.cond { border-top-style: dashed; }
+
+.summary { font-size: 15px; line-height: 1.7; }
+.summary.ok { color: var(--ok); } .summary.bad { color: var(--bad); }
+.facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 14px; }
+.fact { background: var(--panel-2); border-radius: 8px; padding: 8px 12px; }
+.fact b { display: block; font-size: 12px; color: var(--muted); font-weight: 500; }
+.fact span { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; }
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+td { padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td code, .code { font-family: var(--mono); font-size: 12px; }
+.code { background: var(--bad-soft); color: var(--bad); border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
+td .loc { display: block; color: var(--muted); font-family: var(--mono); font-size: 12px; }
+
+.log { margin: 0; padding: 12px 16px; max-height: 420px; overflow: auto; font: 12px/1.65 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel-2); border-radius: 0 0 var(--radius) var(--radius); }
+.log .ok { color: var(--ok); } .log .bad { color: var(--bad); } .log .tag { color: var(--accent); } .log .t { color: var(--faint); user-select: none; }
+
+.placeholder { color: var(--muted); text-align: center; padding: 64px 24px; }
+.placeholder b { display: block; color: var(--text); font-size: 16px; margin-bottom: 6px; }
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>前端交付流水线</h1>
+  <span class="sub">本地控制台</span>
+  <span class="spacer"></span>
+  <span class="conn"><span class="dot" id="conn-dot"></span><span id="conn-text">连接中…</span></span>
+  <button class="icon-btn" id="theme-btn" type="button" title="切换浅色 / 深色">主题</button>
+</header>
+
+<main>
+  <aside>
+    <div class="panel">
+      <h2>发起运行</h2>
+      <div class="body">
+        <div class="graphs" id="graphs" role="group" aria-label="选择要运行的图"></div>
+        <form id="run-form" novalidate>
+          <div id="fields"></div>
+          <div class="form-error" id="form-error" role="alert"></div>
+          <button class="primary" id="run-btn" type="submit">运行</button>
+        </form>
+        <datalist id="recent-projects"></datalist>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>运行记录</h2>
+      <ul class="runs" id="runs"><li class="empty">还没有运行记录</li></ul>
+    </div>
+  </aside>
+
+  <section class="view" id="view">
+    <div class="panel placeholder" id="placeholder">
+      <b>选择左侧的图，填写项目路径后点「运行」</b>
+      流程图、每个节点的进度、门禁结果和日志会显示在这里。服务只在本机运行。
+    </div>
+
+    <div class="hidden" id="run-view" style="display:flex;flex-direction:column;gap:20px">
+      <div class="view-head">
+        <h2 id="v-graph"></h2>
+        <span class="chip" id="v-status"></span>
+        <span class="elapsed" id="v-elapsed"></span>
+        <div class="proj" id="v-project"></div>
+      </div>
+
+      <div class="panel">
+        <h2>流程</h2>
+        <div class="diagram" id="diagram"></div>
+        <div class="legend"><span><i></i>固定路径</span><span><i class="cond"></i>按条件走（门禁结果、是否熔断）</span></div>
+      </div>
+
+      <div class="panel" id="result-panel">
+        <h2>结论</h2>
+        <div class="body">
+          <div class="summary" id="v-summary"></div>
+          <div class="facts" id="v-facts"></div>
+        </div>
+      </div>
+
+      <div class="panel hidden" id="failures-panel">
+        <h2 id="failures-title">门禁失败项</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>失败码</th><th>检查项</th><th>说明</th></tr></thead>
+            <tbody id="failures"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>日志</h2>
+        <pre class="log" id="log"></pre>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const TOKEN = "__WWK_TOKEN__";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "X-WWK-Token": TOKEN, "Content-Type": "application/json", ...(opts.headers || {}) } });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `请求失败（${res.status}）`);
+  return data;
+}
+
+// ---------- 主题 ----------
+const themes = ["auto", "light", "dark"];
+function applyTheme(t) {
+  if (t === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", t);
+  $("theme-btn").textContent = { auto: "主题：跟随系统", light: "主题：浅色", dark: "主题：深色" }[t];
+}
+let theme = store.get("wwk.theme", "auto");
+applyTheme(theme);
+$("theme-btn").onclick = () => { theme = themes[(themes.indexOf(theme) + 1) % 3]; store.set("wwk.theme", theme); applyTheme(theme); };
+
+// ---------- 连接状态 ----------
+function setConn(ok, text) { $("conn-dot").className = "dot " + (ok ? "on" : "off"); $("conn-text").textContent = text; }
+
+// ---------- 图选择 + 表单 ----------
+let GRAPHS = [];
+let selected = null;
+
+function renderGraphs() {
+  $("graphs").innerHTML = GRAPHS.map((g) =>
+    `<button type="button" class="graph-opt" data-name="${esc(g.name)}" aria-pressed="${g.name === selected}"><b>${esc(g.name)}</b><span>${esc(g.description)}</span></button>`).join("");
+  $("graphs").querySelectorAll("button").forEach((b) => b.onclick = () => selectGraph(b.dataset.name));
+}
+
+function fieldFor(key, prop, required, saved) {
+  const id = "f-" + key;
+  const title = prop.title || key;
+  const hint = prop.description ? `<span class="hint">${esc(prop.description)}</span>` : "";
+  const types = prop.type ? [prop.type] : (prop.anyOf || []).map((x) => x.type);
+  const isJson = types.includes("array") || types.includes("object");
+  const isInt = types.includes("integer") || types.includes("number");
+  const val = saved ?? "";
+  let control;
+  if (key === "coding_agent" && AGENTS.agents?.length) {
+    const chosen = val || AGENTS.default;
+    control = `<select id="${id}" name="${key}">${AGENTS.agents.map((a) =>
+      `<option value="${esc(a.key)}" ${a.key === chosen ? "selected" : ""}>${esc(a.label)}${a.available ? "" : "（未找到）"}</option>`).join("")}</select>`;
+    const a = AGENTS.agents.find((x) => x.key === chosen);
+    const extra = `<span class="hint" id="agent-note">${esc(agentNote(a))}</span>`;
+    return `<label for="${id}"><span>${esc(title)}</span>${control}${hint}${extra}</label>`;
+  }
+  if (key === "review_backend" && AGENTS.reviewers?.length) {
+    const chosen = val || AGENTS.review_default;
+    control = `<select id="${id}" name="${key}">${AGENTS.reviewers.map((r) =>
+      `<option value="${esc(r.key)}" ${r.key === chosen ? "selected" : ""}>${esc(r.label)}${r.available ? "" : "（不可用）"}</option>`).join("")}</select>`;
+    const r = AGENTS.reviewers.find((x) => x.key === chosen);
+    return `<label for="${id}"><span>${esc(title)}</span>${control}${hint}<span class="hint" id="review-note">${esc(r?.detail || "")}</span></label>`;
+  }
+  if (key === "project_root") {
+    control = `<div class="path-row"><input id="${id}" name="${key}" value="${esc(val)}" list="recent-projects" placeholder="点「浏览…」选择，或直接输入 D:/projects/my-app" spellcheck="false"><button type="button" class="ghost" id="pick-btn">浏览…</button></div>`;
+    return `<label for="${id}"><span>${esc(title)}${required ? '<span class="req" aria-hidden="true">*</span>' : ""}</span>${control}<span class="check" id="proj-check"></span>${hint}</label>`;
+  }
+  if (key === "requirement") control = `<textarea id="${id}" name="${key}" placeholder="例如：登录页加“记住我”，勾选后 7 天免登录">${esc(val)}</textarea>`;
+  else if (isJson) control = `<textarea class="json" id="${id}" name="${key}" data-json="1" placeholder='${types.includes("array") ? '[{"code": "TYPECHECK_FAIL", "check": "typecheck", "message": "..."}]' : "{}"}'>${esc(val)}</textarea>`;
+  else if (isInt) control = `<input id="${id}" name="${key}" type="number" min="0" value="${esc(val)}" data-int="1">`;
+  else control = `<input id="${id}" name="${key}" value="${esc(val)}" ${key === "project_root" ? 'list="recent-projects" placeholder="D:/projects/my-app" spellcheck="false"' : ""} ${key === "design_ref" ? 'placeholder="design/login.json 或 mastergo"' : ""}>`;
+  return `<label for="${id}"><span>${esc(title)}${required ? '<span class="req" aria-hidden="true">*</span>' : ""}</span>${control}${hint}</label>`;
+}
+
+let AGENTS = { default: "claude", agents: [] };
+function agentNote(a) {
+  if (!a) return "";
+  return a.available ? `经 ${a.via} 调用；首次使用前请确认该 agent 已登录` : `${a.detail}：请先安装，或在 PATH 中可用后再运行`;
+}
+const agentLabel = (key) => AGENTS.agents.find((a) => a.key === key)?.label || key;
+
+function selectGraph(name) {
+  selected = name;
+  store.set("wwk.graph", name);
+  renderGraphs();
+  const g = GRAPHS.find((x) => x.name === name);
+  const schema = g.input_schema || {};
+  const req = new Set(schema.required || []);
+  const draft = store.get("wwk.draft." + name, {});
+  const recent = store.get("wwk.projects", []);
+  if (!draft.project_root && recent[0]) draft.project_root = recent[0];
+  $("fields").innerHTML = Object.entries(schema.properties || {}).map(([k, p]) => fieldFor(k, p, req.has(k), draft[k])).join("");
+  $("fields").style.display = "flex"; $("fields").style.flexDirection = "column"; $("fields").style.gap = "14px";
+  $("fields").oninput = $("fields").onchange = (e) => {
+    store.set("wwk.draft." + name, collect(false).values);
+    if (e?.target?.name === "coding_agent") $("agent-note").textContent = agentNote(AGENTS.agents.find((a) => a.key === e.target.value));
+    if (e?.target?.name === "review_backend") $("review-note").textContent = AGENTS.reviewers.find((r) => r.key === e.target.value)?.detail || "";
+  };
+  $("form-error").textContent = "";
+  const proj = $("f-project_root");
+  if (proj) {
+    $("pick-btn").onclick = pickFolder;
+    proj.onchange = () => checkProject(proj.value.trim());
+    if (proj.value.trim()) checkProject(proj.value.trim());
+  }
+}
+
+// 浏览器拿不到所选目录的完整路径，所以由本地服务弹出系统的“选择文件夹”窗口
+async function pickFolder() {
+  const btn = $("pick-btn"), proj = $("f-project_root");
+  btn.disabled = true; btn.textContent = "请在弹出的窗口中选择…";
+  try {
+    const { path, inspect } = await api("/api/pick-folder", { method: "POST", body: JSON.stringify({ initial: proj.value.trim() || null }) });
+    if (path) {
+      proj.value = path;
+      store.set("wwk.draft." + selected, collect(false).values);
+      showCheck(inspect);
+    }
+  } catch (err) {
+    showCheck(null, err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = "浏览…";
+  }
+}
+
+async function checkProject(path) {
+  if (!path) return showCheck(null, "");
+  try { showCheck(await api("/api/inspect?path=" + encodeURIComponent(path))); } catch (err) { showCheck(null, err.message); }
+}
+
+function showCheck(info, error) {
+  const el = $("proj-check");
+  if (!el) return;
+  if (error !== undefined || !info) { el.className = "check bad"; el.textContent = error || ""; return; }
+  if (!info.exists) { el.className = "check bad"; el.textContent = "✘ 目录不存在"; return; }
+  const parts = [];
+  parts.push(info.package_json ? `✔ package.json${info.name ? `（${info.name}）` : ""}` : "⚠ 没有 package.json，确认这是前端项目根目录");
+  parts.push(info.rules_yaml ? "✔ 有 rules.yaml" : "⚠ 没有 rules.yaml，将用默认门禁规则（可在终端运行 agent --init 生成）");
+  if (!info.git) parts.push("⚠ 不是 git 仓库，无法只取本次改动");
+  el.className = "check " + (info.package_json && info.rules_yaml && info.git ? "ok" : "warn");
+  el.textContent = parts.join("　");
+}
+
+function collect(strict) {
+  const values = {};
+  let error = "";
+  $("fields").querySelectorAll("input, textarea, select").forEach((el) => {
+    const v = el.value.trim();
+    if (!v) return;
+    if (el.dataset.json) {
+      try { values[el.name] = JSON.parse(v); } catch { if (strict) error = `「${el.closest("label").firstChild.firstChild.textContent}」不是合法的 JSON`; values[el.name] = v; }
+    } else if (el.dataset.int) values[el.name] = Number(v);
+    else values[el.name] = v;
+  });
+  if (strict && !error) {
+    const g = GRAPHS.find((x) => x.name === selected);
+    for (const k of g.input_schema.required || []) {
+      if (values[k] === undefined) { error = `请填写「${g.input_schema.properties[k].title || k}」`; break; }
+    }
+  }
+  return { values, error };
+}
+
+function rememberProject(p) {
+  const list = [p, ...store.get("wwk.projects", []).filter((x) => x !== p)].slice(0, 8);
+  store.set("wwk.projects", list);
+  $("recent-projects").innerHTML = list.map((x) => `<option value="${esc(x)}"></option>`).join("");
+}
+
+$("run-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const { values, error } = collect(true);
+  $("form-error").textContent = error;
+  if (error) return;
+  $("run-btn").disabled = true;
+  try {
+    const { id } = await api("/api/runs", { method: "POST", body: JSON.stringify({ graph: selected, input: values }) });
+    rememberProject(values.project_root);
+    await refreshRuns();
+    openRun(id);
+  } catch (err) {
+    $("form-error").textContent = err.message;
+  } finally {
+    $("run-btn").disabled = false;
+  }
+};
+
+// ---------- 运行记录 ----------
+const STATUS = {
+  running: ["运行中", "running"], delivered: ["已交付", "ok"], broken: ["已熔断", "bad"], error: ["运行出错", "bad"], done: ["已结束", ""],
+};
+function statusOf(r) { return r.status === "running" ? "running" : r.status === "error" ? "error" : (r.result_status || r.result?.status || "done"); }
+function chip(r) { const [t, c] = STATUS[statusOf(r)] || STATUS.done; return `<span class="chip ${c}">${t}</span>`; }
+const fmtTime = (s) => new Date(s * 1000).toLocaleTimeString("zh-CN", { hour12: false });
+
+let current = null;
+async function refreshRuns() {
+  const runs = await api("/api/runs");
+  $("runs").innerHTML = runs.length ? runs.map((r) =>
+    `<li><button type="button" data-id="${r.id}" aria-current="${r.id === current?.id}">${chip(r)}<span class="t">${esc(r.graph)}${r.requirement ? "：" + esc(r.requirement) : ""}</span><span class="meta">${fmtTime(r.started)}${r.coding_agent ? " · " + esc(agentLabel(r.coding_agent)) : ""} · ${esc(r.project_root)}</span></button></li>`).join("")
+    : '<li class="empty">还没有运行记录</li>';
+  $("runs").querySelectorAll("button").forEach((b) => b.onclick = () => openRun(b.dataset.id));
+}
+
+// ---------- 运行视图 ----------
+let pollTimer = null;
+function openRun(id) {
+  clearTimeout(pollTimer);
+  current = { id, next: 0, nodes: {}, taken: new Set(), last: null, logs: [] };
+  $("placeholder").classList.add("hidden");
+  $("run-view").classList.remove("hidden");
+  $("log").innerHTML = "";
+  poll();
+  refreshRuns();
+}
+
+async function poll() {
+  const run = current;
+  if (!run) return;
+  let data;
+  try { data = await api(`/api/runs/${run.id}?after=${run.next}`); setConn(true, "已连接本地服务"); }
+  catch (err) { setConn(false, err.message); pollTimer = setTimeout(poll, 2000); return; }
+  if (run !== current) return;
+  run.next = data.next;
+  for (const ev of data.events) applyEvent(run, ev);
+  renderRun(data);
+  if (data.status === "running") pollTimer = setTimeout(poll, 600);
+  else refreshRuns();
+}
+
+function applyEvent(run, ev) {
+  if (ev.type === "node_start") {
+    const n = run.nodes[ev.node] ||= { starts: 0, ends: 0, error: null };
+    n.starts++;
+    if (run.last) run.taken.add(run.last + "→" + ev.node); else run.taken.add("__start__→" + ev.node);
+    run.last = ev.node;
+  } else if (ev.type === "node_end") {
+    const n = run.nodes[ev.node] ||= { starts: 0, ends: 0, error: null };
+    n.ends++; n.error = ev.error;
+  } else if (ev.type === "log") {
+    appendLog(ev);
+  } else if (ev.type === "end" && run.last) {
+    run.taken.add(run.last + "→__end__");
+  }
+}
+
+function appendLog(ev) {
+  const box = $("log");
+  const stick = box.scrollTop + box.clientHeight >= box.scrollHeight - 24;
+  const text = esc(ev.text)
+    .replace(/^(\s*)(✔.*)$/gm, '$1<span class="ok">$2</span>')
+    .replace(/^(\s*)(✘.*|VERIFY FAIL.*|Traceback.*)$/gm, '$1<span class="bad">$2</span>')
+    .replace(/^(\[[^\]]+\])/gm, '<span class="tag">$1</span>');
+  box.insertAdjacentHTML("beforeend", `<span class="t">${String(ev.t.toFixed(1)).padStart(6)}s </span>${text}\n`);
+  if (stick) box.scrollTop = box.scrollHeight;
+}
+
+function renderRun(data) {
+  const g = GRAPHS.find((x) => x.name === data.graph);
+  $("v-graph").textContent = data.graph;
+  $("v-status").outerHTML = chip(data).replace('class="chip', 'id="v-status" class="chip');
+  const end = data.finished || Date.now() / 1000;
+  $("v-elapsed").textContent = `开始于 ${fmtTime(data.started)} · 用时 ${Math.max(0, end - data.started).toFixed(1)} 秒`
+    + (data.coding_agent ? ` · 编程 agent：${agentLabel(data.coding_agent)}` : "");
+  $("v-project").textContent = data.project_root;
+  if (g) $("diagram").innerHTML = drawGraph(g, current);
+
+  const r = data.result || {};
+  const st = statusOf(data);
+  const summary = data.status === "running" ? "运行中，节点进度和日志实时更新…"
+    : data.status === "error" ? `运行出错：${data.error}` : (r.summary || "运行结束。");
+  $("v-summary").textContent = summary;
+  $("v-summary").className = "summary " + (st === "delivered" ? "ok" : st === "broken" || st === "error" ? "bad" : "");
+  const facts = [];
+  if (r.verify_exit !== undefined) facts.push(["门禁退出码", `${r.verify_exit}（${{ 0: "通过", 1: "未通过", 2: "规则/环境错误" }[r.verify_exit] ?? "?"}）`]);
+  if (r.attempt !== undefined) facts.push(["门禁失败轮数", r.attempt]);
+  if (r.break_reason) facts.push(["熔断原因码", r.break_reason.split(":")[0]]);
+  if (r.status) facts.push(["结果", `${{ delivered: "已交付", broken: "已熔断" }[r.status] ?? r.status}（${r.status}）`]);
+  $("v-facts").innerHTML = facts.map(([k, v]) => `<div class="fact"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join("");
+
+  const fails = r.failures || [];
+  $("failures-panel").classList.toggle("hidden", !fails.length);
+  $("failures-title").textContent = `门禁失败项（${fails.length}）`;
+  $("failures").innerHTML = fails.map((f) =>
+    `<tr><td><span class="code">${esc(f.code)}</span></td><td><code>${esc(f.check)}</code></td><td>${esc(f.message)}${(f.locations || []).slice(0, 6).map((l) => `<span class="loc">${esc(l)}</span>`).join("")}</td></tr>`).join("");
+}
+
+// ---------- 流程图：按 DFS 去掉回边后分层，回边画成下方弧线 ----------
+function drawGraph(g, run) {
+  const out = {}; g.nodes.forEach((n) => out[n] = []);
+  g.edges.forEach((e) => out[e.source]?.push(e));
+  const back = new Set(), onStack = new Set(), seen = new Set();
+  (function dfs(n) {
+    seen.add(n); onStack.add(n);
+    for (const e of out[n] || []) {
+      if (onStack.has(e.target)) back.add(e.source + "→" + e.target);
+      else if (!seen.has(e.target)) dfs(e.target);
+    }
+    onStack.delete(n);
+  })("__start__");
+  const layer = { __start__: 0 };
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const e of g.edges) {
+      if (back.has(e.source + "→" + e.target) || layer[e.source] === undefined) continue;
+      const l = layer[e.source] + 1;
+      if ((layer[e.target] ?? -1) < l) { layer[e.target] = l; changed = true; }
+    }
+  }
+  // 只通向“结束”的节点（交付、熔断）是出口：放进同一列，图才整齐
+  const sinks = g.nodes.filter((n) => n !== "__end__" && n !== "__start__" && (out[n] || []).length && out[n].every((e) => e.target === "__end__"));
+  if (sinks.length > 1) {
+    const last = Math.max(...sinks.map((n) => layer[n] ?? 0));
+    sinks.forEach((n) => layer[n] = last);
+    if (layer.__end__ !== undefined) layer.__end__ = last + 1;
+  }
+  const cols = [];
+  g.nodes.forEach((n) => (cols[layer[n] ?? 0] ||= []).push(n));
+  for (let i = 0; i < cols.length; i++) cols[i] ||= [];
+  const W = 100, H = 42, GX = 48, GY = 26, PAD = 16, TW = 32;
+  const term = (n) => n === "__start__" || n === "__end__";
+  const colW = cols.map((c) => c.length && c.every(term) ? TW : W);
+  const colX = [];
+  colW.reduce((x, w, i) => (colX[i] = x, x + w + GX), PAD);
+  const colH = Math.max(...cols.map((c) => c.length)) * (H + GY) - GY;
+  // 跨列的前向边（如 编码 → 熔断）若画直线会从中间节点背后穿过，看起来像从别的节点出发：改走上方弧线
+  const span = (e) => (layer[e.target] ?? 0) - (layer[e.source] ?? 0);
+  const longEdges = g.edges.filter((e) => !back.has(e.source + "→" + e.target) && span(e) > 1 && !term(e.source) && !term(e.target));
+  const TOP = longEdges.length ? 44 : 0;
+  const pos = {};
+  cols.forEach((c, i) => {
+    const top = PAD + TOP + (colH - (c.length * (H + GY) - GY)) / 2;
+    c.forEach((n, j) => pos[n] = { x: colX[i] + (colW[i] - (term(n) ? TW : W)) / 2, y: top + j * (H + GY), w: term(n) ? TW : W });
+  });
+  const width = colX[colX.length - 1] + colW[colW.length - 1] + PAD;
+  const height = PAD * 2 + TOP + colH + (back.size ? 56 : 0);
+  const cx = (n) => pos[n].x + pos[n].w / 2, cy = (n) => pos[n].y + H / 2;
+  let edges = "";
+  for (const e of g.edges) {
+    const key = e.source + "→" + e.target;
+    const cls = "e" + (e.conditional ? " cond" : "") + (run.taken.has(key) ? " taken" : "");
+    const mk = `url(#arr${run.taken.has(key) ? "-on" : ""})`;
+    if (back.has(key)) {
+      const x1 = cx(e.source), x2 = cx(e.target), y = PAD + TOP + colH + 40;
+      edges += `<path class="${cls}" marker-end="${mk}" d="M${x1},${pos[e.source].y + H} C${x1},${y} ${x2},${y} ${x2},${pos[e.target].y + H + 2}"/>`;
+    } else if (longEdges.includes(e)) {
+      // 从源节点顶部上拱，在目标前的列间空隙里竖直落下，再从左侧进入目标——不压住任何节点
+      const i = longEdges.indexOf(e);
+      const x1 = cx(e.source) + (i % 2 ? 10 : -10), y = PAD + 6 + i * 8;
+      const xin = pos[e.target].x - 14 - (i % 3) * 6, ty = cy(e.target);
+      edges += `<path class="${cls}" marker-end="${mk}" d="M${x1},${pos[e.source].y} C${x1},${y} ${x1},${y} ${(x1 + xin) / 2},${y} S${xin},${y} ${xin},${Math.min(ty - 14, y + 30)} L${xin},${ty - 10} Q${xin},${ty} ${pos[e.target].x - 2},${ty}"/>`;
+    } else {
+      const x1 = term(e.source) ? cx(e.source) + 14 : pos[e.source].x + pos[e.source].w, y1 = cy(e.source);
+      const x2 = term(e.target) ? cx(e.target) - 16 : pos[e.target].x - 2, y2 = cy(e.target);
+      const mx = (x1 + x2) / 2;
+      edges += `<path class="${cls}" marker-end="${mk}" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>`;
+    }
+  }
+  let nodes = "";
+  for (const n of g.nodes) {
+    if (term(n)) {
+      nodes += `<g class="n terminal"><circle cx="${cx(n)}" cy="${cy(n)}" r="14"/><text x="${cx(n)}" y="${cy(n) + 4}" text-anchor="middle">${n === "__start__" ? "开始" : "结束"}</text></g>`;
+      continue;
+    }
+    const s = run.nodes[n];
+    let cls = "";
+    if (s) cls = s.error ? "fail" : s.starts > s.ends ? "running" : n === "熔断" ? "stop" : "done";
+    const count = s && s.starts > 1 ? `<text class="count" x="${pos[n].x + W - 8}" y="${pos[n].y + 14}" text-anchor="end">×${s.starts}</text>` : "";
+    nodes += `<g class="n ${cls}"><title>${esc(n)}${s ? `：执行 ${s.starts} 次` : "：未执行"}</title><rect x="${pos[n].x}" y="${pos[n].y}" width="${W}" height="${H}" rx="8"/><text x="${cx(n)}" y="${cy(n) + 5}" text-anchor="middle">${esc(n)}</text>${count}</g>`;
+  }
+  const marker = (id, color) => `<marker id="${id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${color}"/></marker>`;
+  return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(g.name)}流程图"><defs>${marker("arr", "var(--line-2)")}${marker("arr-on", "var(--accent)")}</defs>${edges}${nodes}</svg>`;
+}
+
+// ---------- 启动 ----------
+(async () => {
+  try {
+    [GRAPHS, AGENTS] = await Promise.all([api("/api/graphs"), api("/api/agents")]);
+    setConn(true, "已连接本地服务");
+  } catch (err) {
+    setConn(false, err.message);
+    return;
+  }
+  const projects = store.get("wwk.projects", []);
+  $("recent-projects").innerHTML = projects.map((x) => `<option value="${esc(x)}"></option>`).join("");
+  const remembered = store.get("wwk.graph", null);
+  selectGraph(GRAPHS.some((g) => g.name === remembered) ? remembered : GRAPHS[0].name);
+  await refreshRuns();
+  const runs = await api("/api/runs");
+  if (runs[0]) openRun(runs[0].id);
+})();
+</script>
+</body>
+</html>

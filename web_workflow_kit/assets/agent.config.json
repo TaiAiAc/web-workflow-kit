@@ -1,0 +1,84 @@
+{
+  "version": "0.2.0",
+  "project_root": ".",
+  "max_retries": 3,
+  "state_dir": ".agent",
+  "verify": {
+    "rules": null,
+    "type": null,
+    "timeout_sec": 3600
+  },
+  "diff": {
+    "max_chars": 12000,
+    "context_lines": 3
+  },
+  "design": {
+    "enabled": false,
+    "max_chars": 20000,
+    "tools": ["get_selection_node", "get_variables"],
+    "mcp": {
+      "command": "npx",
+      "args": ["-y", "@mastergo/vibe-mcp@1.0.31"],
+      "url": "http://localhost:30678",
+      "env_keys": []
+    }
+  },
+  "spec": {
+    "backend": "claude_cli",
+    "model": null,
+    "timeout_sec": 600
+  },
+  "code": {
+    "agent": "claude",
+    "timeout_sec": 1800
+  },
+  "coding_agents": {
+    "claude": {
+      "label": "Claude Code",
+      "backend": "claude_cli",
+      "requires": "claude",
+      "model": null,
+      "max_turns": 60,
+      "permission_mode": "acceptEdits"
+    },
+    "codex": {
+      "label": "Codex",
+      "backend": "acp",
+      "agent": "codex",
+      "command": null,
+      "requires": "npx"
+    },
+    "opencode": {
+      "label": "OpenCode",
+      "backend": "acp",
+      "agent": "opencode",
+      "command": ["opencode", "acp"],
+      "requires": "opencode"
+    },
+    "dsh": {
+      "label": "DeepSeek Harness",
+      "backend": "dsh_cli",
+      "command": ["dsh", "headless", "{prompt}"],
+      "requires": "dsh"
+    }
+  },
+  "review": {
+    "backend": "auto",
+    "dsh_command": ["dsh", "headless", "{prompt}"],
+    "base_url": "https://api.deepseek.com",
+    "model": "deepseek-chat",
+    "api_key_env": "DEEPSEEK_API_KEY",
+    "timeout_sec": 180
+  },
+  "fix": {
+    "backend": "dsh_cli",
+    "command": ["dsh", "headless", "{prompt}"],
+    "timeout_sec": 1800
+  },
+  "notify": {
+    "dedup_hours": 24
+  },
+  "checkpoint": {
+    "enabled": true
+  }
+}
