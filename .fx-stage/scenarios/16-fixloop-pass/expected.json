@@ -1,0 +1,11 @@
+{
+  "kind": "fixloop",
+  "desc": "修复回环一轮通过：门禁失败 → 审阅跳过 → 修复脚本补上入口页 → 复验通过 → delivered",
+  "status": "delivered",
+  "attempt": 1,
+  "reset": [
+    "public/index.html",
+    "dist",
+    ".agent"
+  ]
+}

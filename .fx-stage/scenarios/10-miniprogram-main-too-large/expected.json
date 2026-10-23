@@ -1,0 +1,20 @@
+{
+  "kind": "gate",
+  "desc": "小程序主包超限：PACKAGE_TOO_LARGE（子包已被排除，只报主包）",
+  "exit": 1,
+  "codes": [
+    "PACKAGE_TOO_LARGE"
+  ],
+  "statuses": {
+    "build": "pass",
+    "artifacts": "pass",
+    "package_size": "fail"
+  },
+  "messages": [
+    "main package",
+    "KB > 200KB"
+  ],
+  "reset": [
+    "dist"
+  ]
+}

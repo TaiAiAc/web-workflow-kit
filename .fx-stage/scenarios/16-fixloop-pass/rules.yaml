@@ -1,0 +1,15 @@
+version: 1
+project_type: web
+defaults:
+  timeout_sec: 120
+  max_detail_chars: 3000
+  fail_fast: false
+profiles:
+  web:
+    checks: [build, artifacts]
+    build:
+      # 每次构建都先清空 dist，再从 public 拷入口：缺 public/index.html 就构建失败
+      run: node scripts/build.mjs
+    artifacts:
+      dir: dist
+      required: [index.html]

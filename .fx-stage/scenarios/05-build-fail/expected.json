@@ -1,0 +1,24 @@
+{
+  "kind": "gate",
+  "desc": "构建失败：BUILD_FAIL，artifacts 因依赖 build 被标为 skip（reason: build failed）",
+  "exit": 1,
+  "codes": [
+    "BUILD_FAIL"
+  ],
+  "statuses": {
+    "typecheck": "pass",
+    "lint": "pass",
+    "test": "pass",
+    "build": "fail",
+    "artifacts": "skip"
+  },
+  "locations": [
+    "src/main.ts:4:1"
+  ],
+  "messages": [
+    "build failed"
+  ],
+  "reset": [
+    "dist"
+  ]
+}

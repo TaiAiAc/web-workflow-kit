@@ -1,0 +1,34 @@
+{
+  "version": "0.2.0",
+  "project_root": ".",
+  "max_retries": 2,
+  "state_dir": ".agent",
+  "verify": {
+    "timeout_sec": 300
+  },
+  "diff": {
+    "max_chars": 12000,
+    "context_lines": 3
+  },
+  "design": {
+    "enabled": false
+  },
+  "review": {
+    "backend": "skip"
+  },
+  "fix": {
+    "backend": "command",
+    "command": [
+      "node",
+      "scripts/fix.mjs",
+      "{prompt}"
+    ],
+    "timeout_sec": 120
+  },
+  "notify": {
+    "dedup_hours": 24
+  },
+  "checkpoint": {
+    "enabled": false
+  }
+}

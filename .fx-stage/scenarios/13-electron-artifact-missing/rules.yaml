@@ -1,0 +1,22 @@
+version: 1
+project_type: electron
+defaults:
+  timeout_sec: 120
+profiles:
+  electron:
+    checks: [build, unpacked, installer, smoke]
+    build:
+      run: node scripts/build.mjs
+    unpacked:
+      dir: dist/win-unpacked
+      asar: resources/app.asar
+      asar_required: [package.json]
+      check_version: true
+    installer:
+      dir: dist
+      pattern: "*.exe"
+      latest_yml: latest.yml
+    smoke:
+      exe: dist/win-unpacked/App.exe
+      args: []
+      alive_ms: 3000

@@ -1,0 +1,21 @@
+version: 1
+project_type: web
+defaults:
+  timeout_sec: 120
+  max_detail_chars: 3000
+  fail_fast: false
+commands:
+  typecheck:
+    run: node scripts/typecheck.mjs
+  lint:
+    run: node scripts/lint.mjs
+  test:
+    run: node scripts/test.mjs
+profiles:
+  web:
+    checks: [typecheck, lint, test, build, artifacts]
+    build:
+      run: node scripts/build.mjs
+    artifacts:
+      dir: dist
+      required: [index.html, assets/app.js]

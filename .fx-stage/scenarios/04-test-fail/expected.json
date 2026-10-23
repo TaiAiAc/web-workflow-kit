@@ -1,0 +1,24 @@
+{
+  "kind": "gate",
+  "desc": "单测失败：TEST_FAIL，带测试文件行列号",
+  "exit": 1,
+  "codes": [
+    "TEST_FAIL"
+  ],
+  "statuses": {
+    "typecheck": "pass",
+    "lint": "pass",
+    "test": "fail",
+    "build": "pass",
+    "artifacts": "pass"
+  },
+  "locations": [
+    "tests/login.spec.ts:12:5"
+  ],
+  "messages": [
+    "exited with 1"
+  ],
+  "reset": [
+    "dist"
+  ]
+}

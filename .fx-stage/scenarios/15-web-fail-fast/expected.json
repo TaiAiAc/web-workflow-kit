@@ -1,0 +1,24 @@
+{
+  "kind": "gate",
+  "desc": "fail_fast: true：typecheck 失败后其余检查全部 skip（reason: fail_fast）",
+  "exit": 1,
+  "codes": [
+    "TYPECHECK_FAIL"
+  ],
+  "statuses": {
+    "typecheck": "fail",
+    "lint": "skip",
+    "test": "skip",
+    "build": "skip",
+    "artifacts": "skip"
+  },
+  "locations": [
+    "src/api/login.ts:9:15"
+  ],
+  "messages": [
+    "fail_fast"
+  ],
+  "reset": [
+    "dist"
+  ]
+}

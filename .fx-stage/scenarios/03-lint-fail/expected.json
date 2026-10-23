@@ -1,0 +1,25 @@
+{
+  "kind": "gate",
+  "desc": "lint 失败：LINT_FAIL，带 eslint 风格的规则名与行列号",
+  "exit": 1,
+  "codes": [
+    "LINT_FAIL"
+  ],
+  "statuses": {
+    "typecheck": "pass",
+    "lint": "fail",
+    "test": "pass",
+    "build": "pass",
+    "artifacts": "pass"
+  },
+  "locations": [
+    "src/api/login.ts:5:3",
+    "src/views/LoginPage.vue:8:7"
+  ],
+  "messages": [
+    "exited with 1"
+  ],
+  "reset": [
+    "dist"
+  ]
+}

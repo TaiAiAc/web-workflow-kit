@@ -1,0 +1,27 @@
+version: 1
+project_type: electron
+defaults:
+  timeout_sec: 120
+  max_detail_chars: 3000
+  fail_fast: false
+commands:
+  typecheck:
+    run: node scripts/typecheck.mjs
+  lint:
+    run: node scripts/lint.mjs
+  test:
+    run: node scripts/test.mjs
+profiles:
+  electron:
+    checks: [typecheck, lint, test, build, unpacked, installer]
+    build:
+      run: node scripts/build-electron.mjs
+    unpacked:
+      dir: dist/win-unpacked
+      asar: resources/app.asar
+      asar_required: [package.json]
+      check_version: true
+    installer:
+      dir: dist
+      pattern: "*.exe"
+      latest_yml: latest.yml

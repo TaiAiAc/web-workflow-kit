@@ -1,0 +1,14 @@
+{
+  "kind": "gate",
+  "desc": "规则错误：checks 里列了 build 却没写 run，也没有同名内置检查 → 退出码 2",
+  "exit": 2,
+  "codes": [
+    "CONFIG_ERROR"
+  ],
+  "statuses": {
+    "typecheck": "pass"
+  },
+  "messages": [
+    "unknown check \"build\""
+  ]
+}

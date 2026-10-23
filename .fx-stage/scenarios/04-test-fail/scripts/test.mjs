@@ -1,0 +1,5 @@
+console.log(" FAIL  tests/login.spec.ts > 登录 > 验证码正确时返回 token")
+console.log("AssertionError: expected undefined to be truthy")
+console.log(" \u276f tests/login.spec.ts:12:5")
+console.log(" Tests  1 failed (1)")
+process.exit(1)

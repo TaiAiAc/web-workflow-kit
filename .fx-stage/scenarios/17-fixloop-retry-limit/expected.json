@@ -1,0 +1,12 @@
+{
+  "kind": "fixloop",
+  "desc": "修复回环耗尽重试：修复脚本什么都不改，第 2 次门禁失败后熔断（RETRY_LIMIT）",
+  "status": "broken",
+  "break_reason": "RETRY_LIMIT",
+  "attempt": 2,
+  "reset": [
+    "public/index.html",
+    "dist",
+    ".agent"
+  ]
+}

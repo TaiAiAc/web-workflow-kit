@@ -1,0 +1,12 @@
+{
+  "kind": "gate",
+  "desc": "规则错误：project_type 不在枚举内 → 退出码 2（不是门禁失败，是配置错误）",
+  "exit": 2,
+  "codes": [
+    "CONFIG_ERROR"
+  ],
+  "statuses": {},
+  "messages": [
+    "project_type must be one of"
+  ]
+}

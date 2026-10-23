@@ -1,0 +1,16 @@
+version: 1
+project_type: miniprogram
+defaults:
+  timeout_sec: 120
+profiles:
+  miniprogram:
+    checks: [build, artifacts, package_size]
+    build:
+      run: node scripts/build.mjs
+    artifacts:
+      dir: dist/build/mp-weixin
+      required: [app.json, app.js, project.config.json]
+    package_size:
+      dir: dist/build/mp-weixin
+      main_max_kb: 2048
+      total_max_kb: 20480

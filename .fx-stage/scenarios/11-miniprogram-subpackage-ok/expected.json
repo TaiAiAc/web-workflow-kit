@@ -1,0 +1,14 @@
+{
+  "kind": "gate",
+  "desc": "小程序子包不计入主包：主包 50KB + 子包 2MB 仍全绿（证明 subPackages 被排除）",
+  "exit": 0,
+  "codes": [],
+  "statuses": {
+    "build": "pass",
+    "artifacts": "pass",
+    "package_size": "pass"
+  },
+  "reset": [
+    "dist"
+  ]
+}

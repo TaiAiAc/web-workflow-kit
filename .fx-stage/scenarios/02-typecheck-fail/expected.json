@@ -1,0 +1,25 @@
+{
+  "kind": "gate",
+  "desc": "类型检查失败：TYPECHECK_FAIL 带 src 文件行列号，其余检查照跑",
+  "exit": 1,
+  "codes": [
+    "TYPECHECK_FAIL"
+  ],
+  "statuses": {
+    "typecheck": "fail",
+    "lint": "pass",
+    "test": "pass",
+    "build": "pass",
+    "artifacts": "pass"
+  },
+  "locations": [
+    "src/api/login.ts:9:15",
+    "src/views/LoginPage.vue:21:5"
+  ],
+  "messages": [
+    "exited with 1"
+  ],
+  "reset": [
+    "dist"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "kind": "gate",
+  "desc": "构建成功但产物不全：ARTIFACT_MISSING（dist/index.html 没生成）",
+  "exit": 1,
+  "codes": [
+    "ARTIFACT_MISSING"
+  ],
+  "statuses": {
+    "typecheck": "pass",
+    "lint": "pass",
+    "test": "pass",
+    "build": "pass",
+    "artifacts": "fail"
+  },
+  "messages": [
+    "required artifact missing: dist/index.html"
+  ],
+  "reset": [
+    "dist"
+  ]
+}

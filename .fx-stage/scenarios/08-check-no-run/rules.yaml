@@ -1,0 +1,11 @@
+version: 1
+project_type: web
+defaults:
+  timeout_sec: 120
+profiles:
+  web:
+    checks: [typecheck, build]
+    typecheck:
+      run: node scripts/typecheck.mjs
+    # build 忘了写 run：既不是命令检查，也不是内置检查
+    build: {}

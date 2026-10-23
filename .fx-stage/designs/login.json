@@ -1,0 +1,32 @@
+{
+  "documentName": "登录页 / 移动端",
+  "source": "local-export",
+  "frame": { "name": "Login", "width": 375, "height": 812 },
+  "tokens": {
+    "color.primary": "#2F6BFF",
+    "color.primaryPressed": "#2557D6",
+    "color.bg": "#FFFFFF",
+    "color.text": "#1A1A1A",
+    "color.textMuted": "#8A8F99",
+    "radius.card": 12,
+    "radius.button": 8,
+    "font.title": "PingFang SC 24/32 Semibold",
+    "font.body": "PingFang SC 14/22 Regular",
+    "space.gap": 16
+  },
+  "layers": [
+    { "name": "Logo", "type": "IMAGE", "x": 155, "y": 96, "w": 64, "h": 64, "asset": "logo.png" },
+    { "name": "Title", "type": "TEXT", "x": 24, "y": 188, "w": 327, "h": 32, "text": "欢迎回来", "token": "font.title" },
+    { "name": "Subtitle", "type": "TEXT", "x": 24, "y": 228, "w": 327, "h": 22, "text": "登录以继续使用", "token": "font.body" },
+    { "name": "PhoneInput", "type": "INPUT", "x": 24, "y": 288, "w": 327, "h": 48, "placeholder": "手机号", "radius": 8 },
+    { "name": "CodeInput", "type": "INPUT", "x": 24, "y": 352, "w": 200, "h": 48, "placeholder": "验证码", "radius": 8 },
+    { "name": "SendCode", "type": "BUTTON", "x": 232, "y": 352, "w": 119, "h": 48, "text": "获取验证码", "variant": "ghost" },
+    { "name": "Submit", "type": "BUTTON", "x": 24, "y": 432, "w": 327, "h": 48, "text": "登录", "variant": "primary" },
+    { "name": "Agreement", "type": "TEXT", "x": 24, "y": 496, "w": 327, "h": 20, "text": "登录即同意《用户协议》和《隐私政策》", "token": "font.body" }
+  ],
+  "states": {
+    "Submit": ["default", "loading", "disabled"],
+    "PhoneInput": ["default", "focus", "error"]
+  },
+  "notes": ["手机号与验证码均必填；验证码 60 秒倒计时", "提交失败在按钮下方显示红色提示，不弹 toast"]
+}

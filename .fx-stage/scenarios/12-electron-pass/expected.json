@@ -1,0 +1,17 @@
+{
+  "kind": "gate",
+  "desc": "electron 全链路：app.asar 条目与版本正确、安装包名含版本、latest.yml 的 sha512 校验通过",
+  "exit": 0,
+  "codes": [],
+  "statuses": {
+    "typecheck": "pass",
+    "lint": "pass",
+    "test": "pass",
+    "build": "pass",
+    "unpacked": "pass",
+    "installer": "pass"
+  },
+  "reset": [
+    "dist"
+  ]
+}

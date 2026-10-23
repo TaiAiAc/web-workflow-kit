@@ -1,0 +1,22 @@
+{
+  "kind": "gate",
+  "desc": "electron 构建成功但没有产物：unpacked / installer / smoke 三个检查各自报 ARTIFACT_MISSING",
+  "exit": 1,
+  "codes": [
+    "ARTIFACT_MISSING"
+  ],
+  "statuses": {
+    "build": "pass",
+    "unpacked": "fail",
+    "installer": "fail",
+    "smoke": "fail"
+  },
+  "messages": [
+    "unpacked dir missing",
+    "no installer matches",
+    "smoke exe missing"
+  ],
+  "reset": [
+    "dist"
+  ]
+}

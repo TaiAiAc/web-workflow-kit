@@ -1,0 +1,11 @@
+{
+  "kind": "fixloop",
+  "desc": "门禁规则错误（退出码 2）：直接熔断 GATE_CONFIG_ERROR，不进审阅、不跑修复",
+  "status": "broken",
+  "break_reason": "GATE_CONFIG_ERROR",
+  "attempt": 1,
+  "reset": [
+    "dist",
+    ".agent"
+  ]
+}

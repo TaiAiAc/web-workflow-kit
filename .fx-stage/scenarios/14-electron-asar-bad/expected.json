@@ -1,0 +1,21 @@
+{
+  "kind": "gate",
+  "desc": "app.asar 缺 package.json 且版本对不上：ASAR_MISSING_ENTRY + VERSION_MISMATCH",
+  "exit": 1,
+  "codes": [
+    "ASAR_MISSING_ENTRY",
+    "VERSION_MISMATCH"
+  ],
+  "statuses": {
+    "build": "pass",
+    "unpacked": "fail",
+    "installer": "pass"
+  },
+  "messages": [
+    "app.asar lacks package.json",
+    "app.asar package.json version <none> != project 1.0.0"
+  ],
+  "reset": [
+    "dist"
+  ]
+}

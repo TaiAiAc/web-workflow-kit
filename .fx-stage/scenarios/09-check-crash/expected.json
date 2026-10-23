@@ -1,0 +1,19 @@
+{
+  "kind": "gate",
+  "desc": "检查自身崩溃（app.json 不是合法 JSON）：失败码 CONFIG_ERROR 但退出码是 1",
+  "exit": 1,
+  "codes": [
+    "CONFIG_ERROR"
+  ],
+  "statuses": {
+    "build": "pass",
+    "artifacts": "pass",
+    "package_size": "fail"
+  },
+  "messages": [
+    "check crashed"
+  ],
+  "reset": [
+    "dist"
+  ]
+}

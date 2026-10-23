@@ -1,0 +1,8 @@
+version: 1
+# 故意写错：合法值是 electron | web | uniapp | miniprogram
+project_type: vue
+profiles:
+  web:
+    checks: [typecheck]
+    typecheck:
+      run: node scripts/typecheck.mjs
