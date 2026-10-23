@@ -73,13 +73,24 @@ Windows 上 `--python` 换成 `.venv/Scripts/python.exe`。只跑部分场景加
 
 `tests/stub_acp_agent.py` 是一个不调模型的 ACP 桩：按环境变量申请写文件权限，获批才写，用来验证权限策略和 stop_reason 映射。
 
+## TS 核心（迁移中）
+
+`core/` 是流水线核心的 TypeScript 版本，目标是让桌面端不再依赖 Python。第一阶段已移植配置、门禁、主图、审阅、Claude Code / 命令行 agent 和熔断邮件，18 个场景在 TS 核心上全部通过；ACP agent、MasterGo、断点恢复在第二阶段。进度和用法见 [core/README.md](../core/README.md)。
+
+```bash
+cd core && pnpm install && pnpm typecheck && pnpm test
+```
+
+改流水线行为时，Python 版和 TS 核心要一起改，直到迁移完成。
+
 ## CI
 
 [.github/workflows/ci.yml](../.github/workflows/ci.yml) 在 Ubuntu、Windows 和 macOS 上分别：
 
 1. 门禁：类型检查、测试，并重新打包校验 `verify.mjs` 与源码一致；
 2. 流水线：安装 `.[checkpoint,acp]` 后跑全部 Python 测试和 `.fx-stage` 的全部场景；
-3. 打包：构建 wheel，装进干净的虚拟环境，在仓库外的目录运行 `agent --version` / `--init` / `--verify`。
+3. TS 核心：类型检查、测试，并用 TS 核心跑 `.fx-stage` 的全部场景；
+4. 打包：构建 wheel，装进干净的虚拟环境，在仓库外的目录运行 `agent --version` / `--init` / `--verify`。
 
 ## Windows 上的注意事项
 

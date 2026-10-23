@@ -35,6 +35,37 @@ jobs:
           git diff --exit-code -- ../web_workflow_kit/assets/verify.mjs || (echo "::error::verify.mjs is stale - run 'pnpm build' in verify/ and commit" && exit 1)
         shell: bash
 
+  core:
+    name: TS core (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: core/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: gate and fix-loop scenarios on the TS core (.fx-stage)
+        shell: bash
+        working-directory: .
+        run: |
+          node .fx-stage/run-all.mjs --verbose \
+            --verify "$PWD/web_workflow_kit/assets/verify.mjs" \
+            --core "$PWD/core"
+
   pipeline:
     name: pipeline (${{ matrix.os }})
     strategy:

@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // 一键跑全部场景：门禁场景直接调 verify.mjs 对比 expected.json；
-// fixloop 场景调 tools/run-fixloop.py（需要装了 kit 的 Python）。
+// fixloop 场景跑一次修复回环：--python 走 Python 版（tools/run-fixloop.py），
+// --core 走 TS 核心（<core>/src/cli.ts fix --json，需先在 core/ 里 pnpm install）；两者都给时用 TS 核心。
 //
 // 用法：
 //   node run-all.mjs --verify <kit>/web_workflow_kit/assets/verify.mjs \
-//                    [--python <venv python>] [--only 02,03] [--verbose]
-// 环境变量：WWK_VERIFY / WWK_PYTHON 同义。
+//                    [--python <venv python> | --core <kit>/core] [--only 02,03] [--verbose]
+// 环境变量：WWK_VERIFY / WWK_PYTHON / WWK_CORE 同义。
 //
 // 退出码：0 全通过 / 1 有失败 / 2 用法或环境错误。
 import { spawnSync } from "node:child_process"
@@ -38,8 +39,20 @@ function pickPython() {
   return null
 }
 
+function pickCore() {
+  for (const c of [flag("--core"), process.env.WWK_CORE].filter(Boolean)) {
+    const dir = resolve(here, c)
+    const tsx = join(dir, "node_modules", "tsx", "dist", "cli.mjs")
+    if (existsSync(join(dir, "src", "cli.ts")) && existsSync(tsx)) return { cli: join(dir, "src", "cli.ts"), tsx }
+    console.error(`--core ${c}：找不到 src/cli.ts 或 node_modules/tsx（先在 core/ 里 pnpm install）`)
+    process.exit(2)
+  }
+  return null
+}
+
 const verifyMjs = pickVerify()
 const python = pickPython()
+const core = pickCore()
 const tmp = mkdtempSync(join(tmpdir(), "wwk-fx-"))
 const rows = []
 let bad = 0
@@ -63,7 +76,9 @@ function gate(dir) {
 }
 
 function fixloop(dir) {
-  const r = spawnSync(python, [join(here, "tools", "run-fixloop.py"), dir], { encoding: "utf8", cwd: here })
+  const r = core
+    ? spawnSync(process.execPath, [core.tsx, core.cli, "fix", "--project", dir, "--json"], { encoding: "utf8", cwd: here })
+    : spawnSync(python, [join(here, "tools", "run-fixloop.py"), dir], { encoding: "utf8", cwd: here })
   let state = null
   try { state = JSON.parse((r.stdout || "").trim()) } catch { state = null }
   return { exit: r.status ?? -1, state, raw: `${r.stdout || ""}${r.stderr || ""}` }
@@ -125,8 +140,8 @@ for (const name of readdirSync(join(here, "scenarios")).sort()) {
   reset(dir, expected.reset)
 
   if ((expected.kind ?? "gate") === "fixloop") {
-    if (!python) {
-      rows.push({ ok: null, name, title, detail: "跳过（没给 --python，fixloop 场景需要 kit 的 Python）" })
+    if (!python && !core) {
+      rows.push({ ok: null, name, title, detail: "跳过（没给 --python 或 --core，fixloop 场景要跑修复回环）" })
       continue
     }
     const r = fixloop(dir)
