@@ -77,6 +77,8 @@ agent ui
 
 `agent ui` 启动后浏览器自动打开 `http://127.0.0.1:8765/`（`--port` 换端口，`--no-browser` 不自动打开）。
 
+同一个控制台也有桌面端（`desktop/`，Electron）：双击打开，自动找 Python、启动后端，用系统对话框选目录，关窗即停止。见 [docs/desktop.md](docs/desktop.md)。
+
 **左侧：发起运行**
 1. 选一张图：
    - **前端交付流水线**：从需求开始，完整跑一遍；
@@ -213,3 +215,4 @@ Claude Code 没登录。终端运行 `claude` 登录后重试。
 - [docs/rules.md](docs/rules.md)：`rules.yaml`、各项检查与失败码
 - [docs/architecture.md](docs/architecture.md)：图与节点、原则如何落地、安全模型、LangGraph Studio / API
 - [docs/development.md](docs/development.md)：开发、测试、打包、CI
+- [docs/desktop.md](docs/desktop.md)：桌面端（Electron）：启动方式、Python 查找顺序、开发与打包

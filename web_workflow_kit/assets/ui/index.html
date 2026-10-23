@@ -335,12 +335,16 @@ function selectGraph(name) {
   }
 }
 
-// 浏览器拿不到所选目录的完整路径，所以由本地服务弹出系统的“选择文件夹”窗口
+// 浏览器拿不到所选目录的完整路径，所以由本地服务弹出系统的“选择文件夹”窗口；
+// 在桌面端里改用 Electron 的原生窗口（不依赖 tkinter，也不会被挡在窗口后面）
 async function pickFolder() {
   const btn = $("pick-btn"), proj = $("f-project_root");
   btn.disabled = true; btn.textContent = "请在弹出的窗口中选择…";
   try {
-    const { path, inspect } = await api("/api/pick-folder", { method: "POST", body: JSON.stringify({ initial: proj.value.trim() || null }) });
+    const initial = proj.value.trim() || null;
+    const { path, inspect } = window.wwkDesktop
+      ? await window.wwkDesktop.pickFolder(initial).then(async (p) => ({ path: p, inspect: p ? await api("/api/inspect?path=" + encodeURIComponent(p)) : null }))
+      : await api("/api/pick-folder", { method: "POST", body: JSON.stringify({ initial }) });
     if (path) {
       proj.value = path;
       store.set("wwk.draft." + selected, collect(false).values);
