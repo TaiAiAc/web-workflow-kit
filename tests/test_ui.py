@@ -113,6 +113,19 @@ class LocalConsoleTest(unittest.TestCase):
         self.assertTrue(info["exists"] and info["package_json"])
         self.assertFalse(self.request("GET", "/api/inspect?path=Z:/nope")[1]["exists"])
 
+    def test_init_project(self):
+        root = temp_dir(self)
+        (root / "agent.config.json").write_text("{}", encoding="utf-8")   # 已有的不覆盖
+        status, body, _ = self.request("POST", "/api/init", {"path": root.as_posix()})
+        self.assertEqual(status, 200)
+        self.assertEqual((body["created"], body["skipped"], body["inspect"]["rules_yaml"]),
+                         (["rules.yaml"], ["agent.config.json"], True))
+        self.assertEqual((root / "agent.config.json").read_text(encoding="utf-8"), "{}")
+        self.assertEqual(self.request("POST", "/api/init", {"path": root.as_posix()})[1]["created"], [])
+        self.assertEqual(self.request("POST", "/api/init", {"path": ""})[1]["error"], "请填写项目路径")
+        self.assertEqual(self.request("POST", "/api/init", {"path": "Z:/nope"})[0], 400)
+        self.assertEqual(self.request("POST", "/api/init", {"path": root.as_posix()}, token=False)[0], 403)
+
     def test_bad_input_gets_chinese_error(self):
         status, body, _ = self.request("POST", "/api/runs", {"graph": N.FIX_LOOP_NAME, "input": {}})
         self.assertEqual((status, body["error"]), (400, "请填写项目路径"))

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws:"
+    />
+    <title>前端交付流水线</title>
+  </head>
+  <body>
+    <main class="boot">
+      <h1>前端交付流水线</h1>
+      <p class="sub">本地前端交付控制台</p>
+
+      <section id="starting" class="panel">
+        <div class="spinner" aria-hidden="true"></div>
+        <p id="starting-text">正在启动…</p>
+      </section>
+
+      <section id="error" class="panel" hidden>
+        <h2 id="error-title"></h2>
+
+        <ul id="failures" class="failures"></ul>
+        <pre id="log" class="log" hidden></pre>
+
+        <div class="help">
+          <p>桌面端需要一个装好 web-workflow-kit 依赖的 Python（≥ 3.10）。推荐装在独立虚拟环境里：</p>
+          <div class="cmd"><code id="cmd-venv"></code><button type="button" data-copy="cmd-venv">复制</button></div>
+          <div class="cmd">
+            <code id="cmd-install"></code><button type="button" data-copy="cmd-install">复制</button>
+          </div>
+          <p class="note">
+            装在 <code>~/wwk-venv</code> 会被自动找到；装在别处请点「选择 Python…」，或设置环境变量
+            <code>WWK_PYTHON</code>。
+          </p>
+        </div>
+
+        <div class="actions">
+          <button id="retry" type="button" class="primary">重试</button>
+          <button id="choose" type="button">选择 Python…</button>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

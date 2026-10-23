@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -44,15 +43,10 @@ def _version() -> str:
 
 
 def _init(root: Path) -> int:
-    from .pipeline.config import DEFAULT_CONFIG, DEFAULT_RULES
+    from .pipeline.config import init_project
 
-    for src in (DEFAULT_RULES, DEFAULT_CONFIG):
-        dst = root / src.name
-        if dst.exists():
-            print(f"skip   {dst} (already exists)")
-        else:
-            shutil.copyfile(src, dst)
-            print(f"create {dst}")
+    for dst, created in init_project(root):
+        print(f"create {dst}" if created else f"skip   {dst} (already exists)")
     print("把 .agent/ 加进项目的 .gitignore；SMTP / API Key 放 ~/.web-workflow-kit/.env 或项目 .env")
     return 0
 

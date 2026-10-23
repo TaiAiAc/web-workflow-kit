@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "target": "esnext", // 目标语言的版本
+    "lib": ["ESNext"],
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "module": "esnext", // 生成代码的模板标准
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "strict": true, // 开启所有严格的类型检查
+    "strictPropertyInitialization": false, // 类的实例属性必须初始化
+    "sourceMap": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true, // 允许export=导出，由import from 导入
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "build/**/*.ts",
+    "main/**/*.ts",
+    "preload/**/*.ts",
+    "electronup.config.ts",
+    "typings/*.d.ts",
+    "package.json"
+  ]
+}

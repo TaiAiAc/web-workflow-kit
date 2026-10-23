@@ -1,0 +1,197 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9;
+  --panel: #ffffff;
+  --text: #1f2328;
+  --muted: #59636e;
+  --border: #d1d9e0;
+  --accent: #0969da;
+  --danger: #cf222e;
+  --code: #eff2f5;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    'Microsoft YaHei',
+    'PingFang SC',
+    sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --panel: #151b23;
+    --text: #e6edf3;
+    --muted: #9198a1;
+    --border: #3d444d;
+    --accent: #4493f8;
+    --danger: #f85149;
+    --code: #212830;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.boot {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 64px 24px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.sub {
+  margin: 4px 0 24px;
+  color: var(--muted);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px;
+}
+
+#starting {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+#starting[hidden],
+#error[hidden] {
+  display: none;
+}
+
+#starting p {
+  margin: 0;
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: var(--danger);
+}
+
+.failures {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.failures li {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.failures li span {
+  color: var(--muted);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.log {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0 0 16px;
+  padding: 12px;
+  background: var(--code);
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.help p {
+  margin: 0 0 8px;
+}
+
+.note {
+  color: var(--muted);
+}
+
+code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+}
+
+.cmd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  background: var(--code);
+  border-radius: 6px;
+}
+
+.cmd code {
+  flex: 1;
+  word-break: break-all;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+button {
+  font: inherit;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.cmd button {
+  padding: 2px 10px;
+  font-size: 12px;
+  flex: none;
+}

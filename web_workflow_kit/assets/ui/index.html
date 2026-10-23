@@ -79,6 +79,8 @@ select { cursor: pointer; }
 .ghost:disabled { opacity: .6; cursor: progress; }
 .check { font-weight: 400; font-size: 12px; line-height: 1.5; }
 .check.ok { color: var(--ok); } .check.warn { color: var(--warn); } .check.bad { color: var(--bad); }
+.link-btn { font: inherit; font-weight: 500; border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; }
+.link-btn:disabled { opacity: .6; cursor: progress; }
 input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 .primary {
   font: inherit; font-weight: 600; border: 0; border-radius: 8px; padding: 10px 14px; cursor: pointer;
@@ -333,12 +335,16 @@ function selectGraph(name) {
   }
 }
 
-// 浏览器拿不到所选目录的完整路径，所以由本地服务弹出系统的“选择文件夹”窗口
+// 浏览器拿不到所选目录的完整路径，所以由本地服务弹出系统的“选择文件夹”窗口；
+// 在桌面端里改用 Electron 的原生窗口（不依赖 tkinter，也不会被挡在窗口后面）
 async function pickFolder() {
   const btn = $("pick-btn"), proj = $("f-project_root");
   btn.disabled = true; btn.textContent = "请在弹出的窗口中选择…";
   try {
-    const { path, inspect } = await api("/api/pick-folder", { method: "POST", body: JSON.stringify({ initial: proj.value.trim() || null }) });
+    const initial = proj.value.trim() || null;
+    const { path, inspect } = window.wwkDesktop
+      ? await window.wwkDesktop.pickFolder(initial).then(async (p) => ({ path: p, inspect: p ? await api("/api/inspect?path=" + encodeURIComponent(p)) : null }))
+      : await api("/api/pick-folder", { method: "POST", body: JSON.stringify({ initial }) });
     if (path) {
       proj.value = path;
       store.set("wwk.draft." + selected, collect(false).values);
@@ -362,11 +368,28 @@ function showCheck(info, error) {
   if (error !== undefined || !info) { el.className = "check bad"; el.textContent = error || ""; return; }
   if (!info.exists) { el.className = "check bad"; el.textContent = "✘ 目录不存在"; return; }
   const parts = [];
-  parts.push(info.package_json ? `✔ package.json${info.name ? `（${info.name}）` : ""}` : "⚠ 没有 package.json，确认这是前端项目根目录");
-  parts.push(info.rules_yaml ? "✔ 有 rules.yaml" : "⚠ 没有 rules.yaml，将用默认门禁规则（可在终端运行 agent --init 生成）");
+  parts.push(esc(info.package_json ? `✔ package.json${info.name ? `（${info.name}）` : ""}` : "⚠ 没有 package.json，确认这是前端项目根目录"));
+  parts.push(info.rules_yaml ? "✔ 有 rules.yaml"
+    : `⚠ 没有 rules.yaml，将用默认门禁规则 <button type="button" class="link-btn" id="init-btn">生成 rules.yaml 和 agent.config.json</button>`);
   if (!info.git) parts.push("⚠ 不是 git 仓库，无法只取本次改动");
   el.className = "check " + (info.package_json && info.rules_yaml && info.git ? "ok" : "warn");
-  el.textContent = parts.join("　");
+  el.innerHTML = parts.join("　") + (initNote ? `<br>${esc(initNote)}` : "");
+  initNote = "";
+  if ($("init-btn")) $("init-btn").onclick = initProject;
+}
+
+// 等同终端里的 agent --init：把默认配置复制进项目，已存在的不覆盖
+let initNote = "";
+async function initProject() {
+  const btn = $("init-btn"), path = $("f-project_root").value.trim();
+  btn.disabled = true; btn.textContent = "生成中…";
+  try {
+    const { created, inspect } = await api("/api/init", { method: "POST", body: JSON.stringify({ path }) });
+    initNote = created.length ? `已在项目里生成 ${created.join("、")}：请打开 rules.yaml，把 project_type 和各项命令改成项目里真实存在的命令` : "";
+    showCheck(inspect);
+  } catch (err) {
+    showCheck(null, err.message);
+  }
 }
 
 function collect(strict) {
