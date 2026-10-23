@@ -7,9 +7,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from scripts.pipeline.acp_agent import DEFAULT_ALLOW_KINDS, DEFAULT_PROTECTED, ACPAgent, is_allowed, map_stop_reason
-from scripts.pipeline.agents import END_TURN, ERROR, MAX_TOKENS
-from scripts.pipeline.design import _clip_each, _decode
+from web_workflow_kit.pipeline.acp_agent import DEFAULT_ALLOW_KINDS, DEFAULT_PROTECTED, ACPAgent, is_allowed, map_stop_reason
+from web_workflow_kit.pipeline.agents import END_TURN, ERROR, MAX_TOKENS
+from web_workflow_kit.pipeline.design import _clip_each, _decode
 from tests.test_pipeline import temp_dir
 
 STUB = str(Path(__file__).with_name("stub_acp_agent.py"))

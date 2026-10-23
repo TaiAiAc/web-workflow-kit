@@ -12,10 +12,10 @@ from langgraph.graph import END, START, StateGraph
 
 from .checkpoint import entry_of, last_thread, new_thread_id, open_checkpointer, remember
 from .codegraph import build_codegraph
-from .deps import Deps
+from .deps import Deps, resolve_deps
 from .diffs import changed_hunks
 from .reviewgraph import build_reviewgraph
-from .state import PipelineState
+from .state import FixLoopInput, PipelineInput, PipelineState
 
 CODE_KEYS = ("design", "spec", "baseline", "code_stop_reason", "break_reason")
 REVIEW_KEYS = ("plan", "fix_stop_reason", "break_reason")
@@ -37,10 +37,12 @@ def route_after_verify(state: PipelineState, max_retries: int) -> str:
     return "review"
 
 
-def build_main_graph(deps: Deps, entry: str = "code", checkpointer: Any = None):
-    """entry="verify" 跳过 codegraph，直接对当前工作区跑门禁闭环。"""
-    cfg, log = deps.cfg, deps.log
-    codegraph, reviewgraph = build_codegraph(deps), build_reviewgraph(deps)
+def build_main_graph(source: Any, entry: str = "code", checkpointer: Any = None):
+    """source：固定的 Deps（REPL/测试），或按 state 现建 Deps 的函数（LangGraph 服务端，见 deps_from_state）。
+
+    entry="verify" 跳过 codegraph，直接对当前工作区跑门禁闭环。
+    """
+    codegraph, reviewgraph = build_codegraph(source), build_reviewgraph(source)
 
     def code_node(state: PipelineState) -> PipelineState:
         return _pick(codegraph.invoke(state), CODE_KEYS)
@@ -49,6 +51,8 @@ def build_main_graph(deps: Deps, entry: str = "code", checkpointer: Any = None):
         return _pick(reviewgraph.invoke(state), REVIEW_KEYS)
 
     def verify_node(state: PipelineState) -> PipelineState:
+        deps = resolve_deps(source, state)
+        cfg, log = deps.cfg, deps.log
         log("[verify] running verify.ts…")
         r = deps.gate()
         attempt = state.get("attempt", 0) + (0 if r.passed else 1)
@@ -68,6 +72,8 @@ def build_main_graph(deps: Deps, entry: str = "code", checkpointer: Any = None):
         return out
 
     def deliver_node(state: PipelineState) -> PipelineState:
+        deps = resolve_deps(source, state)
+        cfg, log = deps.cfg, deps.log
         files = sorted({h["file"] for h in changed_hunks(cfg.project_root, state.get("baseline"), [], 10**9)})
         record = {
             "requirement": state.get("requirement"),
@@ -82,13 +88,15 @@ def build_main_graph(deps: Deps, entry: str = "code", checkpointer: Any = None):
         return {"status": "delivered"}
 
     def breaker_node(state: PipelineState) -> PipelineState:
+        deps = resolve_deps(source, state)
+        log = deps.log
         reason = state.get("break_reason", "")
         # 设计稿读取失败是人就在 REPL 前的操作问题（如没选中图层），不发邮件
         result = "skipped(local error)" if reason.startswith("DESIGN_ERROR") else deps.notifier(dict(state))
         log(f"[breaker] {state.get('break_reason', 'unknown')} — notify: {result}")
         return {"status": "broken"}
 
-    g = StateGraph(PipelineState)
+    g = StateGraph(PipelineState, input_schema=PipelineInput if entry == "code" else FixLoopInput)
     if entry == "code":
         g.add_node("code", code_node)
         g.add_conditional_edges("code", lambda s: "breaker" if s.get("break_reason") else "verify", ["verify", "breaker"])
@@ -98,7 +106,8 @@ def build_main_graph(deps: Deps, entry: str = "code", checkpointer: Any = None):
     g.add_node("breaker", breaker_node)
 
     g.add_edge(START, entry)
-    g.add_conditional_edges("verify", lambda s: route_after_verify(s, cfg.max_retries), ["deliver", "review", "breaker"])
+    g.add_conditional_edges("verify", lambda s: route_after_verify(s, resolve_deps(source, s).cfg.max_retries),
+                            ["deliver", "review", "breaker"])
     g.add_conditional_edges("review", lambda s: "breaker" if s.get("break_reason") else "verify", ["verify", "breaker"])
     g.add_edge("deliver", END)
     g.add_edge("breaker", END)

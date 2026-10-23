@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import operator
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, Literal
+
+from typing_extensions import Required, TypedDict  # Python 3.10 没有 typing.Required
 
 
 class Failure(TypedDict, total=False):
@@ -10,6 +12,17 @@ class Failure(TypedDict, total=False):
     message: str
     locations: list[str]
     detail: str
+
+
+class FixLoopInput(TypedDict):
+    """fix_loop 的输入：不写新代码，只对现有工作区跑门禁 ⇄ 修复。"""
+    project_root: str                 # 目标前端项目的绝对路径
+
+
+class PipelineInput(FixLoopInput, total=False):
+    """主流水线的输入，也是 LangGraph Studio 里的输入表单。"""
+    requirement: Required[str]        # 需求原文
+    design_ref: str | None            # 可选：本地设计稿 .json，或 "mastergo"（读本机 MasterGo 当前选中图层）
 
 
 class PipelineState(TypedDict, total=False):

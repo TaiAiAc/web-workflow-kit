@@ -1,0 +1,2 @@
+# 门禁打包产物：由 verify/build.mjs 生成，CI 校验与源码一致
+web_workflow_kit/assets/verify.mjs linguist-generated=true -diff eol=lf

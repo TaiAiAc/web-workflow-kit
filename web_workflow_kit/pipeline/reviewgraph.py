@@ -7,15 +7,17 @@ from __future__ import annotations
 from langgraph.graph import END, START, StateGraph
 
 from .agents import ERROR
-from .deps import Deps, fix_prompt
+from .deps import resolve_deps, fix_prompt
 from .diffs import changed_hunks
 from .state import PipelineState
 
 
-def build_reviewgraph(deps: Deps):
-    cfg, log = deps.cfg, deps.log
+def build_reviewgraph(source):
+    """source：固定的 Deps，或按 state 现建 Deps 的函数（服务端）。"""
 
     def review_node(state: PipelineState) -> PipelineState:
+        deps = resolve_deps(source, state)
+        cfg, log = deps.cfg, deps.log
         failures = state.get("failures", [])
         dcfg = cfg["diff"]
         payload = {
@@ -37,6 +39,8 @@ def build_reviewgraph(deps: Deps):
         return out
 
     def fix_node(state: PipelineState) -> PipelineState:
+        deps = resolve_deps(source, state)
+        cfg, log = deps.cfg, deps.log
         log("[fix] DeepSeek Harness is fixing…")
         r = deps.fixer.run(
             fix_prompt(state.get("attempt", 1), cfg.max_retries, state.get("failures", []), state.get("plan")),

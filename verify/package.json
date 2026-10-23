@@ -4,10 +4,8 @@
   "private": true,
   "type": "module",
   "description": "门禁脚本：exit code 是唯一放行权",
-  "bin": {
-    "wwk-verify": "./verify.ts"
-  },
   "scripts": {
+    "build": "node build.mjs",
     "verify": "tsx verify.ts",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
@@ -17,6 +15,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "esbuild": "0.28.2",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }

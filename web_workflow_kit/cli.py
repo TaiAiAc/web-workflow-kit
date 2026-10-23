@@ -1,9 +1,12 @@
-"""交互式 REPL 入口：`agent [--project <dir>]`。"""
+"""命令行入口：`agent [--project <dir>]` 进 REPL；`--once` / `--verify` / `--init` 非交互。"""
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import sys
+from pathlib import Path
 from typing import Any
 
 from .pipeline.config import load_config
@@ -31,18 +34,53 @@ def _summary(state: dict[str, Any]) -> str:
     return json.dumps(keep, ensure_ascii=False, indent=2)
 
 
+def _version() -> str:
+    try:
+        from importlib.metadata import version
+        return version("web-workflow-kit")
+    except Exception:  # 未安装、直接从源码跑
+        return "dev"
+
+
+def _init(root: Path) -> int:
+    from .pipeline.config import DEFAULT_CONFIG, DEFAULT_RULES
+
+    for src in (DEFAULT_RULES, DEFAULT_CONFIG):
+        dst = root / src.name
+        if dst.exists():
+            print(f"skip   {dst} (already exists)")
+        else:
+            shutil.copyfile(src, dst)
+            print(f"create {dst}")
+    print("把 .agent/ 加进项目的 .gitignore；SMTP / API Key 放 ~/.web-workflow-kit/.env 或项目 .env")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="agent", description="前端交付流水线 REPL")
     ap.add_argument("--project", help="目标前端项目目录（默认当前目录）")
     ap.add_argument("--config", help="额外的 agent.config.json")
     ap.add_argument("--once", metavar="需求", help="非交互：跑一次需求后退出，退出码 0=交付 1=熔断")
+    ap.add_argument("--verify", action="store_true", help="只跑门禁，退出码即门禁结论（0/1/2），可直接用在 CI")
+    ap.add_argument("--init", action="store_true", help="把默认 rules.yaml、agent.config.json 复制到项目里供修改，已存在的不覆盖")
+    ap.add_argument("--version", action="version", version=f"web-workflow-kit {_version()}")
     args = ap.parse_args(argv)
 
     from .pipeline.codegraph import build_codegraph
     from .pipeline.main_graph import resume, run_fix_loop, run_pipeline
 
+    if args.init:
+        return _init(Path(args.project or os.getcwd()).resolve())
+
     cfg = load_config(args.project, args.config)
     deps = default_deps(cfg)
+
+    if args.verify:
+        r = deps.gate()
+        print("PASS" if r.passed else f"FAIL (exit {r.exit_code})")
+        for f in r.failures:
+            print(f"  {f.get('code')}: {f.get('message')}")
+        return r.exit_code
 
     if args.once:
         state = run_pipeline(deps, args.once)

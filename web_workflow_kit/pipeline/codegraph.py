@@ -4,15 +4,17 @@ from __future__ import annotations
 from langgraph.graph import END, START, StateGraph
 
 from .agents import END_TURN, ERROR
-from .deps import Deps, code_prompt
+from .deps import resolve_deps, code_prompt
 from .diffs import snapshot
 from .state import PipelineState
 
 
-def build_codegraph(deps: Deps):
-    cfg, log = deps.cfg, deps.log
+def build_codegraph(source):
+    """source：固定的 Deps，或按 state 现建 Deps 的函数（服务端）。"""
 
     def design_node(state: PipelineState) -> PipelineState:
+        deps = resolve_deps(source, state)
+        cfg, log = deps.cfg, deps.log
         ref = state.get("design_ref")
         if not ref:
             return {"design": None}
@@ -25,6 +27,8 @@ def build_codegraph(deps: Deps):
             return {"design": None, "break_reason": f"DESIGN_ERROR: {e}"}
 
     def spec_node(state: PipelineState) -> PipelineState:
+        deps = resolve_deps(source, state)
+        cfg, log = deps.cfg, deps.log
         log("[spec] generating…")
         try:
             spec = deps.spec(state["requirement"], state.get("design"))
@@ -36,6 +40,8 @@ def build_codegraph(deps: Deps):
         return {"spec": spec}
 
     def code_node(state: PipelineState) -> PipelineState:
+        deps = resolve_deps(source, state)
+        cfg, log = deps.cfg, deps.log
         baseline = snapshot(cfg.project_root)
         log("[code] Claude Code is writing…")
         r = deps.coder.run(code_prompt(state["requirement"], state["spec"]), cfg.project_root)

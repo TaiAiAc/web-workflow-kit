@@ -1,4 +1,3 @@
-#!/usr/bin/env -S npx tsx
 // 门禁：exit code 是唯一放行权。0 放行 / 1 门禁失败 / 2 规则或用法错误。
 // 用法：tsx verify.ts [--rules rules.yaml] [--cwd <project>] [--type electron|web|uniapp|miniprogram]
 //                    [--only a,b] [--skip a,b] [--json] [--out report.json]
@@ -35,7 +34,10 @@ const DEPENDS_ON: Record<string, Set<string>> = {
   smoke: new Set(['visual']), // 主进程都起不来，视觉验收只会再报一次 VISUAL_UNAVAILABLE
 }
 
-const KIT_RULES =resolve(dirname(fileURLToPath(import.meta.url)), '..', 'rules.yaml')
+// 默认规则：打包后与 verify.mjs 同在 assets/；源码运行时在 ../web_workflow_kit/assets/
+const HERE = dirname(fileURLToPath(import.meta.url))
+const KIT_RULES = [resolve(HERE, 'rules.yaml'), resolve(HERE, '..', 'web_workflow_kit', 'assets', 'rules.yaml')]
+  .find(p => existsSync(p)) ?? resolve(HERE, 'rules.yaml')
 
 export interface VerifyOptions {
   cwd?: string

@@ -1,6 +1,6 @@
 # web-workflow-kit
 
-本地前端交付流水线：
+一个独立的 LangGraph 应用：本地前端交付流水线。可以 `pip install` 后在任何目录用 `agent` 命令，也可以用 `langgraph dev` 在 LangGraph Studio 里打开、看图、单步运行。
 
 ```
 需求 → 设计稿 → Spec → 写代码 → verify.ts 门禁 ─┬─ exit 0 → 交付（待人工签字）
@@ -24,46 +24,73 @@ Web、UniApp、小程序、Electron 共用同一张图；场景差异只在 `rul
 ## 目录
 
 ```
-rules.yaml               门禁规则（project_type + 各端 profiles）
-verify/verify.ts         门禁脚本，exit 0/1/2
-verify/lib/              检查项实现（命令、产物、asar、latest.yml、哈希、包体、冒烟）
-prompts/review-prompt.md 验收顾问契约（输入/输出 JSON、失败码表）
-prompts/*.md             Spec / 编码 / 修复提示词
-scripts/agent_cli.py     REPL 入口（`agent` 命令）
-scripts/pipeline/        LangGraph：codegraph、reviewgraph（codereviewgraph）、main_graph
-agent.config.json        版本、重试上限、各节点后端
-.env.example             SMTP / API Key 模板
+langgraph.json                      LangGraph 应用描述：登记 4 张图，供 langgraph dev / Studio 加载
+web_workflow_kit/                   Python 包（pip 安装的就是它）
+  graph.py                          应用入口：pipeline、fix_loop、codegraph、reviewgraph
+  cli.py                            `agent` 命令（REPL / --once / --verify / --init）
+  pipeline/                         图与节点：main_graph、codegraph、reviewgraph、门禁调用、各后端
+  assets/                           随包分发的默认值
+    agent.config.json               版本、重试上限、各节点后端
+    rules.yaml                      门禁规则（project_type + 各端 profiles）
+    prompts/review-prompt.md        验收顾问契约（输入/输出 JSON、失败码表）
+    prompts/*.md                    Spec / 编码 / 修复提示词
+    verify.mjs                      门禁脚本的单文件打包产物（生成文件，勿手改）
+verify/                             门禁源码（TypeScript）与测试；`pnpm build` 生成 assets/verify.mjs
+tests/                              Python 测试
+.env.example                        SMTP / API Key 模板
 ```
 
 ## 安装
 
-```bash
-cd verify && pnpm install
-```
+运行时只需要 **Python ≥ 3.10** 和 **Node ≥ 22**（门禁已打包成单文件，不需要 `npm install`）。
 
 ```bash
-python -m venv .venv
+pip install "web-workflow-kit[all] @ git+https://github.com/TaiAiAc/web-workflow-kit"
 ```
+
+可选能力按需装：`[checkpoint]`（`:resume` 断点恢复）、`[mcp]`（MasterGo 设计稿）、`[acp]`（ACP 编码后端）、`[repl]`（历史记录）、`[studio]`（`langgraph dev` / Studio）；`[all]` 全装。
+
+密钥与 SMTP 放用户级 `~/.web-workflow-kit/.env`（所有项目共用，可用 `WWK_HOME` 改位置），或项目根目录的 `.env`（优先）。模板见 `.env.example`。
+
+在前端项目里生成可改的配置（已存在的文件不覆盖）：
 
 ```bash
-.venv/Scripts/python -m pip install -e .
+agent --project ../my-app --init
 ```
-
-构建后端是 hatchling：setuptools 的 editable 构建会在临时目录里嵌套很深的 egg-info，路径较深的工作区在 Windows 上会超过 260 字符。
-
-可选能力按需装：`.[checkpoint]`（`:resume` 断点恢复）、`.[mcp]`（MasterGo 设计稿）、`.[acp]`（ACP 编码后端）、`.[repl]`（历史记录）；`.[all]` 全装。
-
-复制 `.env.example` 为 `.env` 并填写 `DEEPSEEK_API_KEY`、SMTP 配置。
 
 ## 使用
 
-只跑门禁（任何项目，零 token）：
+只跑门禁（任何项目，零 token；退出码即结论，可直接放进 CI）：
 
 ```bash
-node --import tsx verify/verify.ts --cwd ../my-app --type electron --json
+agent --project ../my-app --verify
 ```
 
-REPL：
+### LangGraph Studio
+
+在本仓库根目录（`langgraph.json` 所在处）启动本地 LangGraph 服务：
+
+```bash
+langgraph dev
+```
+
+浏览器打开它打印的 Studio 链接（`https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024`），可以看到四张图：
+
+| 图 | 用途 | 输入 |
+| --- | --- | --- |
+| `pipeline` | 需求 → 设计稿 → Spec → 写代码 → 门禁 ⇄ 修复 → 交付/熔断 | `project_root`、`requirement`，可选 `design_ref` |
+| `fix_loop` | 不写新代码，对现有工作区跑门禁 ⇄ 修复 | `project_root` |
+| `codegraph` / `reviewgraph` | 两个子图单独调试 | 同上 |
+
+`project_root` 填目标前端项目的绝对路径。每次运行都按该项目的 `agent.config.json` / `.env` / `rules.yaml` 现取配置，所以一个服务可以同时服务多个项目，改了配置下次运行就生效。检查点由服务端管理，Studio 里可以回看每个节点的 state。
+
+**中文 Windows 注意**：langgraph-api 读取自带的 `openapi.json` 时没指定编码，系统默认 GBK 会直接启动失败，需开启 Python 的 UTF-8 模式：
+
+```bash
+$env:PYTHONUTF8 = '1'; langgraph dev
+```
+
+### REPL
 
 ```bash
 agent --project ../my-app
@@ -120,7 +147,29 @@ Claude 适配器经 `npx @agentclientprotocol/claude-agent-acp` 拉起，需要�
 - `build` 失败时，依赖产物的检查直接 `skip`，不制造连带失败项。
 - `visual`（Electron，可选）：带 `--remote-debugging-port=0` 起应用，经 Chrome DevTools Protocol 连渲染进程，在 `timeout_ms` 内等 `expect_text` / `expect_selector` 成立，检查白屏、`forbid_text`、未捕获异常，并截图到 `.agent/visual.png`。纯脚本判定，不调模型；应用若禁用了远程调试则报 `VISUAL_UNAVAILABLE`。没有用 agent-electron：它对打包后应用的启动仍标为 WIP，而门禁验的正是 `win-unpacked` 里的 exe。
 
-失败码表见 [prompts/review-prompt.md](prompts/review-prompt.md)，新增失败码时同步更新。
+失败码表见 [web_workflow_kit/assets/prompts/review-prompt.md](web_workflow_kit/assets/prompts/review-prompt.md)，新增失败码时同步更新。
+
+## 开发
+
+```bash
+python -m venv .venv
+```
+
+```bash
+.venv/Scripts/python -m pip install -e ".[all]"
+```
+
+```bash
+cd verify && pnpm install
+```
+
+改了 `verify/` 下的 TypeScript 后必须重新打包并提交产物（CI 会校验两者一致）：
+
+```bash
+cd verify && pnpm build
+```
+
+构建后端是 hatchling：setuptools 的 editable 构建会在临时目录里嵌套很深的 egg-info，路径较深的工作区在 Windows 上会超过 260 字符。
 
 ## 测试
 
@@ -132,7 +181,7 @@ cd verify && pnpm test
 python -m unittest discover tests
 ```
 
-`verify/test/visual.test.ts` 用本机 Edge/Chrome 代替 Electron 跑真实 CDP（同一协议），找不到浏览器时跳过，可用 `CHROME_PATH` 指定。`tests/stub_acp_agent.py` 是一个不调模型的 ACP 桩，ACP 测试走真实的 langgraph-acp 客户端与 stdio 协议。CI（`.github/workflows/ci.yml`）在 Ubuntu 和 Windows 上跑两套测试。
+`verify/test/visual.test.ts` 用本机 Edge/Chrome 代替 Electron 跑真实 CDP（同一协议），找不到浏览器时跳过，可用 `CHROME_PATH` 指定。`tests/stub_acp_agent.py` 是一个不调模型的 ACP 桩，ACP 测试走真实的 langgraph-acp 客户端与 stdio 协议。CI（`.github/workflows/ci.yml`）在 Ubuntu 和 Windows 上跑两套测试、校验 `verify.mjs` 与源码一致，并把 wheel 装进干净的 venv、在仓库外的目录跑 `agent --init` / `--verify`。`tests/test_app.py` 按服务端方式调用 `graph.py` 里的图（依赖由输入的 `project_root` 现建，门禁走随包的 `verify.mjs`）。
 
 ## 进度
 
@@ -141,3 +190,4 @@ python -m unittest discover tests
 - [x] Day 3：主图平铺 + REPL + 熔断邮件
 - [x] Day 4：MasterGo MCP（已连本机 MasterGo 实测选中图层、变量读取与未选中报错）、ACP 编码后端（权限策略保护门禁文件）、checkpoint 断点恢复、CI
 - [x] Electron 视觉验收：`visual` 检查（CDP）。自动化测试用 Edge/Chrome；另用 Electron 45 按 electron-builder 布局（`win-unpacked` + `app.asar`）手工实测过通过、白屏、渲染异常、主进程崩溃四种场景
+- [x] 独立 LangGraph 应用：`langgraph.json` + `graph.py`，已用 `langgraph dev` 经 HTTP API 实跑；prompts / 门禁 / 默认配置随包分发，wheel 在仓库外可用

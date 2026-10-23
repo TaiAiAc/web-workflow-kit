@@ -96,6 +96,24 @@ def default_deps(cfg: Config, log: Callable[[str], None] = print) -> Deps:
     )
 
 
+def resolve_deps(source: Any, state: dict[str, Any]) -> Deps:
+    """图里的节点统一经此取依赖：REPL/测试传固定的 Deps；服务端传按 state 现建的函数。"""
+    return source if isinstance(source, Deps) else source(state)
+
+
+def deps_from_state(state: dict[str, Any]) -> Deps:
+    """LangGraph 服务端用：每次运行按输入里的 project_root 加载该项目的配置。
+
+    不缓存——改了项目里的 agent.config.json / .env，下一次运行就生效，不用重启 langgraph dev。
+    """
+    from .config import load_config
+
+    root = state.get("project_root")
+    if not root:
+        raise ValueError("input.project_root is required: the absolute path of the front-end project to work on")
+    return default_deps(load_config(root))
+
+
 def code_prompt(requirement: str, spec: str) -> str:
     return render(prompt("code-prompt.md"), requirement=requirement, spec=spec)
 

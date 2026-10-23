@@ -8,11 +8,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-KIT_ROOT = Path(__file__).resolve().parents[2]
-PROMPTS_DIR = KIT_ROOT / "prompts"
-VERIFY_DIR = KIT_ROOT / "verify"
+# 默认配置、提示词、门禁脚本都随包分发，pip 安装后在任何目录可用
+ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
+PROMPTS_DIR = ASSETS_DIR / "prompts"
+DEFAULT_CONFIG = ASSETS_DIR / "agent.config.json"
+DEFAULT_RULES = ASSETS_DIR / "rules.yaml"
+VERIFY_BUNDLE = ASSETS_DIR / "verify.mjs"
 
-DEFAULTS: dict[str, Any] = json.loads((KIT_ROOT / "agent.config.json").read_text(encoding="utf-8"))
+
+def user_home() -> Path:
+    """用户级配置目录：放全局 .env（SMTP、API Key），不随项目走。"""
+    return Path(os.environ.get("WWK_HOME") or Path.home() / ".web-workflow-kit")
+
+
+DEFAULTS: dict[str, Any] = json.loads(DEFAULT_CONFIG.read_text(encoding="utf-8"))
 
 
 def _merge(base: dict, override: dict) -> dict:
@@ -41,7 +50,7 @@ class Config:
 
 
 def load_config(project_root: str | Path | None = None, config_path: str | Path | None = None) -> Config:
-    """优先级：目标项目里的 agent.config.json > kit 默认值；.env 先找项目再找 kit。"""
+    """优先级：目标项目里的 agent.config.json > 包内默认值；.env：项目 > 用户级（~/.web-workflow-kit/.env）。"""
     try:
         from dotenv import dotenv_values
     except ImportError:  # pragma: no cover
@@ -51,13 +60,13 @@ def load_config(project_root: str | Path | None = None, config_path: str | Path 
     root = Path(project_root or os.getcwd()).resolve()
     candidates = [Path(config_path)] if config_path else [root / "agent.config.json"]
     for c in candidates:
-        if c.is_file() and c.resolve() != (KIT_ROOT / "agent.config.json"):
+        if c.is_file() and c.resolve() != DEFAULT_CONFIG:
             raw = _merge(raw, json.loads(c.read_text(encoding="utf-8")))
     if project_root is None and raw.get("project_root"):
         root = (root / raw["project_root"]).resolve()
 
     env: dict[str, str] = {}
-    for p in (KIT_ROOT / ".env", root / ".env"):
+    for p in (user_home() / ".env", root / ".env"):
         if p.is_file():
             env.update({k: v for k, v in dotenv_values(p).items() if v is not None})
 

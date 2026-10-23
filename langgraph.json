@@ -1,0 +1,11 @@
+{
+  "$schema": "https://langgra.ph/schema.json",
+  "python_version": "3.12",
+  "dependencies": ["."],
+  "graphs": {
+    "pipeline": "./web_workflow_kit/graph.py:pipeline",
+    "fix_loop": "./web_workflow_kit/graph.py:fix_loop",
+    "codegraph": "./web_workflow_kit/graph.py:codegraph",
+    "reviewgraph": "./web_workflow_kit/graph.py:reviewgraph"
+  }
+}

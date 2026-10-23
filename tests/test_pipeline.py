@@ -10,13 +10,13 @@ import time
 import unittest
 from pathlib import Path
 
-from scripts.pipeline.agents import END_TURN, ERROR, AgentResult
-from scripts.pipeline.config import load_config
-from scripts.pipeline.deps import Deps, validate_plan
-from scripts.pipeline.diffs import changed_hunks, snapshot, split_hunks
-from scripts.pipeline.gate import GateResult
-from scripts.pipeline.main_graph import build_main_graph, resume, route_after_verify, run_fix_loop, run_pipeline
-from scripts.pipeline.notify import mark_sent, should_send
+from web_workflow_kit.pipeline.agents import END_TURN, ERROR, AgentResult
+from web_workflow_kit.pipeline.config import load_config
+from web_workflow_kit.pipeline.deps import Deps, validate_plan
+from web_workflow_kit.pipeline.diffs import changed_hunks, snapshot, split_hunks
+from web_workflow_kit.pipeline.gate import GateResult
+from web_workflow_kit.pipeline.main_graph import build_main_graph, resume, route_after_verify, run_fix_loop, run_pipeline
+from web_workflow_kit.pipeline.notify import mark_sent, should_send
 
 FAIL = GateResult(1, [{"code": "TYPECHECK_FAIL", "check": "typecheck", "message": "x", "locations": ["src/a.ts:1"]}])
 PASS = GateResult(0, [])
