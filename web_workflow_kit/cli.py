@@ -67,7 +67,10 @@ def _never_crash_on_encoding() -> None:
 
 def main(argv: list[str] | None = None) -> int:
     _never_crash_on_encoding()
-    ap = argparse.ArgumentParser(prog="agent", description="前端交付流水线 REPL")
+    ap = argparse.ArgumentParser(prog="agent", description="前端交付流水线：`agent ui` 打开本地网页控制台；不带命令进 REPL")
+    ap.add_argument("command", nargs="?", choices=["ui"], help="ui：启动本地网页控制台（只监听本机）")
+    ap.add_argument("--port", type=int, default=8765, help="agent ui 的端口（默认 8765）")
+    ap.add_argument("--no-browser", action="store_true", help="agent ui 启动后不自动打开浏览器")
     ap.add_argument("--project", help="目标前端项目目录（默认当前目录）")
     ap.add_argument("--config", help="额外的 agent.config.json")
     ap.add_argument("--once", metavar="需求", help="非交互：跑一次需求后退出，退出码 0=交付 1=熔断")
@@ -78,6 +81,10 @@ def main(argv: list[str] | None = None) -> int:
 
     from .pipeline.codegraph import build_codegraph
     from .pipeline.main_graph import resume, run_fix_loop, run_pipeline
+
+    if args.command == "ui":
+        from .ui.server import serve
+        return serve(args.port, open_browser=not args.no_browser)
 
     if args.init:
         return _init(Path(args.project or os.getcwd()).resolve())

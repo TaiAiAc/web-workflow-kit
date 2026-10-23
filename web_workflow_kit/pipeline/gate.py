@@ -7,8 +7,10 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from .config import VERIFY_BUNDLE, Config
 from .state import Failure
@@ -24,7 +26,31 @@ class GateResult:
         return self.exit_code == 0
 
 
-def run_gate(cfg: Config, only: list[str] | None = None) -> GateResult:
+def _run(cmd: list[str], cwd: Path, timeout: int, log: Callable[[str], None] | None) -> int:
+    """log 为空时输出直接进终端；否则逐行转给 log（本地网页界面靠它实时显示每项检查）。"""
+    if log is None:
+        return subprocess.run(cmd, cwd=cwd, timeout=timeout).returncode
+    proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, encoding="utf-8", errors="replace")
+
+    def pump() -> None:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            if line.strip():
+                log("  " + line.rstrip())
+
+    reader = threading.Thread(target=pump, daemon=True)
+    reader.start()
+    try:
+        code = proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        raise
+    reader.join(timeout=5)
+    return code
+
+
+def run_gate(cfg: Config, only: list[str] | None = None, log: Callable[[str], None] | None = None) -> GateResult:
     node = shutil.which("node")
     if not node:
         return GateResult(2, [{"code": "CONFIG_ERROR", "check": "gate", "message": "node not found on PATH"}])
@@ -45,14 +71,14 @@ def run_gate(cfg: Config, only: list[str] | None = None) -> GateResult:
         cmd += ["--only", ",".join(only)]
 
     try:
-        proc = subprocess.run(cmd, cwd=cfg.project_root, timeout=int(vcfg.get("timeout_sec", 3600)))
+        returncode = _run(cmd, cfg.project_root, int(vcfg.get("timeout_sec", 3600)), log)
     except subprocess.TimeoutExpired:
         return GateResult(1, [{"code": "CHECK_TIMEOUT", "check": "gate", "message": "verify.ts exceeded overall timeout"}])
 
     failures: list[Failure] = []
     if Path(out).is_file():
         failures = json.loads(out.read_text(encoding="utf-8")).get("failures", [])
-    if proc.returncode != 0 and not failures:
-        failures = [{"code": "CONFIG_ERROR", "check": "gate", "message": f"verify.ts exited {proc.returncode} without a report"}]
+    if returncode != 0 and not failures:
+        failures = [{"code": "CONFIG_ERROR", "check": "gate", "message": f"verify.ts exited {returncode} without a report"}]
     # 退出码就是结论；报告里写了什么都不改变它
-    return GateResult(proc.returncode, failures)
+    return GateResult(returncode, failures)

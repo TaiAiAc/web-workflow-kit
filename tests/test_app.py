@@ -60,7 +60,8 @@ class LangGraphAppTest(unittest.TestCase):
         self.assertEqual(form["properties"]["project_root"]["title"], "项目路径")
         self.assertEqual(form["properties"]["requirement"]["title"], "需求")
         spec = json.loads((REPO / "langgraph.json").read_text(encoding="utf-8"))
-        self.assertTrue(all(g["description"] for g in spec["graphs"].values()))
+        # Studio 用 langgraph.json 的说明，本地控制台用 names.py 的：两份必须一致
+        self.assertEqual({k: v["description"] for k, v in spec["graphs"].items()}, N.GRAPH_DESCRIPTIONS)
 
     def test_project_root_is_required(self):
         with self.assertRaisesRegex(ValueError, "project_root is required"):

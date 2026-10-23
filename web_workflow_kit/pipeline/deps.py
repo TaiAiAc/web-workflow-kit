@@ -98,7 +98,8 @@ def default_deps(cfg: Config, log: Callable[[str], None] | None = None) -> Deps:
         design=lambda ref: load_design(ref, cfg),
         spec=_spec_fn(cfg),
         coder=build_agent(cfg["code"], cfg, "code-task"),
-        gate=lambda: run_gate(cfg),
+        # 指定了 log（如本地网页界面）时，门禁逐项输出也走 log；否则直接打到终端
+        gate=lambda: run_gate(cfg, log=log),
         reviewer=_reviewer_fn(cfg),
         fixer=build_agent(cfg["fix"], cfg, "fix-task"),
         notifier=lambda state: notify_breaker(state, cfg),

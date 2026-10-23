@@ -1,6 +1,6 @@
 # web-workflow-kit
 
-一个独立的 LangGraph 应用：本地前端交付流水线。可以 `pip install` 后在任何目录用 `agent` 命令，也可以用 `langgraph dev` 在 LangGraph Studio 里打开、看图、单步运行。
+一个独立的 LangGraph 应用：本地前端交付流水线。`pip install` 后在任何目录可用——`agent ui` 打开纯本地的中文网页控制台，`agent` 进命令行 REPL。
 
 ```
 需求 → 设计稿 → Spec → 写代码 → verify.ts 门禁 ─┬─ exit 0 → 交付（待人工签字）
@@ -27,7 +27,8 @@ Web、UniApp、小程序、Electron 共用同一张图；场景差异只在 `rul
 langgraph.json                      LangGraph 应用描述：登记 4 张图，供 langgraph dev / Studio 加载
 web_workflow_kit/                   Python 包（pip 安装的就是它）
   graph.py                          应用入口：pipeline、fix_loop、codegraph、reviewgraph
-  cli.py                            `agent` 命令（REPL / --once / --verify / --init）
+  cli.py                            `agent` 命令（ui / REPL / --once / --verify / --init）
+  ui/server.py                      本地网页控制台的服务（标准库，只监听本机）
   pipeline/                         图与节点：main_graph、codegraph、reviewgraph、门禁调用、各后端
   assets/                           随包分发的默认值
     agent.config.json               版本、重试上限、各节点后端
@@ -35,6 +36,7 @@ web_workflow_kit/                   Python 包（pip 安装的就是它）
     prompts/review-prompt.md        验收顾问契约（输入/输出 JSON、失败码表）
     prompts/*.md                    Spec / 编码 / 修复提示词
     verify.mjs                      门禁脚本的单文件打包产物（生成文件，勿手改）
+    ui/index.html                   本地网页控制台（单文件，不加载任何外部资源）
 verify/                             门禁源码（TypeScript）与测试；`pnpm build` 生成 assets/verify.mjs
 tests/                              Python 测试
 .env.example                        SMTP / API Key 模板
@@ -48,7 +50,7 @@ tests/                              Python 测试
 pip install "web-workflow-kit[all] @ git+https://github.com/TaiAiAc/web-workflow-kit"
 ```
 
-可选能力按需装：`[checkpoint]`（`:resume` 断点恢复）、`[mcp]`（MasterGo 设计稿）、`[acp]`（ACP 编码后端）、`[repl]`（历史记录）、`[studio]`（`langgraph dev` / Studio）；`[all]` 全装。
+可选能力按需装：`[checkpoint]`（`:resume` 断点恢复）、`[mcp]`（MasterGo 设计稿）、`[acp]`（ACP 编码后端）、`[repl]`（历史记录）、`[studio]`（`langgraph dev` / Studio，可选调试工具）；`[all]` 全装。本地控制台 `agent ui` 不需要任何额外依赖。
 
 密钥与 SMTP 放用户级 `~/.web-workflow-kit/.env`（所有项目共用，可用 `WWK_HOME` 改位置），或项目根目录的 `.env`（优先）。模板见 `.env.example`。
 
@@ -66,34 +68,40 @@ agent --project ../my-app --init
 agent --project ../my-app --verify
 ```
 
-### LangGraph Studio
-
-在本仓库根目录（`langgraph.json` 所在处）启动本地 LangGraph 服务：
+### 本地控制台（推荐）
 
 ```bash
-langgraph dev
+agent ui
 ```
 
-浏览器打开它打印的 Studio 链接（`https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024`），可以看到四张图：
+浏览器会自动打开 `http://127.0.0.1:8765/`（`--port` 换端口，`--no-browser` 不自动打开）。全中文界面：
 
-| 图（Studio 下拉框里的名字，也是 API 的 `assistant_id`） | 节点 | 输入表单 |
+- 左侧选图（前端交付流水线 / 门禁修复回环 / 编码子图 / 审阅修复子图），填项目路径、需求，点「运行」；最近用过的项目路径会记住。
+- 右侧是流程图：节点按执行实时变色（运行中 / 完成 / 熔断），实际走过的路径高亮；下方是中文结论、门禁失败项（失败码、检查项、出错位置）和实时日志（含门禁每项检查的输出）。
+- 左下是本次服务启动以来的运行记录，点开可回看。服务重启后记录清空；每次交付的记录仍写在项目的 `.agent/delivery.json`。
+
+纯本地：服务只监听 `127.0.0.1`，页面不加载任何外部网站或 CDN 资源。门禁会执行 `rules.yaml` 里的命令，所以服务只接受本机地址的请求，且每次启动生成随机令牌、只嵌在本页面里，其他网站无法借你的浏览器触发运行。同一个项目同时只允许一次运行（两次运行同时改同一个仓库会互相覆盖）。
+
+| 图 | 节点 | 输入 |
 | --- | --- | --- |
 | 前端交付流水线 | 编码 → 门禁 ⇄ 审阅修复 → 交付 / 熔断 | 项目路径、需求、设计稿（可选） |
 | 门禁修复回环 | 门禁 ⇄ 审阅修复 → 交付 / 熔断 | 项目路径 |
 | 编码子图 | 读取设计稿 → 生成Spec → 写代码 | 同上 |
 | 审阅修复子图 | 验收审阅 → 执行修复 | 项目路径、门禁失败项等 |
 
-界面上由本项目控制的部分都是中文：图名与描述、节点名（含 xray 展开的子图节点）、输入表单的标题和说明，以及运行结果里的 `summary`（中文结论）。图名同时是 API 里的 `assistant_id`，例如 `POST /runs/wait` 时传 `{"assistant_id": "门禁修复回环", "input": {"project_root": "..."}}`。
+“项目路径”填目标前端项目的绝对路径；每次运行都按该项目的 `agent.config.json` / `.env` / `rules.yaml` 现取配置，改了配置下次运行就生效。
 
-机器可读的字段保持英文不变：输入/状态字段名、`status`（`delivered` / `broken`）、`break_reason`、失败码——邮件去重、验收顾问契约和调用方都依赖它们。LangGraph 保留的起止节点 `__start__` / `__end__`，以及 Studio 自身的按钮和菜单（由 LangChain 提供）不在本项目控制范围内。
+界面显示是中文；机器可读的字段保持英文不变：输入/状态字段名、`status`（`delivered` / `broken`）、`break_reason`、失败码——邮件去重、验收顾问契约和调用方都依赖它们。
 
-“项目路径”填目标前端项目的绝对路径。每次运行都按该项目的 `agent.config.json` / `.env` / `rules.yaml` 现取配置，所以一个服务可以同时服务多个项目，改了配置下次运行就生效。检查点由服务端管理，Studio 里可以回看每个节点的 state。
+### 可选：LangGraph Studio（调试用）
 
-**中文 Windows 注意**：langgraph-api 读取自带的 `openapi.json` 时没指定编码，系统默认 GBK 会直接启动失败，需开启 Python 的 UTF-8 模式：
+在本仓库根目录（`langgraph.json` 所在处）启动 LangGraph 开发服务：
 
 ```bash
 $env:PYTHONUTF8 = '1'; langgraph dev
 ```
+
+然后打开 `https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024`。注意它**不是纯本地**：Studio 页面从 LangChain 网站加载、通常要登录 LangSmith，再由浏览器连本机服务（图仍在本机执行）；部分浏览器（包括 Claude 应用内置浏览器）会拦截网页访问本机地址。图名同时是 API 的 `assistant_id`，例如 `{"assistant_id": "门禁修复回环", "input": {"project_root": "..."}}`。`PYTHONUTF8=1` 是因为 langgraph-api 读取自带的 `openapi.json` 时没指定编码，中文 Windows 默认 GBK 会启动失败。
 
 ### REPL
 
@@ -196,3 +204,4 @@ python -m unittest discover tests
 - [x] Day 4：MasterGo MCP（已连本机 MasterGo 实测选中图层、变量读取与未选中报错）、ACP 编码后端（权限策略保护门禁文件）、checkpoint 断点恢复、CI
 - [x] Electron 视觉验收：`visual` 检查（CDP）。自动化测试用 Edge/Chrome；另用 Electron 45 按 electron-builder 布局（`win-unpacked` + `app.asar`）手工实测过通过、白屏、渲染异常、主进程崩溃四种场景
 - [x] 独立 LangGraph 应用：`langgraph.json` + `graph.py`，已用 `langgraph dev` 经 HTTP API 实跑；prompts / 门禁 / 默认配置随包分发，wheel 在仓库外可用
+- [x] 本地中文网页控制台 `agent ui`：已在浏览器里实跑交付与熔断两种路径
