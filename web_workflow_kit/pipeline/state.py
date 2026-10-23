@@ -97,4 +97,5 @@ class PipelineState(TypedDict, total=False):
     status: Literal["delivered", "broken"]
     break_reason: str
     summary: str
+    changed_files: list[str]      # 交付时本次改动的文件（控制台展示用）
     history: Annotated[list[dict[str, Any]], operator.add]
