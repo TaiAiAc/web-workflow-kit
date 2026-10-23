@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -15,6 +16,15 @@ from .notify import notify_breaker
 VERDICTS = {"fixable", "needs_human"}
 
 
+def safe_print(line: str) -> None:
+    """日志不能因为控制台编码崩掉流水线：cp1252/GBK 控制台打不出的字符替换掉。"""
+    try:
+        print(line, flush=True)
+    except UnicodeEncodeError:
+        enc = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(line.encode(enc, errors="replace").decode(enc), flush=True)
+
+
 @dataclass
 class Deps:
     cfg: Config
@@ -25,7 +35,7 @@ class Deps:
     reviewer: Callable[[dict[str, Any]], dict[str, Any]]
     fixer: Agent
     notifier: Callable[[dict[str, Any]], str]
-    log: Callable[[str], None] = print
+    log: Callable[[str], None] = safe_print
 
 
 def _spec_fn(cfg: Config) -> Callable[[str, dict | None], str]:
@@ -82,7 +92,7 @@ def _reviewer_fn(cfg: Config) -> Callable[[dict[str, Any]], dict[str, Any]]:
     return run
 
 
-def default_deps(cfg: Config, log: Callable[[str], None] = print) -> Deps:
+def default_deps(cfg: Config, log: Callable[[str], None] | None = None) -> Deps:
     return Deps(
         cfg=cfg,
         design=lambda ref: load_design(ref, cfg),
@@ -92,7 +102,7 @@ def default_deps(cfg: Config, log: Callable[[str], None] = print) -> Deps:
         reviewer=_reviewer_fn(cfg),
         fixer=build_agent(cfg["fix"], cfg, "fix-task"),
         notifier=lambda state: notify_breaker(state, cfg),
-        log=log,
+        log=log or safe_print,
     )
 
 

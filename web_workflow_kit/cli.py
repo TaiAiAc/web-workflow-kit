@@ -56,7 +56,17 @@ def _init(root: Path) -> int:
     return 0
 
 
+def _never_crash_on_encoding() -> None:
+    # 中文输出在 cp1252 / GBK 控制台（如 CI 的 Windows runner）上会 UnicodeEncodeError；改为替换字符
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):  # 被替换成 StringIO 等时没有 reconfigure
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _never_crash_on_encoding()
     ap = argparse.ArgumentParser(prog="agent", description="前端交付流水线 REPL")
     ap.add_argument("--project", help="目标前端项目目录（默认当前目录）")
     ap.add_argument("--config", help="额外的 agent.config.json")
