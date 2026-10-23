@@ -62,7 +62,7 @@ pnpm dev
 | `pnpm build:win` / `build:mac` / `build:linux` | 生成安装包（mac 只能在 macOS 上打，linux 不能在 Windows 上打） |
 | `pnpm typecheck` / `pnpm lint` | 类型检查 / 代码风格 |
 
-`pnpm install` 后若 `node_modules/electron/dist` 不存在（Electron 下载被跳过），运行一次 `node node_modules/electron/install.js`。
+Electron 45 起安装时不再下载二进制：`pnpm install` 后 `node_modules/electron/dist` 不存在是正常的，第一次 `pnpm dev` 时会打印 `Downloading Electron binary...` 自动下载（镜像见 `desktop/.npmrc`）。
 
 ## 目录
 
@@ -75,9 +75,43 @@ pnpm dev
 | `render/` | 启动页：启动进度、找不到 Python 或后端退出时的说明 |
 | `electronup.config.ts` | 构建与打包配置（含 Python 源码的 `extraResources`） |
 
+## 常见问题
+
+**`pnpm dev` 构建完就结束，没有窗口也没有报错**
+
+electronup 只转发 Electron 的输出，不打印退出码，所以 Electron 启动即崩溃时看起来像“正常结束”。在 Windows 上最常见的原因是仓库目录带了 **Low 完整性标签**：从这种目录里启动的 `electron.exe` 会以低完整性运行，Chromium 沙箱初始化失败直接崩溃（退出码 `0x80000003`）；即使加 `--no-sandbox`，也写不了 `%APPDATA%`，拿不到单实例锁而退出。一些编程 agent 的 Windows 沙箱会给允许写入的目录打上这个标签。
+
+1. 看 `electron.exe` 有没有 Low 标签：
+
+   ```bash
+   icacls desktop\node_modules\electron\dist\electron.exe
+   ```
+
+   输出里有 `Mandatory Label\Low Mandatory Level` 就是这个问题。带 `(I)` 表示继承而来，再往上查是哪一级目录显式设置的（不带 `(I)` 的那一级）：
+
+   ```bash
+   icacls .
+   ```
+
+2. 把那一级目录改回 Medium（PowerShell 里括号要加引号；用自己的账户运行即可，不需要管理员）：
+
+   ```bash
+   icacls "D:\path\to\web-workflow-kit" /setintegritylevel "(OI)(CI)M"
+   ```
+
+   改完再执行第 1 步，确认 `Low Mandatory Level` 不见了。注意：如果标签是某个沙箱工具为了能写这个目录而加的，改回后它可能就写不了这里了。
+
+3. 不想动权限，也可以把仓库另外克隆到一个没有该标签的目录里跑桌面端。
+
+要确认是不是这个原因，可以直接看退出码：`0x80000003`（十进制 2147483651）基本就是它。
+
+**首次 `pnpm install` 报 `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`**
+
+pnpm 12 默认不安装发布不到约一天的包。刚发布的依赖（如 electronup 新版本）过了这个时间就能正常安装；急用时本次安装可加 `--config.minimum-release-age=0`。
+
 ## 已知限制
 
 - 还没有应用图标，用的是 Electron 默认图标。
 - 安装包没有签名，Windows 首次运行可能出现 SmartScreen 提示。
 - 不内置 Python 运行时，需要用户自己装好依赖。
-- 只在 Windows 上实测过免安装目录（`build:dir`）的启动、崩溃重试和退出清理；`pnpm dev` 和 macOS / Linux 安装包还没实测。
+- 只在 Windows 上实测过：`pnpm dev`（启动、找不到 Python 时的启动页、Ctrl-C 后无残留进程），以及免安装目录（`build:dir`）的启动、崩溃重试和退出清理；安装包和 macOS / Linux 还没实测。
