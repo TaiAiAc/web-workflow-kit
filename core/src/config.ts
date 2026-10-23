@@ -7,8 +7,10 @@ import { fileURLToPath } from "node:url"
 import { parse as parseEnv } from "dotenv"
 
 // 默认配置、提示词、门禁脚本、控制台页面在仓库的 assets/；WWK_ASSETS 可覆盖（桌面端指向 resources/assets）
+const HERE = dirname(fileURLToPath(import.meta.url))
+// 打包产物（dist/wwk.mjs）旁边有 assets/；从源码跑时用仓库根目录的
 export const ASSETS_DIR = process.env.WWK_ASSETS
-  ?? resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "assets")
+  ?? (existsSync(join(HERE, "assets", "agent.config.json")) ? join(HERE, "assets") : resolve(HERE, "..", "..", "assets"))
 export const PROMPTS_DIR = join(ASSETS_DIR, "prompts")
 export const DEFAULT_CONFIG = join(ASSETS_DIR, "agent.config.json")
 export const DEFAULT_RULES = join(ASSETS_DIR, "rules.yaml")

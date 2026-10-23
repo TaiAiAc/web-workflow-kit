@@ -11,14 +11,12 @@ function root(): string {
   return app.isPackaged ? process.resourcesPath : resolve(__dirname, '../../..')
 }
 
-/** TS 核心的单文件产物（命令行 + 控制台）：打包后在 resources/core，开发时是仓库的 core/dist（pnpm core 生成） */
+/**
+ * TS 核心的单文件产物（命令行 + 控制台）：打包后在 resources/core，开发时是仓库的 core/dist（pnpm core 生成）。
+ * 默认配置、提示词、门禁脚本、控制台页面在它旁边的 assets/，核心自己会找到。
+ */
 export function coreBundle(): string {
   return app.isPackaged ? join(root(), 'core', 'wwk.mjs') : join(root(), 'core', 'dist', 'wwk.mjs')
-}
-
-/** 默认配置、提示词、门禁脚本、控制台页面：打包后在 resources/assets，开发时直接用仓库里的 */
-export function assetsDir(): string {
-  return app.isPackaged ? join(root(), 'assets') : join(root(), 'assets')
 }
 
 /**

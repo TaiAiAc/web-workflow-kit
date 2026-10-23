@@ -1,35 +1,37 @@
 {
-  "name": "web-workflow-kit-core",
+  "name": "web-workflow-kit",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "流水线核心（TypeScript 版）：门禁 ⇄ 审阅修复回环、编码、交付 / 熔断",
+  "description": "本地前端交付流水线：需求 → Spec → 写代码 → 门禁 ⇄ 审阅修复 → 交付 / 熔断（命令行 wwk 与本地控制台）",
   "engines": {
     "node": ">=22.18"
   },
   "bin": {
-    "wwk": "src/cli.ts"
+    "wwk": "dist/wwk.mjs"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "cli": "tsx src/cli.ts",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "prepack": "node build.mjs"
   },
-  "dependencies": {
+  "devDependencies": {
     "@agentclientprotocol/sdk": "^2.0.1",
     "@langchain/core": "^1.3.0",
     "@langchain/langgraph": "^1.5.0",
     "@langchain/langgraph-checkpoint": "^1.2.1",
     "@modelcontextprotocol/sdk": "^1.32.1",
-    "dotenv": "^17.2.0",
-    "nodemailer": "^7.0.0"
-  },
-  "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/nodemailer": "^7.0.0",
+    "dotenv": "^17.2.0",
+    "esbuild": "0.28.2",
+    "nodemailer": "^7.0.0",
     "tsx": "^4.19.0",
-    "typescript": "~5.9.3",
-    "esbuild": "0.28.2"
+    "typescript": "~5.9.3"
   }
 }

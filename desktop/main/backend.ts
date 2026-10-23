@@ -4,7 +4,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import process from 'node:process'
-import { assetsDir, coreBundle } from './env'
+import { coreBundle } from './env'
 
 // 固定端口：页面把主题、草稿、最近项目存在 localStorage 里，端口一变就丢了
 const PREFERRED_PORTS = [18765, 18766, 18767, 18768, 18769]
@@ -92,7 +92,7 @@ export class Backend {
     const port = await pickPort()
     const args = [coreBundle(), 'ui', '--port', String(port), '--no-browser']
     // cwd 放在用户目录：门禁和 agent 都按页面上填的项目路径工作，不依赖这里
-    const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', WWK_ASSETS: assetsDir() }
+    const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
     const child = spawn(process.execPath, args, { env, cwd: homedir(), windowsHide: true })
     this.child = child
 
