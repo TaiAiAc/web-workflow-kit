@@ -18,7 +18,7 @@ export function coreBundle(): string {
 
 /** 默认配置、提示词、门禁脚本、控制台页面：打包后在 resources/assets，开发时直接用仓库里的 */
 export function assetsDir(): string {
-  return app.isPackaged ? join(root(), 'assets') : join(root(), 'web_workflow_kit', 'assets')
+  return app.isPackaged ? join(root(), 'assets') : join(root(), 'assets')
 }
 
 /**

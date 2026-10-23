@@ -34,9 +34,9 @@ const DEPENDS_ON: Record<string, Set<string>> = {
   smoke: new Set(['visual']), // 主进程都起不来，视觉验收只会再报一次 VISUAL_UNAVAILABLE
 }
 
-// 默认规则：打包后与 verify.mjs 同在 assets/；源码运行时在 ../web_workflow_kit/assets/
+// 默认规则：打包后与 verify.mjs 同在 assets/；源码运行时在 ../assets/
 const HERE = dirname(fileURLToPath(import.meta.url))
-const KIT_RULES = [resolve(HERE, 'rules.yaml'), resolve(HERE, '..', 'web_workflow_kit', 'assets', 'rules.yaml')]
+const KIT_RULES = [resolve(HERE, 'rules.yaml'), resolve(HERE, '..', 'assets', 'rules.yaml')]
   .find(p => existsSync(p)) ?? resolve(HERE, 'rules.yaml')
 
 export interface VerifyOptions {

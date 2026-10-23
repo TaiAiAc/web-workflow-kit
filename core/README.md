@@ -65,5 +65,5 @@ pnpm build
 场景夹具用 TS 核心跑修复回环（在仓库根目录）：
 
 ```bash
-node .fx-stage/run-all.mjs --verify "$PWD/web_workflow_kit/assets/verify.mjs" --core "$PWD/core"
+node .fx-stage/run-all.mjs --verify "$PWD/assets/verify.mjs" --core "$PWD/core"
 ```

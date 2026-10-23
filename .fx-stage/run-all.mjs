@@ -4,7 +4,7 @@
 // --core 走 TS 核心（<core>/src/cli.ts fix --json，需先在 core/ 里 pnpm install）；两者都给时用 TS 核心。
 //
 // 用法：
-//   node run-all.mjs --verify <kit>/web_workflow_kit/assets/verify.mjs \
+//   node run-all.mjs --verify <kit>/assets/verify.mjs \
 //                    [--python <venv python> | --core <kit>/core] [--only 02,03] [--verbose]
 // 环境变量：WWK_VERIFY / WWK_PYTHON / WWK_CORE 同义。
 //

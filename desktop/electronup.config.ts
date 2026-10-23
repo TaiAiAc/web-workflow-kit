@@ -12,7 +12,7 @@ export default defineConfig({
     // 默认配置、提示词、门禁脚本、控制台页面放在 resources/assets（WWK_ASSETS 指向它）
     extraResources: [
       { from: '../core/dist/wwk.mjs', to: 'core/wwk.mjs' },
-      { from: '../web_workflow_kit/assets', to: 'assets' },
+      { from: '../assets', to: 'assets' },
     ],
     win: {
       target: [{ target: 'nsis', arch: ['x64'] }],

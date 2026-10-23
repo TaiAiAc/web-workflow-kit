@@ -1,10 +1,10 @@
 // 把门禁打成单文件 ESM：yaml 等依赖内联，运行时只需要 Node，不需要 node_modules / tsx。
-// 产物随 Python 包分发（web_workflow_kit/assets/verify.mjs），CI 会检查它与源码一致。
+// 产物放在仓库的 assets/verify.mjs，随 TS 核心与桌面端分发，CI 会检查它与源码一致。
 import { build } from 'esbuild'
 
 await build({
   entryPoints: ['verify.ts'],
-  outfile: '../web_workflow_kit/assets/verify.mjs',
+  outfile: '../assets/verify.mjs',
   bundle: true,
   platform: 'node',
   format: 'esm',

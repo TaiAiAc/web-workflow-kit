@@ -968,7 +968,7 @@ const requirements = {
 - \`dist/\` 下的安装包文件名必须包含版本号（如 \`wwk-electron-fixture-1.0.0.exe\`）
 - \`dist/latest.yml\` 的 \`version\` 与 \`package.json\` 一致，\`files[].sha512\` 与安装包真实 sha512（base64）一致
 
-验收以 \`node <kit>/web_workflow_kit/assets/verify.mjs --cwd . --json\` 退出码为准（0 通过）。
+验收以 \`node <kit>/assets/verify.mjs --cwd . --json\` 退出码为准（0 通过）。
 `,
 }
 
