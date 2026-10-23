@@ -21,6 +21,7 @@ import * as N from "../names.ts"
 import { availability as reviewAvailability, BACKENDS } from "../review.ts"
 import type { State } from "../state.ts"
 import { openFolder, pickFile, pickFolder } from "./pickers.ts"
+import { agentStatuses, describeSettings, launchLogin, openTerminal, saveSettings, testDeepseek, testNetwork } from "./settings.ts"
 import * as W from "./workspaces.ts"
 
 export const PAGE = join(ASSETS_DIR, "ui", "index.html")
@@ -222,6 +223,8 @@ export interface ConsoleOptions {
   picker?: (initial?: string | null) => Promise<string | null>
   filePicker?: (initial?: string | null) => Promise<string | null>
   opener?: (path: string) => void
+  /** 在系统终端里执行一行命令（设置页的「登录」）；测试里替换掉 */
+  terminal?: (line: string) => void
 }
 
 export interface ConsoleServer {
@@ -233,7 +236,19 @@ export interface ConsoleServer {
 }
 
 const POST_ROUTES = new Set(["/api/runs", "/api/pick-folder", "/api/pick-file", "/api/init", "/api/open",
-  "/api/workspaces/add", "/api/workspaces/remove", "/api/workspaces/prefs"])
+  "/api/workspaces/add", "/api/workspaces/remove", "/api/workspaces/prefs",
+  "/api/settings", "/api/settings/test", "/api/auth/login"])
+
+/** 设置页按项目读写时，只认已加入的工作空间。 */
+function workspaceOrNull(project: unknown): string | null {
+  const p = String(project ?? "").trim()
+  if (!p)
+    return null
+  const ws = W.find(p)
+  if (!ws)
+    throw new HttpError(400, `不是已添加的工作空间：${p}`)
+  return ws.path
+}
 
 class HttpError extends Error {
   readonly status: number
@@ -249,6 +264,7 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
   const picker = opts.picker ?? pickFolder
   const filePicker = opts.filePicker ?? pickFile
   const opener = opts.opener ?? openFolder
+  const terminal = opts.terminal ?? openTerminal
   let allowedHosts = new Set<string>()
   const page = () => readFileSync(PAGE, "utf8").replace("__WWK_TOKEN__", token)
 
@@ -299,6 +315,10 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
       return inspectFolder(url.searchParams.get("path") ?? "")
     if (url.pathname === "/api/workspaces")
       return W.load().map(w => describeWorkspace(w, store))
+    if (url.pathname === "/api/settings")
+      return describeSettings(workspaceOrNull(project))
+    if (url.pathname === "/api/auth")
+      return agentStatuses(workspaceOrNull(project))
     if (url.pathname === "/api/runs")
       return project ? store.forProject(project) : [...store.runs.values()].sort((a, b) => b.started - a.started).map(r => r.brief())
     if (parts.length === 3 && parts[0] === "api" && parts[1] === "runs") {
@@ -314,6 +334,35 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
   }
 
   async function post(path: string, body: Json): Promise<[number, unknown]> {
+    if (path === "/api/settings") {
+      const scope = body.scope === "project" ? "project" : "user"
+      const proj = workspaceOrNull(body.project)
+      if (scope === "project" && !proj)
+        throw new HttpError(400, "项目范围的设置需要先选中一个工作空间")
+      try {
+        saveSettings(scope, proj, body.values ?? {})
+      }
+      catch (e) {
+        throw new HttpError(400, (e as Error).message)
+      }
+      return [200, describeSettings(proj)]
+    }
+    if (path === "/api/settings/test") {
+      const proj = workspaceOrNull(body.project)
+      if (body.kind === "network")
+        return [200, await testNetwork(proj)]
+      if (body.kind === "deepseek")
+        return [200, await testDeepseek(proj)]
+      throw new HttpError(400, `未知的检测：${body.kind}`)
+    }
+    if (path === "/api/auth/login") {
+      try {
+        return [200, { line: launchLogin(String(body.agent ?? ""), workspaceOrNull(body.project), terminal) }]
+      }
+      catch (e) {
+        throw e instanceof HttpError ? e : new HttpError(400, (e as Error).message)
+      }
+    }
     if (path === "/api/workspaces/add")
       return [200, describeWorkspace(W.add(String(body.path ?? "").trim()), store)]
     if (path.startsWith("/api/workspaces/") || path === "/api/open") {

@@ -16,10 +16,11 @@ const rulesRunning = (code: string) =>
 
 let c: ConsoleServer
 const opened: string[] = []
+const terminal: string[] = []
 let pick: string | null = null
 
 before(async () => {
-  c = await startConsole({ port: 0, picker: async () => pick, filePicker: async () => "/tmp/design.json", opener: p => opened.push(p) })
+  c = await startConsole({ port: 0, picker: async () => pick, filePicker: async () => "/tmp/design.json", opener: p => opened.push(p), terminal: l => terminal.push(l) })
 })
 after(() => c.close())
 
@@ -197,6 +198,24 @@ describe("控制台服务", () => {
     assert.deepEqual([saved.status, saved.body.result.status, saved.body.next], [200, "passed", run.events.length])
     assert.equal(saved.body.events.length, run.events.length - 1)
     assert.equal((await request("GET", `/api/runs/${body.id}`)).status, 404) // 不带项目找不到落盘记录
+  })
+
+  it("设置：读写 .env、项目范围只认工作空间、未知检测报错", async () => {
+    let r = await request("POST", "/api/settings", { scope: "user", values: { NOTIFY_EMAIL: "ops@example.com", SMTP_PASS: "secret-pass-123" } })
+    assert.equal(r.status, 200)
+    const item = (k: string) => r.body.items.find((i: any) => i.key === k)
+    assert.deepEqual([item("NOTIFY_EMAIL").user, item("SMTP_PASS").user], ["ops@example.com", "sec…-123"])
+    r = await request("GET", "/api/settings")
+    assert.equal(item("SMTP_PASS").user, "sec…-123") // GET 也拿不到完整密钥
+    assert.equal(JSON.stringify(r.body).includes("secret-pass-123"), false)
+    r = await request("POST", "/api/settings", { scope: "user", values: { PATH: "x" } })
+    assert.deepEqual([r.status, r.body.error], [400, "不支持的配置项：PATH"])
+    r = await request("POST", "/api/settings", { scope: "project", project: tempDir(), values: {} })
+    assert.equal(r.status, 400)
+    assert.match(r.body.error, /不是已添加的工作空间/)
+    assert.equal((await request("POST", "/api/settings/test", { kind: "nope" })).status, 400)
+    assert.equal((await request("POST", "/api/auth/login", { agent: "dsh" })).status, 400)
+    await request("POST", "/api/settings", { scope: "user", values: { NOTIFY_EMAIL: "", SMTP_PASS: "" } })
   })
 
   it("完整流水线：编码里的子步骤（Spec、写代码）也上报", async () => {
