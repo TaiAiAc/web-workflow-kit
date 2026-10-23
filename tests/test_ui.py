@@ -82,6 +82,13 @@ class LocalConsoleTest(unittest.TestCase):
         status, body, _ = self.request("POST", "/api/runs", {"graph": N.PIPELINE_NAME, "input": {
             "project_root": str(temp_dir(self)), "requirement": "x", "coding_agent": "cursor"}})
         self.assertEqual((status, body["error"]), (400, "未知的编程 agent：cursor"))
+        _, body, _ = self.request("GET", "/api/agents")
+        self.assertEqual([r["key"] for r in body["reviewers"]], ["auto", "api", "dsh", "skip"])
+        self.assertEqual(body["review_default"], "auto")
+        self.assertIn("当前会用", body["reviewers"][0]["label"])
+        status, body, _ = self.request("POST", "/api/runs", {"graph": N.FIX_LOOP_NAME, "input": {
+            "project_root": str(temp_dir(self)), "review_backend": "gpt"}})
+        self.assertEqual((status, body["error"]), (400, "未知的审阅方式：gpt"))
 
     def test_folder_picker_and_check(self):
         root = temp_dir(self)

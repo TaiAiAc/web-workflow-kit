@@ -12,6 +12,7 @@ from .config import Config, prompt, render
 from .design import load_design
 from .gate import GateResult, run_gate
 from .notify import notify_breaker
+from .review import make_reviewer
 
 VERDICTS = {"fixable", "needs_human"}
 
@@ -71,30 +72,10 @@ def validate_plan(plan: Any) -> dict[str, Any]:
     return plan
 
 
-def _reviewer_fn(cfg: Config) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    rcfg = cfg["review"]
-    system = prompt("review-prompt.md")
-
-    def run(payload: dict[str, Any]) -> dict[str, Any]:
-        key = cfg.secret(rcfg.get("api_key_env", "DEEPSEEK_API_KEY"))
-        if not key:
-            return {"verdict": "unavailable", "summary": f"{rcfg.get('api_key_env')} not set", "fixes": []}
-        # 无状态：每次只有 system + 本轮 payload，不带历史
-        try:
-            text = llm.chat(rcfg["base_url"], key, rcfg["model"], system,
-                            json.dumps(payload, ensure_ascii=False), json_mode=True,
-                            timeout=int(rcfg.get("timeout_sec", 180)))
-            return validate_plan(llm.parse_json(text))
-        except (llm.LLMError, json.JSONDecodeError) as e:
-            # 顾问不可用不阻塞：修复者直接按失败码干活
-            return {"verdict": "unavailable", "summary": str(e)[:300], "fixes": []}
-
-    return run
-
-
 def default_deps(cfg: Config, log: Callable[[str], None] | None = None,
-                 coding_agent: str | None = None) -> Deps:
-    """coding_agent：本次运行选的编程 agent（claude / codex / opencode / dsh），空则用 code.agent。"""
+                 coding_agent: str | None = None, review_backend: str | None = None) -> Deps:
+    """coding_agent：编程 agent（claude / codex / opencode / dsh），空则用 code.agent；
+    review_backend：审阅方式（auto / api / dsh / skip），空则用 review.backend。"""
     return Deps(
         cfg=cfg,
         design=lambda ref: load_design(ref, cfg),
@@ -102,7 +83,7 @@ def default_deps(cfg: Config, log: Callable[[str], None] | None = None,
         coder=build_coding_agent(cfg, coding_agent),
         # 指定了 log（如本地网页界面）时，门禁逐项输出也走 log；否则直接打到终端
         gate=lambda: run_gate(cfg, log=log),
-        reviewer=_reviewer_fn(cfg),
+        reviewer=make_reviewer(cfg, review_backend, validate_plan),
         fixer=build_agent(cfg["fix"], cfg, "fix-task"),
         notifier=lambda state: notify_breaker(state, cfg),
         log=log or safe_print,
@@ -124,7 +105,8 @@ def deps_from_state(state: dict[str, Any]) -> Deps:
     root = state.get("project_root")
     if not root:
         raise ValueError("input.project_root is required: the absolute path of the front-end project to work on")
-    return default_deps(load_config(root), coding_agent=state.get("coding_agent"))
+    return default_deps(load_config(root), coding_agent=state.get("coding_agent"),
+                        review_backend=state.get("review_backend"))
 
 
 def code_prompt(requirement: str, spec: str) -> str:

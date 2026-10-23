@@ -17,6 +17,10 @@ CodingAgent = Annotated[Literal["claude", "codex", "opencode", "dsh"] | None, Fi
     title="编程 agent",
     description="写代码这一步用哪个 agent：Claude Code / Codex / OpenCode / DeepSeek Harness；不选则用配置里的 code.agent",
 )]
+ReviewBackend = Annotated[Literal["auto", "api", "dsh", "skip"] | None, Field(
+    title="验收审阅",
+    description="门禁失败后谁出修复计划：自动（有 DeepSeek Key 用 API，否则用 dsh）/ DeepSeek API / DeepSeek Harness / 跳过",
+)]
 DesignRef = Annotated[str | None, Field(
     title="设计稿（可选）",
     description="本地导出的设计稿 .json 路径；或填 mastergo，读取本机 MasterGo 当前选中的图层和文件变量",
@@ -31,10 +35,11 @@ class Failure(TypedDict, total=False):
     detail: str
 
 
-class FixLoopInput(TypedDict):
+class FixLoopInput(TypedDict, total=False):
     """fix_loop 的输入：不写新代码，只对现有工作区跑门禁 ⇄ 修复。"""
     __pydantic_config__ = ConfigDict(title="门禁修复回环 · 输入")  # type: ignore[misc]
-    project_root: ProjectRoot
+    project_root: Required[ProjectRoot]
+    review_backend: ReviewBackend
 
 
 class PipelineInput(TypedDict, total=False):
@@ -43,6 +48,7 @@ class PipelineInput(TypedDict, total=False):
     project_root: Required[ProjectRoot]
     requirement: Required[Requirement]
     coding_agent: CodingAgent
+    review_backend: ReviewBackend
     design_ref: DesignRef
 
 
@@ -53,6 +59,7 @@ class ReviewInput(TypedDict, total=False):
     failures: Required[Annotated[list[Failure], Field(
         title="门禁失败项", description="上一轮 verify 报告里的 failures 数组（code / check / message / locations / detail）")]]
     requirement: Requirement
+    review_backend: ReviewBackend
     spec: Annotated[str, Field(title="Spec", description="可选：生成的 Spec，审阅时只取前 2000 字")]
     attempt: Annotated[int, Field(title="第几轮", description="已失败的门禁轮数，从 1 开始")]
     baseline: Annotated[dict[str, Any], Field(
@@ -64,6 +71,7 @@ class PipelineState(TypedDict, total=False):
     requirement: str
     project_root: str
     coding_agent: str | None
+    review_backend: str | None
     design_ref: str | None
     # codegraph
     design: dict[str, Any] | None

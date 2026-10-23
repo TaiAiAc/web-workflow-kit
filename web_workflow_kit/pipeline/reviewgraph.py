@@ -33,7 +33,7 @@ def build_reviewgraph(source):
         }
         log(f"[验收审阅] {len(failures)} 个失败项、{len(payload['diff_hunks'])} 个改动块 → 验收顾问")
         plan = deps.reviewer(payload)
-        log(f"[验收审阅] 结论 {plan.get('verdict')}：{plan.get('summary', '')}")
+        log(f"[验收审阅] 结论 {plan.get('verdict')}（经 {plan.get('reviewer', '?')}）：{plan.get('summary', '')}")
         out: PipelineState = {"plan": plan}
         if plan.get("verdict") == "needs_human":
             out["break_reason"] = f"NEEDS_HUMAN: {plan.get('summary', '')}"

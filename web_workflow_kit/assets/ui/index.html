@@ -282,6 +282,13 @@ function fieldFor(key, prop, required, saved) {
     const extra = `<span class="hint" id="agent-note">${esc(agentNote(a))}</span>`;
     return `<label for="${id}"><span>${esc(title)}</span>${control}${hint}${extra}</label>`;
   }
+  if (key === "review_backend" && AGENTS.reviewers?.length) {
+    const chosen = val || AGENTS.review_default;
+    control = `<select id="${id}" name="${key}">${AGENTS.reviewers.map((r) =>
+      `<option value="${esc(r.key)}" ${r.key === chosen ? "selected" : ""}>${esc(r.label)}${r.available ? "" : "（不可用）"}</option>`).join("")}</select>`;
+    const r = AGENTS.reviewers.find((x) => x.key === chosen);
+    return `<label for="${id}"><span>${esc(title)}</span>${control}${hint}<span class="hint" id="review-note">${esc(r?.detail || "")}</span></label>`;
+  }
   if (key === "project_root") {
     control = `<div class="path-row"><input id="${id}" name="${key}" value="${esc(val)}" list="recent-projects" placeholder="点「浏览…」选择，或直接输入 D:/projects/my-app" spellcheck="false"><button type="button" class="ghost" id="pick-btn">浏览…</button></div>`;
     return `<label for="${id}"><span>${esc(title)}${required ? '<span class="req" aria-hidden="true">*</span>' : ""}</span>${control}<span class="check" id="proj-check"></span>${hint}</label>`;
@@ -315,6 +322,7 @@ function selectGraph(name) {
   $("fields").oninput = $("fields").onchange = (e) => {
     store.set("wwk.draft." + name, collect(false).values);
     if (e?.target?.name === "coding_agent") $("agent-note").textContent = agentNote(AGENTS.agents.find((a) => a.key === e.target.value));
+    if (e?.target?.name === "review_backend") $("review-note").textContent = AGENTS.reviewers.find((r) => r.key === e.target.value)?.detail || "";
   };
   $("form-error").textContent = "";
   const proj = $("f-project_root");

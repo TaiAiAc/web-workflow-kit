@@ -146,6 +146,19 @@ agent --project ../my-app
 
 经 ACP 的 Codex / OpenCode 受下面的权限策略约束（改不了门禁文件、写不了项目外）。各 agent 的启动命令在 `coding_agents.<名称>` 里，项目自己的 `agent.config.json` 可以覆盖。控制台会标出本机找不到命令的选项；登录状态只有真正调用时才知道。Spec 生成不受此选项影响，仍按 `spec.backend`（默认 Claude Code，可改为 GPT）。
 
+### 验收审阅（可选）
+
+门禁失败后由“验收顾问”出修复计划，再交给修复 agent。审阅方式可选：控制台表单的「验收审阅」下拉框、命令行 `--review`，或配置 `review.backend`。
+
+| 选项 | 行为 |
+| --- | --- |
+| `auto` 自动（默认） | 配了 `DEEPSEEK_API_KEY` 用 API；没配但装了 dsh 用 dsh；都没有就跳过 |
+| `api` DeepSeek API | 直接调接口，天然只读，强制 JSON 输出 |
+| `dsh` DeepSeek Harness | `dsh headless` 跑审阅提示词，从输出里取 JSON；审阅前后比对项目文件指纹，顾问若改动了任何文件即判违规 → 熔断，列出被改的文件交给人处理（不自动回滚） |
+| `skip` 跳过 | 不出修复计划，修复 agent 直接按门禁失败码和出错位置修 |
+
+所以 **DeepSeek API Key 不是必需的**：只装了 DeepSeek Harness 也能跑完整的“门禁 ⇄ 审阅修复”回环。无论哪种方式，顾问都没有放行权，输出里的 `pass` 字段一律丢弃。
+
 ### ACP 编码后端
 
 Codex / OpenCode 走 ACP（也可以在 `coding_agents` 里加一个 `"backend": "acp"` 的预设，用 `command` 指定任意 ACP CLI）。stop_reason 直接取自 ACP 协议。写文件要经 `session/request_permission`，由流水线应答：

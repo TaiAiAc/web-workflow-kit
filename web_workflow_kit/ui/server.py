@@ -28,6 +28,8 @@ from ..pipeline.agents import agent_availability
 from ..pipeline.config import ASSETS_DIR, DEFAULTS, load_config
 from ..pipeline.deps import default_deps, deps_from_state
 from ..pipeline.main_graph import build_main_graph
+from ..pipeline.review import BACKENDS as REVIEW_BACKENDS
+from ..pipeline.review import availability as review_availability
 from ..pipeline.reviewgraph import build_reviewgraph
 
 PAGE = ASSETS_DIR / "ui" / "index.html"
@@ -70,7 +72,10 @@ def describe_agents() -> dict[str, Any]:
         ok, detail = agent_availability(p)
         items.append({"key": key, "label": p.get("label", key), "available": ok, "detail": detail,
                       "via": {"claude_cli": "Claude Code CLI", "acp": "ACP 协议", "dsh_cli": "命令行"}.get(p.get("backend"), p.get("backend"))})
-    return {"default": DEFAULTS.get("code", {}).get("agent", "claude"), "agents": items}
+    # 审阅方式的可用性取决于 API Key（用户级 ~/.web-workflow-kit/.env 或环境变量）和 dsh 是否安装
+    return {"default": DEFAULTS.get("code", {}).get("agent", "claude"), "agents": items,
+            "review_default": DEFAULTS.get("review", {}).get("backend", "auto"),
+            "reviewers": review_availability(load_config(None))}
 
 
 _PICK_LOCK = threading.Lock()
@@ -149,6 +154,7 @@ class Run:
             "id": self.id, "graph": self.graph, "status": self.status,
             "project_root": self.project_root, "requirement": self.input.get("requirement", ""),
             "coding_agent": self.input.get("coding_agent", ""),
+            "review_backend": self.input.get("review_backend", ""),
             "summary": self.result.get("summary", self.error), "result_status": self.result.get("status"),
             "started": self.started, "finished": self.finished,
         }
@@ -157,7 +163,8 @@ class Run:
         def source(state: dict[str, Any]):
             root = state.get("project_root") or self.project_root
             return default_deps(load_config(root), log=self.log,
-                                coding_agent=state.get("coding_agent") or self.input.get("coding_agent"))
+                                coding_agent=state.get("coding_agent") or self.input.get("coding_agent"),
+                                review_backend=state.get("review_backend") or self.input.get("review_backend"))
 
         try:
             graph = BUILDERS[self.graph](source).with_config({"recursion_limit": 200})
@@ -298,6 +305,9 @@ def make_handler(store: RunStore, token: str, port: int, graphs: list[dict[str, 
                 agent = payload.get("coding_agent")
                 if agent and agent not in DEFAULTS.get("coding_agents", {}):
                     raise ValueError(f"未知的编程 agent：{agent}")
+                reviewer = payload.get("review_backend")
+                if reviewer and reviewer not in REVIEW_BACKENDS:
+                    raise ValueError(f"未知的审阅方式：{reviewer}")
                 run = store.start(graph, payload)
             except (ValueError, json.JSONDecodeError) as e:
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})

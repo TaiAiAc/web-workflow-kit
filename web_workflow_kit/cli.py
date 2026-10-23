@@ -74,6 +74,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-browser", action="store_true", help="agent ui 启动后不自动打开浏览器")
     ap.add_argument("--project", help="目标前端项目目录（默认当前目录）")
     ap.add_argument("--agent", help="写代码用哪个 agent：claude / codex / opencode / dsh（默认取配置 code.agent）")
+    ap.add_argument("--review", choices=["auto", "api", "dsh", "skip"],
+                    help="验收审阅方式：auto（默认，有 DeepSeek Key 用 API，否则用 dsh）/ api / dsh / skip")
     ap.add_argument("--config", help="额外的 agent.config.json")
     ap.add_argument("--once", metavar="需求", help="非交互：跑一次需求后退出，退出码 0=交付 1=熔断")
     ap.add_argument("--verify", action="store_true", help="只跑门禁，退出码即门禁结论（0/1/2），可直接用在 CI")
@@ -93,7 +95,7 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = load_config(args.project, args.config)
     agent = args.agent
-    deps = default_deps(cfg, coding_agent=agent)
+    deps = default_deps(cfg, coding_agent=agent, review_backend=args.review)
 
     if args.verify:
         r = deps.gate()
@@ -137,12 +139,12 @@ def main(argv: list[str] | None = None) -> int:
                 design_ref = None if arg in ("", "off") else arg
                 print(f"design = {design_ref}")
             elif cmd == ":agent":
-                deps = default_deps(cfg, coding_agent=arg or None)
+                deps = default_deps(cfg, coding_agent=arg or None, review_backend=args.review)
                 agent = arg or None
                 print(f"编程 agent = {agent or cfg['code'].get('agent')}")
             elif cmd == ":project":
                 cfg = load_config(arg or None, args.config)
-                deps = default_deps(cfg, coding_agent=agent)
+                deps = default_deps(cfg, coding_agent=agent, review_backend=args.review)
                 print(f"project = {cfg.project_root}")
             elif cmd == ":verify":
                 r = deps.gate()
