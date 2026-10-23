@@ -17,7 +17,8 @@ from web_workflow_kit.ui.server import create_server
 class LocalConsoleTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.server, cls.token = create_server(port=0)
+        cls.pick = lambda initial: None    # 测试里替换系统文件夹窗口
+        cls.server, cls.token = create_server(port=0, picker=lambda initial: cls.pick(initial))
         cls.port = cls.server.server_address[1]
         threading.Thread(target=cls.server.serve_forever, daemon=True).start()
 
@@ -81,6 +82,29 @@ class LocalConsoleTest(unittest.TestCase):
         status, body, _ = self.request("POST", "/api/runs", {"graph": N.PIPELINE_NAME, "input": {
             "project_root": str(temp_dir(self)), "requirement": "x", "coding_agent": "cursor"}})
         self.assertEqual((status, body["error"]), (400, "未知的编程 agent：cursor"))
+
+    def test_folder_picker_and_check(self):
+        root = temp_dir(self)
+        (root / "package.json").write_text('{"name": "my-app"}', encoding="utf-8")
+        type(self).pick = lambda initial: root.as_posix()
+        status, body, _ = self.request("POST", "/api/pick-folder", {"initial": None})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["path"], root.as_posix())
+        self.assertEqual((body["inspect"]["package_json"], body["inspect"]["name"], body["inspect"]["rules_yaml"]),
+                         (True, "my-app", False))
+        type(self).pick = lambda initial: None                     # 用户点了取消
+        self.assertEqual(self.request("POST", "/api/pick-folder", {})[1], {"path": None, "inspect": None})
+
+        def no_gui(initial):
+            raise RuntimeError("本机 Python 没有 tkinter")
+        type(self).pick = no_gui
+        status, body, _ = self.request("POST", "/api/pick-folder", {})
+        self.assertEqual((status, body["error"]), (501, "本机 Python 没有 tkinter"))
+        # 弹窗也必须带令牌：别的网站不能借浏览器在你桌面上弹窗
+        self.assertEqual(self.request("POST", "/api/pick-folder", {}, token=False)[0], 403)
+        _, info, _ = self.request("GET", "/api/inspect?path=" + root.as_posix())
+        self.assertTrue(info["exists"] and info["package_json"])
+        self.assertFalse(self.request("GET", "/api/inspect?path=Z:/nope")[1]["exists"])
 
     def test_bad_input_gets_chinese_error(self):
         status, body, _ = self.request("POST", "/api/runs", {"graph": N.FIX_LOOP_NAME, "input": {}})

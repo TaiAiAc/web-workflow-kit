@@ -73,6 +73,52 @@ def describe_agents() -> dict[str, Any]:
     return {"default": DEFAULTS.get("code", {}).get("agent", "claude"), "agents": items}
 
 
+_PICK_LOCK = threading.Lock()
+
+
+def pick_folder(initial: str | None = None) -> str | None:
+    """弹出系统的“选择文件夹”窗口。浏览器拿不到所选目录的完整路径，所以由本地服务来弹。
+
+    返回所选目录（正斜杠），取消返回 None；本机没有图形界面组件时抛 RuntimeError。
+    """
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except ImportError as e:
+        raise RuntimeError("本机 Python 没有 tkinter，无法弹出选择窗口，请手动输入路径") from e
+    start = initial if initial and Path(initial).is_dir() else str(Path.home())
+    with _PICK_LOCK:  # 同一时间只弹一个窗口
+        root = tk.Tk()
+        try:
+            root.withdraw()
+            root.attributes("-topmost", True)  # 否则窗口常被浏览器挡在后面
+            path = filedialog.askdirectory(parent=root, initialdir=start, mustexist=True, title="选择前端项目目录")
+        finally:
+            root.destroy()
+    return Path(path).as_posix() if path else None
+
+
+def inspect_folder(path: str) -> dict[str, Any]:
+    """选完目录后给页面一句提示：像不像前端项目、有没有门禁规则。"""
+    p = Path(path)
+    if not p.is_dir():
+        return {"exists": False}
+    name = None
+    if (p / "package.json").is_file():
+        try:
+            name = json.loads((p / "package.json").read_text(encoding="utf-8")).get("name")
+        except (OSError, ValueError):
+            name = None
+    return {
+        "exists": True,
+        "package_json": (p / "package.json").is_file(),
+        "name": name,
+        "rules_yaml": (p / "rules.yaml").is_file(),
+        "agent_config": (p / "agent.config.json").is_file(),
+        "git": (p / ".git").exists(),
+    }
+
+
 class Run:
     def __init__(self, graph: str, payload: dict[str, Any]):
         self.id = uuid.uuid4().hex[:12]
@@ -161,7 +207,8 @@ class RunStore:
         return run
 
 
-def make_handler(store: RunStore, token: str, port: int, graphs: list[dict[str, Any]]):
+def make_handler(store: RunStore, token: str, port: int, graphs: list[dict[str, Any]],
+                 picker: Callable[[str | None], str | None] = pick_folder):
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     page = PAGE.read_text(encoding="utf-8").replace("__WWK_TOKEN__", token)
 
@@ -211,6 +258,8 @@ def make_handler(store: RunStore, token: str, port: int, graphs: list[dict[str, 
                 return self._json(HTTPStatus.OK, graphs)
             if parts == ["api", "agents"]:
                 return self._json(HTTPStatus.OK, describe_agents())
+            if parts == ["api", "inspect"]:
+                return self._json(HTTPStatus.OK, inspect_folder(parse_qs(url.query).get("path", [""])[0]))
             if parts == ["api", "runs"]:
                 runs = sorted(store.runs.values(), key=lambda r: r.started, reverse=True)
                 return self._json(HTTPStatus.OK, [r.brief() for r in runs])
@@ -229,10 +278,17 @@ def make_handler(store: RunStore, token: str, port: int, graphs: list[dict[str, 
             url = urlparse(self.path)
             if not self._guard(api=True):
                 return
-            if url.path != "/api/runs":
+            if url.path not in ("/api/runs", "/api/pick-folder"):
                 return self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             if not self.headers.get("Content-Type", "").startswith("application/json"):
                 return self._json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "需要 application/json"})
+            if url.path == "/api/pick-folder":
+                try:
+                    body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0) or 0)) or b"{}")
+                    path = picker(body.get("initial"))
+                except (RuntimeError, json.JSONDecodeError) as e:
+                    return self._json(HTTPStatus.NOT_IMPLEMENTED, {"error": str(e)})
+                return self._json(HTTPStatus.OK, {"path": path, "inspect": inspect_folder(path) if path else None})
             try:
                 body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0) or 0)) or b"{}")
                 graph = body.get("graph")
@@ -250,16 +306,17 @@ def make_handler(store: RunStore, token: str, port: int, graphs: list[dict[str, 
     return Handler
 
 
-def create_server(port: int = 8765) -> tuple[ThreadingHTTPServer, str]:
+def create_server(port: int = 8765, picker: Callable[[str | None], str | None] = pick_folder
+                  ) -> tuple[ThreadingHTTPServer, str]:
     token = secrets.token_urlsafe(24)
     graphs = describe_graphs()
     store = RunStore()
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(store, token, port, graphs))
+    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(store, token, port, graphs, picker))
     server.daemon_threads = True
     # port=0 时由系统分配端口，Host 校验要用实际端口
     if port == 0:
         real = server.server_address[1]
-        server.RequestHandlerClass = make_handler(store, token, real, graphs)
+        server.RequestHandlerClass = make_handler(store, token, real, graphs, picker)
     server.store = store  # type: ignore[attr-defined]
     return server, token
 
