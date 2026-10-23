@@ -118,6 +118,7 @@ Claude 适配器经 `npx @agentclientprotocol/claude-agent-acp` 拉起，需要�
 - 任何带 `run` 的条目都是命令检查，失败码默认 `<ID>_FAIL`，可用 `code:` 指定。
 - 内置检查：`artifacts`、`package_size`（小程序主包，自动排除 `subPackages`）、`unpacked`（asar 条目 + 版本）、`installer`（latest.yml 版本与 sha512、可选 SHA256SUMS、文件名含版本）、`smoke`（启动后存活 `alive_ms`）。
 - `build` 失败时，依赖产物的检查直接 `skip`，不制造连带失败项。
+- `visual`（Electron，可选）：带 `--remote-debugging-port=0` 起应用，经 Chrome DevTools Protocol 连渲染进程，在 `timeout_ms` 内等 `expect_text` / `expect_selector` 成立，检查白屏、`forbid_text`、未捕获异常，并截图到 `.agent/visual.png`。纯脚本判定，不调模型；应用若禁用了远程调试则报 `VISUAL_UNAVAILABLE`。没有用 agent-electron：它对打包后应用的启动仍标为 WIP，而门禁验的正是 `win-unpacked` 里的 exe。
 
 失败码表见 [prompts/review-prompt.md](prompts/review-prompt.md)，新增失败码时同步更新。
 
@@ -131,7 +132,7 @@ cd verify && pnpm test
 python -m unittest discover tests
 ```
 
-`tests/stub_acp_agent.py` 是一个不调模型的 ACP 桩，ACP 测试走真实的 langgraph-acp 客户端与 stdio 协议。CI（`.github/workflows/ci.yml`）在 Ubuntu 和 Windows 上跑两套测试。
+`verify/test/visual.test.ts` 用本机 Edge/Chrome 代替 Electron 跑真实 CDP（同一协议），找不到浏览器时跳过，可用 `CHROME_PATH` 指定。`tests/stub_acp_agent.py` 是一个不调模型的 ACP 桩，ACP 测试走真实的 langgraph-acp 客户端与 stdio 协议。CI（`.github/workflows/ci.yml`）在 Ubuntu 和 Windows 上跑两套测试。
 
 ## 进度
 
@@ -139,4 +140,4 @@ python -m unittest discover tests
 - [x] Day 2：codegraph、codereviewgraph 子图（可单独运行：`:code`、`:fix`）
 - [x] Day 3：主图平铺 + REPL + 熔断邮件
 - [x] Day 4：MasterGo MCP（已连本机 MasterGo 实测选中图层、变量读取与未选中报错）、ACP 编码后端（权限策略保护门禁文件）、checkpoint 断点恢复、CI
-- [ ] Electron 视觉验收（agent-electron 等，可选）
+- [x] Electron 视觉验收：`visual` 检查（CDP，已用真实 Edge 测试文本/选择器、白屏、异常、截图）

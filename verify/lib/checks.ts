@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import YAML from 'yaml'
 import { openAsar } from './asar.ts'
+import { runVisual } from './visual.ts'
 import {
   dirSizeBytes,
   extractLocations,
@@ -30,6 +31,11 @@ export type FailureCode =
   | 'HASH_MISMATCH'
   | 'PACKAGE_TOO_LARGE'
   | 'SMOKE_CRASH'
+  | 'VISUAL_UNAVAILABLE'
+  | 'VISUAL_BLANK'
+  | 'VISUAL_MISSING'
+  | 'VISUAL_FORBIDDEN'
+  | 'RENDERER_ERROR'
   | 'CONFIG_ERROR'
   | (string & {})
 
@@ -72,7 +78,7 @@ const COMMAND_CODES: Record<string, FailureCode> = {
 }
 
 // 依赖构建产物的检查：build 失败时直接跳过，不制造噪声失败项
-export const ARTIFACT_CHECKS = new Set(['artifacts', 'package_size', 'unpacked', 'installer', 'smoke'])
+export const ARTIFACT_CHECKS = new Set(['artifacts', 'package_size', 'unpacked', 'installer', 'smoke', 'visual'])
 
 const p = (ctx: Context, rel: string) => (isAbsolute(rel) ? rel : resolve(ctx.root, rel))
 
@@ -292,6 +298,18 @@ function smokeCheck(ctx: Context): Promise<Failure[]> {
   })
 }
 
+async function visualCheck(ctx: Context): Promise<Failure[]> {
+  const exe = p(ctx, ctx.rule.exe ?? '')
+  if (!ctx.rule.exe || !existsSync(exe))
+    return [{ code: 'ARTIFACT_MISSING', check: 'visual', message: `visual exe missing: ${ctx.rule.exe}` }]
+  const issues = await runVisual({
+    ...ctx.rule,
+    exe,
+    screenshot: p(ctx, ctx.rule.screenshot ?? '.agent/visual.png'),
+  }, ctx.root, ctx.defaults.max_detail_chars)
+  return issues.map(i => ({ ...i, check: 'visual' }))
+}
+
 export async function runCheck(id: string, ctx: Context): Promise<Failure[]> {
   if (ctx.rule?.run)
     return commandCheck(id, ctx)
@@ -301,6 +319,7 @@ export async function runCheck(id: string, ctx: Context): Promise<Failure[]> {
     case 'unpacked': return unpackedCheck(ctx)
     case 'installer': return installerCheck(ctx)
     case 'smoke': return smokeCheck(ctx)
+    case 'visual': return visualCheck(ctx)
     default: throw new ConfigError(`unknown check "${id}" (no run command and not a built-in)`)
   }
 }

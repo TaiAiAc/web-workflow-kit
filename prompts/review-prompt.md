@@ -43,6 +43,11 @@
 | HASH_MISMATCH | sha512/sha256 不符 | 产物被改写或 latest.yml 未重新生成，应重新构建而非手改哈希 |
 | PACKAGE_TOO_LARGE | 小程序主包超限 | 分包、按需引入、图片走 CDN |
 | SMOKE_CRASH | exe 启动 3 秒内退出 | 主进程异常、preload 路径、原生模块未重建 |
+| VISUAL_UNAVAILABLE | 连不上渲染进程的 DevTools | 应用崩溃、无窗口，或禁用了远程调试（后者给 needs_human） |
+| VISUAL_BLANK | 窗口白屏 | 渲染入口路径（loadFile/loadURL）、打包后资源路径、路由 base |
+| VISUAL_MISSING | 期望的文本/选择器没出现 | 页面没渲染到位、路由默认页、接口失败后的空态 |
+| VISUAL_FORBIDDEN | 出现了禁止文本（如“加载失败”） | 看 detail 里的可见文本定位是哪块报错 |
+| RENDERER_ERROR | 渲染进程未捕获异常 | 按 detail 里的堆栈修；常见是 preload 暴露的 API 不存在 |
 
 ## 输出（只输出一个 JSON 对象，不要 Markdown 包裹）
 
