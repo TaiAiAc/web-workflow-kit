@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "web-workflow-kit"
+version = "0.1.0"
+description = "本地前端交付流水线：需求 → Spec → 代码 → 门禁 → 验收 → 回环 → 交付"
+requires-python = ">=3.10"
+dependencies = [
+    "langgraph>=0.2",
+    "python-dotenv",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+# Day 4+：MasterGo 设计稿读取、ACP 触发。主流程不依赖它们。
+mcp = ["langchain-mcp-adapters"]
+acp = ["langgraph-acp"]
+repl = ["prompt-toolkit"]
+
+[project.scripts]
+agent = "scripts.agent_cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["scripts"]

@@ -1,0 +1,70 @@
+# 门禁规则：verify.ts 唯一读取的配置。
+# 场景差异只在这里配置，编排主图不改。
+# exit 0 = 放行；exit 1 = 门禁失败；exit 2 = 规则/用法错误。
+
+version: 1
+
+# electron | web | uniapp | miniprogram，可被 `verify.ts --type` 覆盖
+project_type: web
+
+defaults:
+  timeout_sec: 900          # 单个命令检查的超时
+  max_detail_chars: 3000    # 每个失败项只保留输出尾部，控制下游 token
+  fail_fast: false          # false：质量门禁全部跑完，一轮收集所有失败项
+
+# 各端共用的质量门禁。任何带 run 的条目都是命令检查，退出码非 0 即失败。
+commands:
+  typecheck:
+    run: pnpm exec vue-tsc --noEmit
+  lint:
+    run: pnpm exec eslint . --max-warnings=0
+  test:
+    run: pnpm exec vitest run --passWithNoTests
+
+profiles:
+  web:
+    checks: [typecheck, lint, test, build, artifacts]
+    build:
+      run: pnpm build
+    artifacts:
+      dir: dist
+      required: [index.html]
+
+  uniapp:
+    checks: [typecheck, lint, test, build, artifacts]
+    build:
+      run: pnpm build:h5
+    artifacts:
+      dir: dist/build/h5
+      required: [index.html]
+
+  miniprogram:
+    checks: [typecheck, lint, test, build, artifacts, package_size]
+    build:
+      run: pnpm build:mp-weixin
+    artifacts:
+      dir: dist/build/mp-weixin
+      required: [app.json, app.js, project.config.json]
+    package_size:
+      dir: dist/build/mp-weixin
+      main_max_kb: 2048       # 微信主包上限；app.json 里 subPackages 的 root 自动排除
+      total_max_kb: 20480
+
+  electron:
+    checks: [typecheck, lint, test, build, unpacked, installer, smoke]
+    build:
+      run: pnpm exec electronup build
+    unpacked:
+      dir: dist/win-unpacked
+      asar: resources/app.asar
+      asar_required: [package.json]   # asar 内必须存在的条目
+      check_version: true             # asar 内 package.json 版本 == 项目 package.json 版本
+    installer:
+      dir: dist
+      pattern: "*.exe"                # 只支持 * 与 ** 通配
+      latest_yml: latest.yml          # 校验 version 与 sha512
+      sha256_file: ""                 # 可选：如 SHA256SUMS.txt，逐行 `<hash>  <file>` 校验
+    smoke:
+      exe: dist/win-unpacked/App.exe
+      args: []
+      alive_ms: 3000                  # 起进程后存活这么久才算通过

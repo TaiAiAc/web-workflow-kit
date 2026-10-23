@@ -1,0 +1,23 @@
+{
+  "name": "web-workflow-kit-verify",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "门禁脚本：exit code 是唯一放行权",
+  "bin": {
+    "wwk-verify": "./verify.ts"
+  },
+  "scripts": {
+    "verify": "tsx verify.ts",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "yaml": "^2.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
