@@ -37,6 +37,30 @@ def _required_args(tool: Any) -> list[str]:
 
 
 FULL_DATA_MARK = "完整数据："
+CODE_MARK = "代码内容："
+
+
+def _compact_variables(data: Any) -> Any:
+    """变量表原样太长（id/collection 每条都重复）：压成 {变量名: 值}，多模式时 {变量名: {模式: 值}}。"""
+    if not isinstance(data, dict) or not isinstance(data.get("variables"), list):
+        return data
+    tokens: dict[str, Any] = {}
+    for v in data["variables"]:
+        modes = {m.get("name"): m.get("value") for m in v.get("mode", []) if isinstance(m, dict)}
+        tokens[v.get("name", v.get("id"))] = next(iter(modes.values())) if len(modes) == 1 else modes
+    return {"documentName": data.get("documentName"), "tokens": tokens}
+
+
+def _split_selection(text: str) -> Any:
+    # “✅ 成功获取节点代码 … 代码内容：<html>”：摘要和代码分开，给 Spec 干净的标记
+    if CODE_MARK not in text:
+        return text
+    summary, code = text.split(CODE_MARK, 1)
+    lines = [ln.lstrip("- ").strip() for ln in summary.splitlines()]
+    return {"summary": [ln for ln in lines if ln and not ln.startswith("✅")], "code": code.strip()}
+
+
+POSTPROCESS = {"get_variables": _compact_variables}
 
 
 def _decode(name: str, result: Any) -> Any:
@@ -53,11 +77,14 @@ def _decode(name: str, result: Any) -> Any:
         # 例如没选中图层：必须拦下，否则错误文案会被当成设计稿喂给 Spec
         raise RuntimeError(f"MasterGo {name}: {text}")
     if FULL_DATA_MARK in text:
-        text = text.split(FULL_DATA_MARK, 1)[1].strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return text
+        body = text.split(FULL_DATA_MARK, 1)[1].strip()
+        try:
+            # JSON 后面还跟着“已落盘: …”之类的说明，只取开头那个对象
+            data, _ = json.JSONDecoder().raw_decode(body)
+            return POSTPROCESS.get(name, lambda d: d)(data)
+        except json.JSONDecodeError:
+            return body
+    return _split_selection(text)
 
 
 async def _via_mcp(cfg: Config) -> dict[str, Any]:

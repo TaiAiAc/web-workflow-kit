@@ -81,9 +81,29 @@ class ACPAgentStubTest(unittest.TestCase):
 
 
 class DesignDecodeTest(unittest.TestCase):
-    def test_vibe_full_data_is_parsed(self):
-        text = '✅ 当前文件变量已获取\n\n摘要：\n{"variables": 1}\n\n完整数据：\n{"documentName": "OA", "variables": [{"name": "c"}]}'
-        self.assertEqual(_decode("get_variables", text)["documentName"], "OA")
+    # 以下样本取自 vibe-mcp 1.0.31 对真实 MasterGo 文件的返回
+    VARIABLES = (
+        '✅ 当前文件变量已获取\n\n摘要：\n{\n  "variables": 2\n}\n\n完整数据：\n'
+        '{"documentName": "OA桌面端", "variables": ['
+        '{"id": "1", "collection": "集合", "name": "品牌蓝400-常规", "type": "COLOR", "mode": [{"name": "模式 1", "value": "#0370ed"}]},'
+        '{"id": "2", "collection": "集合", "name": "圆角", "type": "FLOAT", "mode": [{"name": "亮", "value": 4}, {"name": "暗", "value": 6}]}]}'
+        '\n\n已落盘: C:\\Users\\x\\.mgmcp\\variable.json\n索引: C:\\Users\\x\\.mgmcp\\catalog.json'
+    )
+    SELECTION = (
+        '✅ 成功获取节点代码\n- 节点: 消息提醒 (499:108850)\n- 父容器方向: row\n\n代码内容：\n\n'
+        '<ui-component data-node-id="499:108850" style="width: 340px"></ui-component>\n'
+    )
+
+    def test_variables_parsed_despite_trailing_text_and_compacted(self):
+        out = _decode("get_variables", [{"type": "text", "text": self.VARIABLES}])
+        self.assertEqual(out["documentName"], "OA桌面端")
+        self.assertEqual(out["tokens"]["品牌蓝400-常规"], "#0370ed")
+        self.assertEqual(out["tokens"]["圆角"], {"亮": 4, "暗": 6})
+
+    def test_selection_split_into_summary_and_code(self):
+        out = _decode("get_selection_node", [{"type": "text", "text": self.SELECTION}])
+        self.assertIn("节点: 消息提醒 (499:108850)", out["summary"])
+        self.assertTrue(out["code"].startswith("<ui-component"))
 
     def test_vibe_error_raises(self):
         with self.assertRaisesRegex(RuntimeError, "没有选中图层"):

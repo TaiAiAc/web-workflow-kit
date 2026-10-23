@@ -91,7 +91,7 @@ agent --project ../my-app
 2. 在 MasterGo 里选中目标页面或图层。
 3. REPL 里 `:design mastergo`，再输入需求。
 
-读取 `design.tools`（默认 `get_selection_node`、`get_variables`），每个工具单独按 `max_chars` 分预算。没选中图层会直接以 `DESIGN_ERROR` 停下（不发邮件），选中后重跑即可。
+读取 `design.tools`（默认 `get_selection_node`、`get_variables`）：选中图层拆成 `summary` + `code`（HTML），变量压成 `{变量名: 值}` 的 token 表；每个工具单独按 `max_chars` 分预算。没选中图层会直接以 `DESIGN_ERROR` 停下（不发邮件），选中后重跑即可。
 
 ### ACP 编码后端
 
@@ -138,5 +138,5 @@ python -m unittest discover tests
 - [x] Day 1：verify.ts + rules.yaml + review-prompt.md
 - [x] Day 2：codegraph、codereviewgraph 子图（可单独运行：`:code`、`:fix`）
 - [x] Day 3：主图平铺 + REPL + 熔断邮件
-- [x] Day 4：MasterGo MCP（已连本机 MasterGo 实测变量读取与未选中报错）、ACP 编码后端（权限策略保护门禁文件）、checkpoint 断点恢复、CI
+- [x] Day 4：MasterGo MCP（已连本机 MasterGo 实测选中图层、变量读取与未选中报错）、ACP 编码后端（权限策略保护门禁文件）、checkpoint 断点恢复、CI
 - [ ] Electron 视觉验收（agent-electron 等，可选）
