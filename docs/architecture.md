@@ -100,6 +100,7 @@
 - 只接受 `application/json` 请求（跨站页面能发的“简单请求”会被拒绝），禁止被其他页面嵌入。
 - 页面不加载任何外部资源。
 - 同一项目同一时间只允许一次运行。
+- 「打开目录」「移除」「设置 agent」只作用于已加入工作空间的目录，不能借接口打开任意路径。
 
 **ACP agent 的权限策略**（[acp_agent.py](../web_workflow_kit/pipeline/acp_agent.py)）：Codex / OpenCode 每次改文件都要经流水线批准。只批准读、搜索、编辑；执行命令一律拒绝；写到项目外或命中受保护路径（`rules.yaml`、`verify/*`、`agent.config.json`、`.agent/*`、`.github/*`、`.env*`）的编辑一律拒绝。
 
@@ -134,6 +135,7 @@ web_workflow_kit/                Python 包
   graph.py                       四张图的导出入口
   cli.py                         agent 命令
   ui/server.py                   本地控制台服务
+  ui/workspaces.py               工作空间列表、各项目的 agent 选择、运行记录落盘
   pipeline/
     main_graph.py                主图、路由、交付与熔断
     codegraph.py / reviewgraph.py  两个子图

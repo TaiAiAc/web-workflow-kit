@@ -128,7 +128,7 @@ def build_main_graph(source: Any, entry: str = "code", checkpointer: Any = None)
                    + (f"，经过 {rounds} 轮自动修复" if rounds else "")
                    + "。代码未提交，等待人工签字发布。")
         log(f"[交付] {summary}")
-        return {"status": "delivered", "summary": summary}
+        return {"status": "delivered", "summary": summary, "changed_files": files}
 
     def breaker_node(state: PipelineState) -> PipelineState:
         deps = resolve_deps(source, state)

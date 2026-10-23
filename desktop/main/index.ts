@@ -89,6 +89,16 @@ handle('wwk:pick-folder', async (initial: string | null) => {
   return r.canceled || !r.filePaths[0] ? null : r.filePaths[0].replace(BACKSLASH, '/')
 })
 
+handle('wwk:pick-file', async (initial: string | null) => {
+  const r = await dialog.showOpenDialog(win!, {
+    title: '选择设计稿',
+    defaultPath: initial || app.getPath('home'),
+    properties: ['openFile'],
+    filters: [{ name: '设计稿 JSON', extensions: ['json'] }],
+  })
+  return r.canceled || !r.filePaths[0] ? null : r.filePaths[0].replace(BACKSLASH, '/')
+})
+
 handle('wwk:choose-python', async () => {
   const r = await dialog.showOpenDialog(win!, {
     title: '选择 Python 解释器（已安装 web-workflow-kit 依赖的那个）',
