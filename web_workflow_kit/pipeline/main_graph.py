@@ -10,6 +10,7 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from . import names as N
 from .checkpoint import entry_of, last_thread, new_thread_id, open_checkpointer, remember
 from .codegraph import build_codegraph
 from .deps import Deps, resolve_deps
@@ -29,12 +30,44 @@ def _pick(state: dict[str, Any], keys: tuple[str, ...]) -> PipelineState:
 def route_after_verify(state: PipelineState, max_retries: int) -> str:
     exit_code = state.get("verify_exit", 1)
     if exit_code == 0:
-        return "deliver"
+        return N.DELIVER
     if exit_code == 2:
-        return "breaker"            # 规则/环境错误：模型无权也无法修
+        return N.BREAKER            # 规则/环境错误：模型无权也无法修
     if state.get("attempt", 0) > max_retries:
-        return "breaker"            # 已修复 max_retries 轮仍失败
-    return "review"
+        return N.BREAKER            # 已修复 max_retries 轮仍失败
+    return N.REVIEW
+
+
+# break_reason 前缀 → 给人看的中文说明
+BREAK_EXPLAINED = {
+    "GATE_CONFIG_ERROR": "门禁规则或运行环境有误（verify 退出码 2），模型无权也无法修复，请检查 rules.yaml 和 Node 环境",
+    "RETRY_LIMIT": "已自动修复到上限仍未通过门禁",
+    "NEEDS_HUMAN": "验收顾问判断需要人来决定",
+    "DESIGN_ERROR": "设计稿读取失败",
+    "SPEC_ERROR": "Spec 生成失败",
+    "CODE_AGENT_ERROR": "编码 agent 出错",
+    "FIX_AGENT_ERROR": "修复 agent 出错",
+}
+
+NOTIFY_EXPLAINED = {"sent": "已发熔断邮件", "deduped": "24 小时内已就同类问题发过邮件，本次不重复发送"}
+
+
+def explain_break(state: PipelineState, notify: str) -> str:
+    reason = state.get("break_reason", "")
+    key, _, detail = reason.partition(":")
+    text = f"已熔断：{BREAK_EXPLAINED.get(key, reason or '原因未知')}"
+    if detail.strip() and key in ("NEEDS_HUMAN", "DESIGN_ERROR", "SPEC_ERROR"):
+        text += f"（{detail.strip()[:200]}）"
+    codes = sorted({f.get("code", "?") for f in state.get("failures", [])})
+    if codes:
+        text += f"。门禁失败项：{', '.join(codes)}"
+    if notify.startswith("skipped(local"):
+        text += "。属于本地操作问题，未发邮件"
+    elif notify.startswith("skipped"):
+        text += "。未发邮件（未配置 SMTP 或发送失败）"
+    else:
+        text += f"。{NOTIFY_EXPLAINED.get(notify, notify)}"
+    return text + "。需要人工介入。"
 
 
 def build_main_graph(source: Any, entry: str = "code", checkpointer: Any = None):
@@ -53,11 +86,11 @@ def build_main_graph(source: Any, entry: str = "code", checkpointer: Any = None)
     def verify_node(state: PipelineState) -> PipelineState:
         deps = resolve_deps(source, state)
         cfg, log = deps.cfg, deps.log
-        log("[verify] running verify.ts…")
+        log("[门禁] 运行 verify…")
         r = deps.gate()
         attempt = state.get("attempt", 0) + (0 if r.passed else 1)
         codes = sorted({f.get("code", "?") for f in r.failures})
-        log(f"[verify] exit={r.exit_code}" + (f" codes={','.join(codes)} (fail {attempt}/{cfg.max_retries + 1})" if codes else ""))
+        log(f"[门禁] 退出码 {r.exit_code}" + (f"，失败项 {','.join(codes)}（第 {attempt}/{cfg.max_retries + 1} 次失败）" if codes else "，通过"))
         out: PipelineState = {
             "verify_exit": r.exit_code,
             "failures": r.failures,
@@ -74,7 +107,10 @@ def build_main_graph(source: Any, entry: str = "code", checkpointer: Any = None)
     def deliver_node(state: PipelineState) -> PipelineState:
         deps = resolve_deps(source, state)
         cfg, log = deps.cfg, deps.log
-        files = sorted({h["file"] for h in changed_hunks(cfg.project_root, state.get("baseline"), [], 10**9)})
+        # 流水线自己的产物目录（.agent/）不算改动
+        own = cfg.state_dir.relative_to(cfg.project_root).as_posix() + "/" if cfg.state_dir.is_relative_to(cfg.project_root) else None
+        files = sorted({h["file"] for h in changed_hunks(cfg.project_root, state.get("baseline"), [], 10**9)
+                        if not (own and h["file"].startswith(own))})
         record = {
             "requirement": state.get("requirement"),
             "fix_rounds": state.get("attempt", 0),
@@ -84,34 +120,43 @@ def build_main_graph(source: Any, entry: str = "code", checkpointer: Any = None)
         }
         cfg.state_dir.mkdir(parents=True, exist_ok=True)
         (cfg.state_dir / "delivery.json").write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
-        log(f"[deliver] gate passed; {len(files)} file(s) changed. 未提交，等待人工签字发布。")
-        return {"status": "delivered"}
+        rounds = state.get("attempt", 0)
+        # 有编码前快照（pipeline）时是“本次改动”；fix_loop 没有快照，只能说工作区里有多少未提交改动
+        changed = (f"本次改动 {len(files)} 个文件" if state.get("baseline")
+                   else f"工作区有 {len(files)} 个未提交的改动文件")
+        summary = (f"已交付：门禁通过，{changed}"
+                   + (f"，经过 {rounds} 轮自动修复" if rounds else "")
+                   + "。代码未提交，等待人工签字发布。")
+        log(f"[交付] {summary}")
+        return {"status": "delivered", "summary": summary}
 
     def breaker_node(state: PipelineState) -> PipelineState:
         deps = resolve_deps(source, state)
-        log = deps.log
         reason = state.get("break_reason", "")
         # 设计稿读取失败是人就在 REPL 前的操作问题（如没选中图层），不发邮件
         result = "skipped(local error)" if reason.startswith("DESIGN_ERROR") else deps.notifier(dict(state))
-        log(f"[breaker] {state.get('break_reason', 'unknown')} — notify: {result}")
-        return {"status": "broken"}
+        summary = explain_break(state, result)
+        deps.log(f"[熔断] {summary}")
+        return {"status": "broken", "summary": summary}
 
     g = StateGraph(PipelineState, input_schema=PipelineInput if entry == "code" else FixLoopInput)
+    first = N.CODE if entry == "code" else N.VERIFY
     if entry == "code":
-        g.add_node("code", code_node)
-        g.add_conditional_edges("code", lambda s: "breaker" if s.get("break_reason") else "verify", ["verify", "breaker"])
-    g.add_node("verify", verify_node)
-    g.add_node("review", review_node)
-    g.add_node("deliver", deliver_node)
-    g.add_node("breaker", breaker_node)
+        g.add_node(N.CODE, code_node)
+        g.add_conditional_edges(N.CODE, lambda s: N.BREAKER if s.get("break_reason") else N.VERIFY, [N.VERIFY, N.BREAKER])
+    g.add_node(N.VERIFY, verify_node)
+    g.add_node(N.REVIEW, review_node)
+    g.add_node(N.DELIVER, deliver_node)
+    g.add_node(N.BREAKER, breaker_node)
 
-    g.add_edge(START, entry)
-    g.add_conditional_edges("verify", lambda s: route_after_verify(s, resolve_deps(source, s).cfg.max_retries),
-                            ["deliver", "review", "breaker"])
-    g.add_conditional_edges("review", lambda s: "breaker" if s.get("break_reason") else "verify", ["verify", "breaker"])
-    g.add_edge("deliver", END)
-    g.add_edge("breaker", END)
-    return g.compile(checkpointer=checkpointer)
+    g.add_edge(START, first)
+    g.add_conditional_edges(N.VERIFY, lambda s: route_after_verify(s, resolve_deps(source, s).cfg.max_retries),
+                            [N.DELIVER, N.REVIEW, N.BREAKER])
+    g.add_conditional_edges(N.REVIEW, lambda s: N.BREAKER if s.get("break_reason") else N.VERIFY, [N.VERIFY, N.BREAKER])
+    g.add_edge(N.DELIVER, END)
+    g.add_edge(N.BREAKER, END)
+    name = N.PIPELINE_NAME if entry == "code" else N.FIX_LOOP_NAME
+    return g.compile(checkpointer=checkpointer, name=name)
 
 
 def recursion_limit(max_retries: int) -> int:
@@ -129,13 +174,13 @@ def _run(deps: Deps, entry: str, init: PipelineState | None, thread_id: str) -> 
                   "configurable": {"thread_id": thread_id}}
         if saver is not None:
             remember(deps.cfg, thread_id)
-            deps.log(f"[run] thread {thread_id}")
+            deps.log(f"[运行] 线程 {thread_id}")
         if init is None:
             snapshot = graph.get_state(config)
             if not snapshot.values:
                 raise RuntimeError(f"no checkpoint for thread {thread_id}")
             if not snapshot.next:
-                deps.log(f"[run] thread {thread_id} already finished ({snapshot.values.get('status')})")
+                deps.log(f"[运行] 线程 {thread_id} 已结束（{snapshot.values.get('status')}）")
                 return snapshot.values
         return graph.invoke(init, config)
 

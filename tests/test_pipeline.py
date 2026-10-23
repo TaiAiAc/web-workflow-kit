@@ -15,6 +15,7 @@ from web_workflow_kit.pipeline.config import load_config
 from web_workflow_kit.pipeline.deps import Deps, validate_plan
 from web_workflow_kit.pipeline.diffs import changed_hunks, snapshot, split_hunks
 from web_workflow_kit.pipeline.gate import GateResult
+from web_workflow_kit.pipeline import names as N
 from web_workflow_kit.pipeline.main_graph import build_main_graph, resume, route_after_verify, run_fix_loop, run_pipeline
 from web_workflow_kit.pipeline.notify import mark_sent, should_send
 
@@ -164,9 +165,9 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(resume(deps)["status"], "delivered")  # 已结束的线程直接返回
 
     def test_route(self):
-        self.assertEqual(route_after_verify({"verify_exit": 0, "attempt": 9}, 3), "deliver")
-        self.assertEqual(route_after_verify({"verify_exit": 1, "attempt": 3}, 3), "review")
-        self.assertEqual(route_after_verify({"verify_exit": 1, "attempt": 4}, 3), "breaker")
+        self.assertEqual(route_after_verify({"verify_exit": 0, "attempt": 9}, 3), N.DELIVER)
+        self.assertEqual(route_after_verify({"verify_exit": 1, "attempt": 3}, 3), N.REVIEW)
+        self.assertEqual(route_after_verify({"verify_exit": 1, "attempt": 4}, 3), N.BREAKER)
 
     def test_graph_compiles_both_entries(self):
         deps, _ = make_deps(self.tmp, [])

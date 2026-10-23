@@ -8,8 +8,9 @@ from langgraph.graph import END, START, StateGraph
 
 from .agents import ERROR
 from .deps import resolve_deps, fix_prompt
+from . import names as N
 from .diffs import changed_hunks
-from .state import PipelineState
+from .state import PipelineState, ReviewInput
 
 
 def build_reviewgraph(source):
@@ -30,9 +31,9 @@ def build_reviewgraph(source):
             "diff_hunks": changed_hunks(cfg.project_root, state.get("baseline"), failures,
                                         int(dcfg.get("max_chars", 12000)), int(dcfg.get("context_lines", 3))),
         }
-        log(f"[review] {len(failures)} failure(s), {len(payload['diff_hunks'])} hunk(s) → DeepSeek")
+        log(f"[验收审阅] {len(failures)} 个失败项、{len(payload['diff_hunks'])} 个改动块 → 验收顾问")
         plan = deps.reviewer(payload)
-        log(f"[review] verdict={plan.get('verdict')}: {plan.get('summary', '')}")
+        log(f"[验收审阅] 结论 {plan.get('verdict')}：{plan.get('summary', '')}")
         out: PipelineState = {"plan": plan}
         if plan.get("verdict") == "needs_human":
             out["break_reason"] = f"NEEDS_HUMAN: {plan.get('summary', '')}"
@@ -41,21 +42,21 @@ def build_reviewgraph(source):
     def fix_node(state: PipelineState) -> PipelineState:
         deps = resolve_deps(source, state)
         cfg, log = deps.cfg, deps.log
-        log("[fix] DeepSeek Harness is fixing…")
+        log("[执行修复] 修复 agent 工作中…")
         r = deps.fixer.run(
             fix_prompt(state.get("attempt", 1), cfg.max_retries, state.get("failures", []), state.get("plan")),
             cfg.project_root,
         )
-        log(f"[fix] stop_reason={r.stop_reason}")
+        log(f"[执行修复] 结束，stop_reason={r.stop_reason}")
         out: PipelineState = {"fix_stop_reason": r.stop_reason}
         if r.stop_reason == ERROR:
             out["break_reason"] = f"FIX_AGENT_ERROR: {r.text[-500:]}"
         return out
 
-    g = StateGraph(PipelineState)
-    g.add_node("review", review_node)
-    g.add_node("fix", fix_node)
-    g.add_edge(START, "review")
-    g.add_conditional_edges("review", lambda s: END if s.get("break_reason") else "fix", ["fix", END])
-    g.add_edge("fix", END)
-    return g.compile()
+    g = StateGraph(PipelineState, input_schema=ReviewInput)
+    g.add_node(N.ADVISE, review_node)
+    g.add_node(N.FIX, fix_node)
+    g.add_edge(START, N.ADVISE)
+    g.add_conditional_edges(N.ADVISE, lambda s: END if s.get("break_reason") else N.FIX, [N.FIX, END])
+    g.add_edge(N.FIX, END)
+    return g.compile(name=N.REVIEWGRAPH_NAME)

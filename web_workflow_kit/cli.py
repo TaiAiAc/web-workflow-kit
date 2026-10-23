@@ -29,7 +29,7 @@ def _read_line(session: Any) -> str:
 
 
 def _summary(state: dict[str, Any]) -> str:
-    keep = {k: state.get(k) for k in ("status", "break_reason", "attempt", "verify_exit", "history")}
+    keep = {k: state.get(k) for k in ("summary", "status", "break_reason", "attempt", "verify_exit", "history")}
     keep["failures"] = [f"{f.get('code')}: {f.get('message')}" for f in state.get("failures", [])]
     return json.dumps(keep, ensure_ascii=False, indent=2)
 

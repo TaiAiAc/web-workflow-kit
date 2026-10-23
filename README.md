@@ -76,13 +76,16 @@ langgraph dev
 
 浏览器打开它打印的 Studio 链接（`https://smith.langchain.com/studio/?baseUrl=http://127.0.0.1:2024`），可以看到四张图：
 
-| 图 | 用途 | 输入 |
-| --- | --- | --- |
-| `pipeline` | 需求 → 设计稿 → Spec → 写代码 → 门禁 ⇄ 修复 → 交付/熔断 | `project_root`、`requirement`，可选 `design_ref` |
-| `fix_loop` | 不写新代码，对现有工作区跑门禁 ⇄ 修复 | `project_root` |
-| `codegraph` / `reviewgraph` | 两个子图单独调试 | 同上 |
+| Studio 里的名字 | 图 ID（API 用） | 节点 | 输入表单 |
+| --- | --- | --- | --- |
+| 前端交付流水线 | `pipeline` | 编码 → 门禁 ⇄ 审阅修复 → 交付 / 熔断 | 项目路径、需求、设计稿（可选） |
+| 门禁修复回环 | `fix_loop` | 门禁 ⇄ 审阅修复 → 交付 / 熔断 | 项目路径 |
+| 编码子图 | `codegraph` | 读取设计稿 → 生成Spec → 写代码 | 同 pipeline |
+| 审阅修复子图 | `reviewgraph` | 验收审阅 → 执行修复 | 项目路径、门禁失败项等 |
 
-`project_root` 填目标前端项目的绝对路径。每次运行都按该项目的 `agent.config.json` / `.env` / `rules.yaml` 现取配置，所以一个服务可以同时服务多个项目，改了配置下次运行就生效。检查点由服务端管理，Studio 里可以回看每个节点的 state。
+显示层是中文：图名、描述、节点名、输入表单的标题和说明，以及运行结果里的 `summary`（中文结论，如“已熔断：已自动修复到上限仍未通过门禁……”）。对外契约保持英文不变：图 ID、输入/状态字段名、`status`（`delivered` / `broken`）、`break_reason`、失败码。Studio 自身的按钮和菜单由 LangChain 提供，不在本项目控制范围内。
+
+“项目路径”填目标前端项目的绝对路径。每次运行都按该项目的 `agent.config.json` / `.env` / `rules.yaml` 现取配置，所以一个服务可以同时服务多个项目，改了配置下次运行就生效。检查点由服务端管理，Studio 里可以回看每个节点的 state。
 
 **中文 Windows 注意**：langgraph-api 读取自带的 `openapi.json` 时没指定编码，系统默认 GBK 会直接启动失败，需开启 Python 的 UTF-8 模式：
 
