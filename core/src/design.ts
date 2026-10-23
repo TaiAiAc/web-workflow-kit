@@ -1,4 +1,4 @@
-// 设计稿读取（与 Python 版 design.py 一致）。两种来源：
+// 设计稿读取。两种来源：
 // - 本地导出的 `.json` 文件路径；
 // - `mastergo` / `mastergo:selection`：经 @mastergo/vibe-mcp 读取本机 MasterGo 客户端里**当前选中的图层**和文件变量。
 //   vibe-mcp 连的是本地 MasterGo 服务（默认 http://localhost:30678），不按链接取稿，所以先在 MasterGo 里选中图层再跑。

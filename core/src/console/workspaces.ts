@@ -1,4 +1,4 @@
-// 控制台的工作空间：用户加过的项目、每个项目选过的 agent，以及落盘的运行记录（与 Python 版 ui/workspaces.py 一致）。
+// 控制台的工作空间：用户加过的项目、每个项目选过的 agent，以及落盘的运行记录。
 // - 工作空间列表存在用户级目录（~/.web-workflow-kit/workspaces.json），浏览器版和桌面端共用；
 // - 运行记录在运行结束时写进项目自己的 .agent/runs/<id>.json，服务重启后仍能看到；
 // - 这里只做文件读写，路径合法性、agent 取值由 server.ts 校验。

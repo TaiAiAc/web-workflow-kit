@@ -1,4 +1,4 @@
-// 熔断邮件：同一错误码组合在去重窗口（默认 24 小时）内只发一次（与 Python 版 notify.py 一致）。
+// 熔断邮件：同一错误码组合在去重窗口（默认 24 小时）内只发一次。
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { basename, join } from "node:path"

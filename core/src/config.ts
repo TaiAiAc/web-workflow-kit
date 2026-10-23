@@ -1,4 +1,4 @@
-// agent.config.json + .env 加载，与 Python 版 config.py 行为一致。路径一律解析成绝对路径。
+// agent.config.json + .env 加载。路径一律解析成绝对路径。
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, isAbsolute, join, resolve } from "node:path"

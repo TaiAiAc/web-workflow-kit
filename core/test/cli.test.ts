@@ -1,4 +1,4 @@
-// 命令行：交互模式（经管道喂命令）、--version / --help、退出码（对应 Python 版 tests/test_app.py 的 CLI 部分）。
+// 命令行：交互模式（经管道喂命令）、--version / --help、退出码。
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { writeFileSync } from "node:fs"

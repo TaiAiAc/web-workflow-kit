@@ -1,4 +1,4 @@
-// 本地控制台（TS 版）：起一个真实的本地 HTTP 服务，按页面的方式调用（对应 Python 版 tests/test_ui.py）。
+// 本地控制台（TS 版）：起一个真实的本地 HTTP 服务，按页面的方式调用。
 import assert from "node:assert/strict"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { createServer, request as httpRequest } from "node:http"

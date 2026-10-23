@@ -1,4 +1,4 @@
-// 断点恢复：主图每个节点结束后把 state 写进 .agent/checkpoints.sqlite（与 Python 版 checkpoint.py 一致）。
+// 断点恢复：主图每个节点结束后把 state 写进 .agent/checkpoints.sqlite。
 // 进程崩溃或 Ctrl-C 后，resume 从最后一个完成的节点继续；中断时正在跑的那个节点会整体重跑。
 //
 // 存储用 Node 内置的 node:sqlite（Electron 自带，不需要原生模块）。检查点的读写逻辑直接沿用 LangGraph 的

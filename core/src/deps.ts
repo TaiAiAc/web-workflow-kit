@@ -1,4 +1,4 @@
-// 节点依赖的外部能力。图只依赖这里的接口，测试时整体替换成假实现（与 Python 版 deps.py 一致）。
+// 节点依赖的外部能力。图只依赖这里的接口，测试时整体替换成假实现。
 import { type Agent, buildAgent, buildCodingAgent, ClaudeCodeCLI, END_TURN } from "./agents.ts"
 import { type Config, loadConfig, prompt, render } from "./config.ts"
 import { loadDesign } from "./design.ts"

@@ -1,4 +1,4 @@
-// 最小 ACP agent 桩（与 Python 版 tests/stub_acp_agent.py 相同）：按 STUB_WRITES 逐个申请写文件权限，
+// 最小 ACP agent 桩：按 STUB_WRITES 逐个申请写文件权限，
 // 获批才真的写，最后以 STUB_STOP 结束本轮。只用于测试 ACPAgent 的权限策略与 stop_reason 映射，不调用任何模型。
 // STUB_EMPTY：模拟模型调用失败却仍回 end_turn（不输出、0 token）；session/set_model 设的模型会写进回复。
 import { mkdirSync, writeFileSync } from "node:fs"

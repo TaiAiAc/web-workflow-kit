@@ -1,4 +1,4 @@
-// 交互模式：`wwk`（不带命令）进 REPL，直接输入需求就跑完整流水线（与 Python 版 cli.py 的 REPL 一致）。
+// 交互模式：`wwk`（不带命令）进 REPL，直接输入需求就跑完整流水线。
 import { appendFileSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import process from "node:process"

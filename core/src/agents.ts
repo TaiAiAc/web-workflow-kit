@@ -1,4 +1,4 @@
-// 外部编程 agent 的统一接口：只关心 stop_reason，不解析自然语言（与 Python 版 agents.py 一致）。
+// 外部编程 agent 的统一接口：只关心 stop_reason，不解析自然语言。
 import { join } from "node:path"
 import { ACPAgent } from "./acp.ts"
 import { type Agent, type AgentResult, END_TURN, ERROR, MAX_TOKENS } from "./agent-result.ts"
