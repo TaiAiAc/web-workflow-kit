@@ -26,12 +26,13 @@ class GateResult:
         return self.exit_code == 0
 
 
-def _run(cmd: list[str], cwd: Path, timeout: int, log: Callable[[str], None] | None) -> int:
+def _run(cmd: list[str], cwd: Path, timeout: int, log: Callable[[str], None] | None,
+         env: dict[str, str] | None = None) -> int:
     """log 为空时输出直接进终端；否则逐行转给 log（本地网页界面靠它实时显示每项检查）。"""
     if log is None:
-        return subprocess.run(cmd, cwd=cwd, timeout=timeout).returncode
+        return subprocess.run(cmd, cwd=cwd, timeout=timeout, env=env).returncode
     proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, encoding="utf-8", errors="replace")
+                            text=True, encoding="utf-8", errors="replace", env=env)
 
     def pump() -> None:
         assert proc.stdout is not None
@@ -71,7 +72,7 @@ def run_gate(cfg: Config, only: list[str] | None = None, log: Callable[[str], No
         cmd += ["--only", ",".join(only)]
 
     try:
-        returncode = _run(cmd, cfg.project_root, int(vcfg.get("timeout_sec", 3600)), log)
+        returncode = _run(cmd, cfg.project_root, int(vcfg.get("timeout_sec", 3600)), log, cfg.child_env())
     except subprocess.TimeoutExpired:
         return GateResult(1, [{"code": "CHECK_TIMEOUT", "check": "gate", "message": "verify.ts exceeded overall timeout"}])
 

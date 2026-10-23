@@ -147,7 +147,8 @@ def make_reviewer(cfg: Config, choice: str | None, validate: Callable[[Any], dic
         before = fingerprint(root)
         try:
             r = subprocess.run([exe, *(a.replace("{prompt}", short) for a in cmd[1:])], cwd=root,
-                               capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
+                               capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+                               env=cfg.child_env())
         except subprocess.TimeoutExpired:
             return _unavailable(f"dsh 审阅超时（{timeout}s）", backend)
         touched = changed_files(before, fingerprint(root))

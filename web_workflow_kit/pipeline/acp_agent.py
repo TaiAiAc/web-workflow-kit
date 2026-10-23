@@ -96,8 +96,9 @@ def local_adapter(command: Iterable[str] | None) -> list[str] | None:
 class ACPAgent:
     def __init__(self, agent: str = "claude", command: list[str] | None = None,
                  allow_kinds: Iterable[str] = DEFAULT_ALLOW_KINDS,
-                 protected: Iterable[str] = DEFAULT_PROTECTED, timeout_sec: int = 1800):
-        self.agent, self.command, self.timeout = agent, command, timeout_sec
+                 protected: Iterable[str] = DEFAULT_PROTECTED, timeout_sec: int = 1800,
+                 env: dict[str, str] | None = None):
+        self.agent, self.command, self.timeout, self.env = agent, command, timeout_sec, env
         self.allow_kinds, self.protected = tuple(allow_kinds), tuple(protected)
 
     def _provider(self, cwd: Path, denied: list[str]):
@@ -110,7 +111,7 @@ class ACPAgent:
         # asyncio 子进程不按 PATHEXT 解析，Windows 上 npx 必须先解析成 npx.cmd / npx.exe
         command[0] = shutil.which(command[0]) or command[0]
         return acp.StdioACPProvider(
-            name=self.agent, command=command, env=dict(os.environ), cwd=str(cwd),
+            name=self.agent, command=command, env=dict(self.env or os.environ), cwd=str(cwd),
             permissions=make_permission_policy(cwd, self.allow_kinds, self.protected, denied),
         )
 

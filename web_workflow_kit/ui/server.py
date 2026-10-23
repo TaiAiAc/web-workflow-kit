@@ -35,6 +35,7 @@ from ..pipeline.main_graph import build_main_graph
 from ..pipeline.review import BACKENDS as REVIEW_BACKENDS
 from ..pipeline.review import availability as review_availability
 from ..pipeline.reviewgraph import build_reviewgraph
+from . import settings as S
 from . import workspaces as W
 
 PAGE = ASSETS_DIR / "ui" / "index.html"
@@ -134,7 +135,18 @@ def pick_file(initial: str | None = None) -> str | None:
 
 
 POST_ROUTES = {"/api/runs", "/api/pick-folder", "/api/pick-file", "/api/init", "/api/open",
-               "/api/workspaces/add", "/api/workspaces/remove", "/api/workspaces/prefs"}
+               "/api/workspaces/add", "/api/workspaces/remove", "/api/workspaces/prefs",
+               "/api/settings", "/api/settings/test", "/api/auth/login"}
+
+
+def _workspace_or_none(project: str) -> str | None:
+    """设置页的“项目范围”只对已加入的工作空间开放，不能借它往任意目录写 .env。"""
+    if not project:
+        return None
+    ws = W.find(project)
+    if not ws:
+        raise ValueError(f"不是已添加的工作空间：{project}")
+    return ws["path"]
 
 
 def check_choices(values: dict[str, Any]) -> None:
@@ -310,7 +322,8 @@ def open_folder(path: str) -> None:
 def make_handler(store: RunStore, token: str, port: int, graphs: list[dict[str, Any]],
                  picker: Callable[[str | None], str | None] = pick_folder,
                  file_picker: Callable[[str | None], str | None] | None = None,
-                 opener: Callable[[str], None] = open_folder):
+                 opener: Callable[[str], None] = open_folder,
+                 terminal: Callable[[str], None] | None = None):
     file_picker = file_picker or pick_file
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
     page = PAGE.read_text(encoding="utf-8").replace("__WWK_TOKEN__", token)
@@ -367,6 +380,13 @@ def make_handler(store: RunStore, token: str, port: int, graphs: list[dict[str, 
             project = query.get("project", [""])[0]
             if parts == ["api", "workspaces"]:
                 return self._json(HTTPStatus.OK, [describe_workspace(w, store) for w in W.load()])
+            if parts in (["api", "settings"], ["api", "auth"]):
+                try:
+                    scope = _workspace_or_none(project)
+                except ValueError as e:
+                    return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+                data = S.describe(scope) if parts[1] == "settings" else S.agent_statuses(scope)
+                return self._json(HTTPStatus.OK, data)
             if parts == ["api", "runs"]:
                 if project:
                     return self._json(HTTPStatus.OK, store.for_project(project))
@@ -396,6 +416,8 @@ def make_handler(store: RunStore, token: str, port: int, graphs: list[dict[str, 
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": "请求体不是合法的 JSON"})
             if url.path.startswith("/api/workspaces/") or url.path == "/api/open":
                 return self._workspace_action(url.path, body)
+            if url.path in ("/api/settings", "/api/settings/test", "/api/auth/login"):
+                return self._settings_action(url.path, body)
             if url.path == "/api/init":  # 等同 agent --init：复制默认配置，已存在的不覆盖
                 try:
                     raw = str(body.get("path") or "").strip()
@@ -427,6 +449,27 @@ def make_handler(store: RunStore, token: str, port: int, graphs: list[dict[str, 
                 return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
             self._json(HTTPStatus.CREATED, {"id": run.id})
 
+        def _settings_action(self, path: str, body: dict[str, Any]) -> None:
+            try:
+                project = _workspace_or_none(str(body.get("project") or ""))
+                if path == "/api/settings":
+                    scope = body.get("scope", "user")
+                    if scope == "project" and not project:
+                        raise ValueError("项目范围的配置需要先选一个工作空间")
+                    S.save(scope, project, body.get("values") or {})
+                    return self._json(HTTPStatus.OK, S.describe(project))
+                if path == "/api/auth/login":
+                    line = S.launch_login(str(body.get("agent") or ""), project, terminal)
+                    return self._json(HTTPStatus.OK, {"command": line})
+                kind = body.get("kind")
+                if kind == "network":
+                    return self._json(HTTPStatus.OK, {"results": S.test_network(project)})
+                if kind == "deepseek":
+                    return self._json(HTTPStatus.OK, S.test_deepseek(project))
+                raise ValueError(f"未知的测试：{kind}")
+            except (ValueError, RuntimeError, OSError) as e:
+                return self._json(HTTPStatus.BAD_REQUEST, {"error": str(e)})
+
         def _workspace_action(self, path: str, body: dict[str, Any]) -> None:
             try:
                 target = str(body.get("path") or "").strip()
@@ -452,16 +495,17 @@ def make_handler(store: RunStore, token: str, port: int, graphs: list[dict[str, 
 
 def create_server(port: int = 8765, picker: Callable[[str | None], str | None] = pick_folder,
                   file_picker: Callable[[str | None], str | None] | None = None,
-                  opener: Callable[[str], None] = open_folder) -> tuple[ThreadingHTTPServer, str]:
+                  opener: Callable[[str], None] = open_folder,
+                  terminal: Callable[[str], None] | None = None) -> tuple[ThreadingHTTPServer, str]:
     token = secrets.token_urlsafe(24)
     graphs = describe_graphs()
     store = RunStore()
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(store, token, port, graphs, picker, file_picker, opener))
+    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(store, token, port, graphs, picker, file_picker, opener, terminal))
     server.daemon_threads = True
     # port=0 时由系统分配端口，Host 校验要用实际端口
     if port == 0:
         real = server.server_address[1]
-        server.RequestHandlerClass = make_handler(store, token, real, graphs, picker, file_picker, opener)
+        server.RequestHandlerClass = make_handler(store, token, real, graphs, picker, file_picker, opener, terminal)
     server.store = store  # type: ignore[attr-defined]
     return server, token
 

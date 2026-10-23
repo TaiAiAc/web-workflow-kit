@@ -36,8 +36,9 @@ class ClaudeCodeCLI:
     """`claude -p --output-format json`，prompt 走 stdin，避开命令行长度和转义问题。"""
 
     def __init__(self, model: str | None = None, permission_mode: str | None = None,
-                 max_turns: int | None = None, timeout_sec: int = 1800):
+                 max_turns: int | None = None, timeout_sec: int = 1800, env: dict[str, str] | None = None):
         self.model, self.permission_mode, self.max_turns, self.timeout = model, permission_mode, max_turns, timeout_sec
+        self.env = env
 
     def run(self, prompt: str, cwd: Path) -> AgentResult:
         exe = _resolve("claude")
@@ -52,7 +53,7 @@ class ClaudeCodeCLI:
             cmd += ["--max-turns", str(self.max_turns)]
         try:
             r = subprocess.run(cmd, input=prompt, cwd=cwd, capture_output=True, text=True,
-                               encoding="utf-8", errors="replace", timeout=self.timeout)
+                               encoding="utf-8", errors="replace", timeout=self.timeout, env=self.env)
         except subprocess.TimeoutExpired:
             return AgentResult(ERROR, f"claude timed out after {self.timeout}s")
         try:
@@ -73,8 +74,8 @@ class CommandAgent:
     长 prompt 写进文件，命令行只传一句英文指令，避免 cmd.exe 的长度/编码问题。
     """
 
-    def __init__(self, command: list[str], task_file: Path, timeout_sec: int = 1800):
-        self.command, self.task_file, self.timeout = command, task_file, timeout_sec
+    def __init__(self, command: list[str], task_file: Path, timeout_sec: int = 1800, env: dict[str, str] | None = None):
+        self.command, self.task_file, self.timeout, self.env = command, task_file, timeout_sec, env
 
     def run(self, prompt: str, cwd: Path) -> AgentResult:
         exe = _resolve(self.command[0])
@@ -88,7 +89,7 @@ class CommandAgent:
         cmd = [exe, *(a.replace("{prompt}", short) for a in self.command[1:])]
         try:
             r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
-                               encoding="utf-8", errors="replace", timeout=self.timeout)
+                               encoding="utf-8", errors="replace", timeout=self.timeout, env=self.env)
         except subprocess.TimeoutExpired:
             return AgentResult(ERROR, f"{self.command[0]} timed out after {self.timeout}s")
         return AgentResult(END_TURN if r.returncode == 0 else ERROR, (r.stdout + r.stderr)[-4000:])
@@ -142,12 +143,14 @@ def build_agent(section: dict, cfg: Config, task_name: str) -> Agent:
     backend = section.get("backend", "claude_cli")
     if backend == "claude_cli":
         return ClaudeCodeCLI(section.get("model"), section.get("permission_mode"),
-                             section.get("max_turns"), int(section.get("timeout_sec", 1800)))
+                             section.get("max_turns"), int(section.get("timeout_sec", 1800)), cfg.child_env())
     if backend in ("dsh_cli", "command"):
-        return CommandAgent(section["command"], cfg.state_dir / f"{task_name}.md", int(section.get("timeout_sec", 1800)))
+        return CommandAgent(section["command"], cfg.state_dir / f"{task_name}.md", int(section.get("timeout_sec", 1800)),
+                            cfg.child_env())
     if backend == "acp":
         from .acp_agent import DEFAULT_ALLOW_KINDS, DEFAULT_PROTECTED, ACPAgent
         return ACPAgent(section.get("agent", "claude"), section.get("command"),
                         section.get("allow_kinds", DEFAULT_ALLOW_KINDS),
-                        section.get("protected", DEFAULT_PROTECTED), int(section.get("timeout_sec", 1800)))
+                        section.get("protected", DEFAULT_PROTECTED), int(section.get("timeout_sec", 1800)),
+                        cfg.child_env())
     raise ValueError(f"unknown agent backend: {backend}")

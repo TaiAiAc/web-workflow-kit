@@ -61,6 +61,13 @@ class Config:
     def secret(self, name: str) -> str | None:
         return self.env.get(name) or os.environ.get(name)
 
+    def child_env(self) -> dict[str, str]:
+        """给 agent、门禁命令用的环境变量：本进程的环境 + 用户级 / 项目 .env（.env 优先）。
+
+        控制台「设置」里填的代理、API Key 写在 .env 里，经这里传给 claude / codex / dsh 等子进程。
+        """
+        return {**os.environ, **{k: v for k, v in self.env.items() if v}}
+
 
 def load_config(project_root: str | Path | None = None, config_path: str | Path | None = None) -> Config:
     """优先级：目标项目里的 agent.config.json > 包内默认值；.env：项目 > 用户级（~/.web-workflow-kit/.env）。"""
