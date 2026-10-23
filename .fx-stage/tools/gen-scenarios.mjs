@@ -302,7 +302,7 @@ add(
     codes: ["BUILD_FAIL"],
     statuses: { typecheck: "pass", lint: "pass", test: "pass", build: "fail", artifacts: "skip" },
     locations: ["src/main.ts:4:1"],
-    messages: ["build failed"],
+    reasons: { artifacts: "build failed" },
     reset: ["dist"],
   },
   {
@@ -696,7 +696,7 @@ add(
     exit: 1,
     codes: ["ARTIFACT_MISSING"],
     statuses: { build: "pass", unpacked: "fail", installer: "fail", smoke: "fail" },
-    messages: ["unpacked dir missing", "no installer matches", "smoke exe missing"],
+    messages: ["unpacked dir missing", "installer dir missing", "smoke exe missing"],
     reset: ["dist"],
   },
   {
@@ -769,7 +769,7 @@ add(
     codes: ["TYPECHECK_FAIL"],
     statuses: { typecheck: "fail", lint: "skip", test: "skip", build: "skip", artifacts: "skip" },
     locations: ["src/api/login.ts:9:15"],
-    messages: ["fail_fast"],
+    reasons: { lint: "fail_fast", test: "fail_fast", build: "fail_fast", artifacts: "fail_fast" },
     reset: ["dist"],
   },
   {

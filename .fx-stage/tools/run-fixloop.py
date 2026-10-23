@@ -4,6 +4,7 @@
 退出码：0 交付 / 1 熔断 / 2 用法或环境错误
 """
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -22,8 +23,17 @@ def main() -> int:
         print("先把 kit 装进这个 Python（pip install -e .），或直接用 kit 自带的 .venv", file=sys.stderr)
         return 2
 
-    cfg = load_config(root)
-    state = run_fix_loop(default_deps(cfg))
+    # 流水线日志和门禁子进程都写 fd 1，跑的时候整体转到 stderr，stdout 只留结果 JSON 给 run-all.mjs 解析
+    sys.stdout.flush()
+    saved = os.dup(1)
+    os.dup2(2, 1)
+    try:
+        cfg = load_config(root)
+        state = run_fix_loop(default_deps(cfg))
+    finally:
+        sys.stdout.flush()
+        os.dup2(saved, 1)
+        os.close(saved)
     keep = {k: state.get(k) for k in ("status", "break_reason", "attempt", "verify_exit", "summary")}
     keep["failures"] = [f.get("code") for f in state.get("failures", [])]
     print(json.dumps(keep, ensure_ascii=False, indent=2))

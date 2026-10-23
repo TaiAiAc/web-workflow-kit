@@ -15,9 +15,12 @@
   "locations": [
     "src/api/login.ts:9:15"
   ],
-  "messages": [
-    "fail_fast"
-  ],
+  "reasons": {
+    "lint": "fail_fast",
+    "test": "fail_fast",
+    "build": "fail_fast",
+    "artifacts": "fail_fast"
+  },
   "reset": [
     "dist"
   ]

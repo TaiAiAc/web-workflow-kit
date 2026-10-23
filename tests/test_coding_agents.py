@@ -54,7 +54,7 @@ class CodingAgentChoiceTest(unittest.TestCase):
     def test_availability_checks_the_command(self):
         self.assertEqual(agent_availability({"requires": "definitely-not-installed-xyz"}),
                          (False, "未找到 definitely-not-installed-xyz 命令"))
-        self.assertTrue(agent_availability({"requires": os.path.basename(sys.executable)})[0])
+        self.assertTrue(agent_availability({"requires": sys.executable})[0])  # venv 的 bin 不一定在 PATH 上
 
     def test_command_agent_instruction_is_generic(self):
         root = temp_dir(self)

@@ -13,7 +13,7 @@
   },
   "messages": [
     "unpacked dir missing",
-    "no installer matches",
+    "installer dir missing",
     "smoke exe missing"
   ],
   "reset": [

@@ -15,9 +15,9 @@
   "locations": [
     "src/main.ts:4:1"
   ],
-  "messages": [
-    "build failed"
-  ],
+  "reasons": {
+    "artifacts": "build failed"
+  },
   "reset": [
     "dist"
   ]

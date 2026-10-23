@@ -84,6 +84,12 @@ function compareGate(expected, actual) {
     else if (c.status !== st) problems.push(`check ${id} 是 ${c.status}，期望 ${st}`)
   }
 
+  // reasons：被跳过的检查为什么被跳过（依赖失败 / fail_fast），只出现在 checks 上，不在失败项里
+  for (const [id, reason] of Object.entries(expected.reasons ?? {})) {
+    const c = (actual.report?.checks ?? []).find(x => x.id === id)
+    if (c && !String(c.reason ?? "").includes(reason)) problems.push(`check ${id} 的 reason 是「${c.reason ?? ""}」，期望含「${reason}」`)
+  }
+
   // locations：门禁从输出里抽出的“出错位置”，是下游修复 agent 的定位依据
   const locations = (actual.report?.failures ?? []).flatMap(f => f.locations ?? [])
   for (const loc of expected.locations ?? []) {
