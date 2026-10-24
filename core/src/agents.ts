@@ -119,7 +119,8 @@ export function buildCodingAgent(cfg: Config, choice?: string | null): Agent {
 
 export function buildAgent(section: Record<string, any>, cfg: Config, taskName: string): Agent {
   const backend = section.backend ?? "claude_cli"
-  const env = cfg.childEnv()
+  // 预设可以带 env：只给这个 agent 进程加的环境变量（如关掉 CodeBuddy 的自动记忆，免得它往项目外写文件）
+  const env = { ...cfg.childEnv(), ...(section.env ?? {}) }
   const timeoutSec = Number(section.timeout_sec ?? 1800)
   if (backend === "claude_cli")
     return new ClaudeCodeCLI({ model: section.model, permissionMode: section.permission_mode, maxTurns: section.max_turns, timeoutSec, env })

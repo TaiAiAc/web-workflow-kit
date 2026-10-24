@@ -1,6 +1,7 @@
 // 最小 ACP agent 桩：按 STUB_WRITES 逐个申请写文件权限，
 // 获批才真的写，最后以 STUB_STOP 结束本轮。只用于测试 ACPAgent 的权限策略与 stop_reason 映射，不调用任何模型。
 // STUB_EMPTY：模拟模型调用失败却仍回 end_turn（不输出、0 token）；session/set_model 设的模型会写进回复。
+// STUB_SPLIT：像 CodeBuddy 那样，kind / title / locations 只在先发的 tool_call 通知里，权限请求只带 toolCallId 和 rawInput。
 import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { createInterface } from "node:readline"
@@ -16,16 +17,24 @@ let nextId = 1000
 let cwd = process.cwd()
 let model = "default"
 
+const outcomes = []
 async function askPermission(sessionId, path) {
   const id = ++nextId
+  const full = { toolCallId: `t${id}`, title: `Edit ${path}`, kind: "edit", locations: [{ path }] }
+  if (process.env.STUB_SPLIT)
+    send({ jsonrpc: "2.0", method: "session/update", params: { sessionId, update: { sessionUpdate: "tool_call", ...full, status: "pending", rawInput: { file_path: path } } } })
   send({ jsonrpc: "2.0", id, method: "session/request_permission", params: {
     sessionId,
-    toolCall: { toolCallId: `t${id}`, title: `Edit ${path}`, kind: "edit", locations: [{ path }] },
+    toolCall: process.env.STUB_SPLIT ? { toolCallId: full.toolCallId, rawInput: { file_path: path } } : full,
     options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }, { optionId: "reject", name: "Reject", kind: "reject_once" }],
   } })
   for (;;) {
     const msg = await read()
-    if (msg.id === id) return msg.result?.outcome?.optionId === "allow"
+    if (msg.id === id) {
+      const o = msg.result?.outcome
+      outcomes.push(o?.outcome === "selected" ? o.optionId : o?.outcome)
+      return o?.optionId === "allow"
+    }
   }
 }
 
@@ -52,7 +61,7 @@ for (;;) {
       } else denied.push(rel)
     }
     send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "stub-1", update: {
-      sessionUpdate: "agent_message_chunk", content: { type: "text", text: `wrote=${wrote} denied=${denied} model=${model}` },
+      sessionUpdate: "agent_message_chunk", content: { type: "text", text: `wrote=${wrote} denied=${denied} model=${model} outcomes=${outcomes}` },
     } } })
     send({ jsonrpc: "2.0", id: msg.id, result: { stopReason: process.env.STUB_STOP || "end_turn" } })
   } else if (msg.id !== undefined && msg.method) {

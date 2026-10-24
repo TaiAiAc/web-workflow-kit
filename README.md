@@ -155,7 +155,7 @@ wwk --project /path/to/my-app
 | Claude Code（`claude`） | `claude -p` | 安装并登录 Claude Code |
 | Codex（`codex`） | ACP 协议，适配器 `codex-acp` | 安装 Codex（`npm install -g @openai/codex`），已登录或在 `~/.codex/config.toml` 配好模型服务 |
 | OpenCode（`opencode`） | ACP 协议，`opencode acp` | 安装并登录 OpenCode |
-| WorkBuddy（`workbuddy`） | ACP 协议，`codebuddy --acp` | 安装 WorkBuddy 的引擎 CodeBuddy Code（`npm install -g @tencent-ai/codebuddy-code`），运行一次 `codebuddy` 登录 |
+| WorkBuddy（`workbuddy`） | ACP 协议，`codebuddy --acp`（只开放文件工具，不给 Bash） | 安装 WorkBuddy 的引擎 CodeBuddy Code（`npm install -g @tencent-ai/codebuddy-code`），运行一次 `codebuddy` 登录 |
 | DeepSeek Harness（`dsh`） | `dsh headless` | 安装 DeepSeek Harness，配好 `DEEPSEEK_API_KEY` |
 
 Codex 的 ACP 适配器默认每次经 npx 下载，网络不稳时会在开始写代码前就失败；先全局安装一次（`npm install -g @agentclientprotocol/codex-acp@1.13.0`），之后直接用本机的 `codex-acp`，不再访问 npm。

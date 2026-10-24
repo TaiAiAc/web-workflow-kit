@@ -93,6 +93,7 @@
 | `command` | `acp`、`dsh_cli` | 启动命令；`dsh_cli` 中 `{prompt}` 会替换成“读取任务文件并执行”的一句话 |
 | `allow_kinds` | `acp` | 批准的操作类型，默认 `read` / `search` / `think` / `edit` |
 | `protected` | `acp` | 禁止编辑的路径，默认 `rules.yaml`、`verify/*`、`agent.config.json`、`.agent/*`、`.github/*`、`.env`、`.env.*` |
+| `env` | 全部 | 只给这个 agent 进程追加的环境变量。例如 WorkBuddy 预设用它关掉 CodeBuddy 的自动记忆（否则它会往项目外写文件被拒，整轮中止） |
 
 新增一个 ACP agent 的例子（项目的 `agent.config.json`）：
 

@@ -61,6 +61,13 @@ describe("agent", () => {
     assert.deepEqual([opencode.agent, opencode.command], ["opencode", ["opencode", "acp"]])
   })
 
+  it("WorkBuddy 预设：只给文件工具（没有 Bash），关掉自动记忆（不往项目外写）", () => {
+    const wb = buildCodingAgent(loadConfig(tempDir()), "workbuddy") as ACPAgent
+    assert.deepEqual(wb.command, ["codebuddy", "--acp", "--tools", "Read,Glob,Grep,Edit,MultiEdit,Write,TodoWrite"])
+    assert.equal(wb.env?.CODEBUDDY_DISABLE_AUTO_MEMORY, "1")
+    assert.ok(wb.env?.PATH)   // 预设的 env 是追加，不是替换
+  })
+
   it("修复 agent：默认用 fix 段，选了预设就用预设", () => {
     const cfg = loadConfig(tempDir())
     const fix = buildFixAgent(cfg) as CommandAgent
