@@ -13,6 +13,8 @@ interface WwkDesktop {
   pickFolder: (initial?: string | null) => Promise<string | null>
   /** 系统“选择文件”窗口（设计稿 .json），返回正斜杠路径，取消返回 null */
   pickFile: (initial?: string | null) => Promise<string | null>
+  /** 系统“选择文件”窗口（界面图片，可多选），返回正斜杠路径数组，取消返回空数组 */
+  pickImages: (initial?: string | null) => Promise<string[]>
   getStatus: () => Promise<BootStatus>
   onStatus: (listener: (status: BootStatus) => void) => void
   retry: () => Promise<void>

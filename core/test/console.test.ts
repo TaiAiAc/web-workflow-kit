@@ -38,7 +38,7 @@ const terminal: string[] = []
 let pick: string | null = null
 
 before(async () => {
-  c = await startConsole({ port: 0, picker: async () => pick, filePicker: async () => "/tmp/design.json", opener: p => opened.push(p), terminal: l => terminal.push(l) })
+  c = await startConsole({ port: 0, picker: async () => pick, filePicker: async () => "/tmp/design.json", imagesPicker: async () => ["/tmp/a.png", "/tmp/b.jpg"], opener: p => opened.push(p), terminal: l => terminal.push(l) })
 })
 after(() => c.close())
 
@@ -307,6 +307,17 @@ describe("控制台服务", () => {
     assert.equal(gitOut(root, "log", "-1", "--format=%s"), "chore: 忽略 .agent/（web-workflow-kit 运行产物）")
     // 修复回环、仅门禁不拉作业分支，也就不要求这些
     assert.equal((await request("POST", "/api/runs", { graph: GATE_ONLY, input: { project_root: tempDir() } })).status, 201)
+  })
+
+  it("三种输入：图片和设计稿二选一，图片要存在且是图片；图片选择器返回多个路径", async () => {
+    const root = gitRepo({})
+    const start = (input: Record<string, unknown>) => request("POST", "/api/runs", { graph: N.PIPELINE_NAME, input: { project_root: root, requirement: "x", ...input } })
+    const png = join(root, "shot.png")
+    writeFileSync(png, Buffer.from([1]))
+    assert.match((await start({ images: [png], design_ref: "mastergo" })).body.error, /图片和设计稿二选一/)
+    assert.match((await start({ images: [join(root, "nope.png")] })).body.error, /图片不存在/)
+    assert.match((await start({ images: [join(root, ".gitignore")] })).body.error, /只支持图片/)
+    assert.deepEqual((await request("POST", "/api/pick-images", {})).body, { paths: ["/tmp/a.png", "/tmp/b.jpg"] })
   })
 
   it("作业分支接口只认已加入的工作空间；没有记录的运行返回 404", async () => {

@@ -12,17 +12,20 @@ import { randomBytes, timingSafeEqual } from "node:crypto"
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
-import { dirname, join } from "node:path"
+import { dirname, extname, join } from "node:path"
+import { ASSET_EXTS } from "../docs.ts"
+import { visionPreflight } from "../vision.ts"
 import { agentAvailability, codingAgentChoices, defaultFixChoice } from "../agents.ts"
 import { ASSETS_DIR, type Config, DEFAULTS, initProject, loadConfig, writeSnapshot } from "../config.ts"
 import { defaultDeps } from "../deps.ts"
 import { type Flow, FlowError, fixGitignore, NeedsRehearsal, pendingRuns, preflight, readManifest, startRun } from "../gitflow.ts"
 import { buildMainGraph } from "../graph.ts"
 import { Metrics, metricsFile, summarize } from "../metrics.ts"
+import { stagePlan } from "../workflow.ts"
 import * as N from "../names.ts"
 import { availability as reviewAvailability, BACKENDS } from "../review.ts"
 import type { State } from "../state.ts"
-import { openFolder, pickFile, pickFolder } from "./pickers.ts"
+import { openFolder, pickFile, pickFolder, pickImages } from "./pickers.ts"
 import * as FL from "./flow.ts"
 import { agentStatuses, describeSettings, launchLogin, openTerminal, saveSettings, testDeepseek, testNetwork } from "./settings.ts"
 import * as W from "./workspaces.ts"
@@ -159,9 +162,13 @@ class Run {
         return
       }
       const graph = buildMainGraph(source as never, GRAPHS[this.graph], { workflow: cfg.workflow })
+      // 本次要走的步骤（按生效配置），页面据此画还没开始的步骤
+      const steps = stagePlan(cfg.workflow, GRAPHS[this.graph]).map(p => (p.name === "implement" ? N.WRITE_CODE : p.node))
+      this.emit({ type: "plan", nodes: [...steps, N.DELIVER, ...(flow ? [N.REHEARSE] : [])] })
       let final: Json = {}
       // subgraphs：编码、审阅修复里的子节点（Spec / 写代码 / 审阅 / 修复）也上报，页面按阶段展示
-      const stream = await graph.stream(this.input as never, { streamMode: ["tasks", "values"], subgraphs: true, recursionLimit: 200 })
+      const input = { ...this.input, ...(flow ? { docs_dir: flow.manifest.docs_dir } : {}) } // 文档放进作业分支对应的目录
+      const stream = await graph.stream(input as never, { streamMode: ["tasks", "values"], subgraphs: true, recursionLimit: 200 })
       for await (const [ns, mode, chunk] of stream as AsyncIterable<[string[], string, Json]>) {
         const parent = ns.length ? ns[0].split(":")[0] : null
         if (mode === "values") {
@@ -235,6 +242,28 @@ class Run {
   }
 }
 
+/** 三种输入（纯文字 / 图片 + 文字 / MasterGo）二选一地带素材；图片模式要求 codex 可用（B 模式开工预检） */
+function checkInputs(cfg: Config, payload: Json): void {
+  const images: unknown = payload.images
+  if (images === undefined)
+    return
+  if (!Array.isArray(images) || !images.every(p => typeof p === "string"))
+    throw new Error("images 必须是图片路径数组")
+  if (images.length && payload.design_ref)
+    throw new Error("一次只能带一种素材：图片和设计稿二选一")
+  for (const p of images) {
+    if (!existsSync(p) || !statSync(p).isFile())
+      throw new Error(`图片不存在：${p}`)
+    if (!ASSET_EXTS.includes(extname(p).toLowerCase()))
+      throw new Error(`只支持图片（${ASSET_EXTS.join(" ")}）：${p}`)
+  }
+  if (images.length) {
+    const [ok, why] = visionPreflight(cfg)
+    if (!ok)
+      throw new Error(`图片输入需要 Codex：${why}`)
+  }
+}
+
 export class RunStore {
   readonly runs = new Map<string, Run>()
 
@@ -248,7 +277,9 @@ export class RunStore {
     if ([...this.runs.values()].some(r => r.status === "running" && W.normalize(r.projectRoot) === key))
       throw new Error("该项目已有一次运行在进行中，请等它结束（两次运行同时改同一个仓库会互相覆盖）")
     if (graph === N.PIPELINE_NAME) { // 开工检查不过就别建运行，直接告诉页面哪里要处理
-      const problems = preflight(FL.flowContext(loadConfig(root)))
+      const cfg = loadConfig(root)
+      checkInputs(cfg, payload)
+      const problems = preflight(FL.flowContext(cfg))
       if (problems.length)
         throw new FlowError(problems)
     }
@@ -285,6 +316,7 @@ export interface ConsoleOptions {
   host?: string
   picker?: (initial?: string | null) => Promise<string | null>
   filePicker?: (initial?: string | null) => Promise<string | null>
+  imagesPicker?: (initial?: string | null) => Promise<string[]>
   opener?: (path: string) => void
   /** 在系统终端里执行一行命令（设置页的「登录」）；测试里替换掉 */
   terminal?: (line: string) => void
@@ -298,7 +330,7 @@ export interface ConsoleServer {
   close: () => Promise<void>
 }
 
-const POST_ROUTES = new Set(["/api/runs", "/api/pick-folder", "/api/pick-file", "/api/init", "/api/open",
+const POST_ROUTES = new Set(["/api/runs", "/api/pick-folder", "/api/pick-file", "/api/pick-images", "/api/init", "/api/open",
   "/api/workspaces/add", "/api/workspaces/remove", "/api/workspaces/prefs",
   "/api/settings", "/api/settings/test", "/api/auth/login", "/api/workspaces/fix-gitignore",
   "/api/flow/rehearse", "/api/flow/merge", "/api/flow/hold", "/api/flow/discard"])
@@ -337,6 +369,7 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
   const store = new RunStore()
   const picker = opts.picker ?? pickFolder
   const filePicker = opts.filePicker ?? pickFile
+  const imagesPicker = opts.imagesPicker ?? pickImages
   const opener = opts.opener ?? openFolder
   const terminal = opts.terminal ?? openTerminal
   let allowedHosts = new Set<string>()
@@ -506,6 +539,14 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
       const files = initProject(raw)
       const name = (f: string) => f.split(/[\\/]/).pop()
       return [200, { created: files.filter(([, c]) => c).map(([f]) => name(f)), skipped: files.filter(([, c]) => !c).map(([f]) => name(f)), inspect: inspectFolder(raw) }]
+    }
+    if (path === "/api/pick-images") {
+      try {
+        return [200, { paths: await imagesPicker(body.initial) }]
+      }
+      catch (e) {
+        throw new HttpError(501, (e as Error).message)
+      }
     }
     if (path === "/api/pick-folder" || path === "/api/pick-file") {
       let picked: string | null

@@ -98,6 +98,16 @@ handle('wwk:pick-file', async (initial: string | null) => {
   return r.canceled || !r.filePaths[0] ? null : r.filePaths[0].replace(BACKSLASH, '/')
 })
 
+handle('wwk:pick-images', async (initial: string | null) => {
+  const r = await dialog.showOpenDialog(win!, {
+    title: '选择界面图片（可多选）',
+    defaultPath: initial || app.getPath('home'),
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }],
+  })
+  return r.canceled ? [] : r.filePaths.map(p => p.replace(BACKSLASH, '/'))
+})
+
 // ---------- 窗口 ----------
 
 function isAppUrl(url: string): boolean {

@@ -399,6 +399,7 @@ let run = null;              // 正在看的运行（含事件）
 let runFilter = "all";       // 日志按阶段筛选
 let follow = true;           // 运行中自动滚到最新日志
 let design = null;           // 本次附带的设计稿
+let images = [];             // 本次附带的界面图片（图片 + 文字输入），和设计稿二选一
 let pollTimer = null;
 const openGroups = new Set();
 
@@ -586,10 +587,19 @@ async function choose(key, value) {
 function renderDesign() {
   const slot = $("design-slot");
   if (!slot) return;
+  const chip = (label, title, id, aria) => `<span class="btn design-chip" title="${esc(title)}">${icon("clip")}<span>${esc(label)}</span><button class="btn icon ghost" id="${id}" type="button" aria-label="${aria}" style="height:20px;width:20px">${icon("x")}</button></span>`;
   slot.innerHTML = design
-    ? `<span class="btn design-chip" title="${esc(design)}">${icon("clip")}<span>${esc(design === "mastergo" ? "MasterGo 当前选中" : design.split("/").pop())}</span><button class="btn icon ghost" id="d-clear" type="button" aria-label="不带设计稿" style="height:20px;width:20px">${icon("x")}</button></span>`
-    : `<button class="btn ghost" id="d-pick" type="button">${icon("clip")}设计稿</button>`;
+    ? chip(design === "mastergo" ? "MasterGo 当前选中" : design.split("/").pop(), design, "d-clear", "不带设计稿")
+    : images.length
+      ? chip(images.length === 1 ? images[0].split("/").pop() : `${images.length} 张图片`, images.join("\n"), "i-clear", "不带图片")
+      : `<button class="btn ghost" id="i-pick" type="button" title="截图或设计稿导出图，由 Codex 看图写设计分析">${icon("clip")}图片</button><button class="btn ghost" id="d-pick" type="button">${icon("clip")}设计稿</button>`;
   $("d-clear")?.addEventListener("click", () => { design = null; renderDesign(); });
+  $("i-clear")?.addEventListener("click", () => { images = []; renderDesign(); });
+  $("i-pick")?.addEventListener("click", async () => {
+    try { images = desktop?.pickImages ? await desktop.pickImages(current) : (await post("/api/pick-images", { initial: current })).paths; }
+    catch (err) { toast(err.message, true); }
+    renderDesign();
+  });
   $("d-pick")?.addEventListener("click", (e) => openPop(e.currentTarget,
     `<button data-act="file">${icon("folder")}选择导出的 .json…</button><button data-act="mastergo">${icon("clip")}用 MasterGo 当前选中的图层</button>`,
     async (act) => {
@@ -637,13 +647,14 @@ async function startRun(graph) {
     if (!requirement) { $("compose-err").textContent = "先写下这次要做的需求"; $("req").focus(); return; }
     Object.assign(input, { requirement, coding_agent: prefOf(ws, "coding_agent") });
     if (design) input.design_ref = design;
+    if (images.length) input.images = images;
     // 跑完要合并时发通知；趁这次点击要权限（桌面端不需要）
     if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
   }
   if (graph === GATE_ONLY) { delete input.review_backend; delete input.fix_agent; }
   try {
     const { id } = await post("/api/runs", { graph, input });
-    if (graph === PIPELINE) { $("req").value = ""; store.set("wwk.draft." + ws.path, ""); design = null; renderDesign(); }
+    if (graph === PIPELINE) { $("req").value = ""; store.set("wwk.draft." + ws.path, ""); design = null; images = []; renderDesign(); }
     run = null; runFilter = "all"; openGroups.clear(); follow = true;
     await refreshRuns(false);
     openRun(id);
@@ -1023,8 +1034,8 @@ setInterval(() => { if (run?.status === "running") renderDuration(); }, 1000);
 
 // ---------- 阶段：由事件推出流程进度与分组日志 ----------
 const CONTAINERS = new Set(["编码", "审阅修复"]);
-const STEP_LABEL = { "读取设计稿": "设计稿", "生成Spec": "Spec", "写代码": "写代码", "门禁": "门禁", "验收审阅": "审阅", "执行修复": "修复", "交付": "交付", "熔断": "熔断", "合并预演": "合并预演" };
-const TEMPLATE = { [PIPELINE]: ["设计稿", "Spec", "写代码", "门禁", "交付"], [FIX_LOOP]: ["门禁", "交付"], [GATE_ONLY]: ["门禁"] };
+const STEP_LABEL = { "读取设计稿": "设计稿", "生成Spec": "Spec", "写代码": "写代码", "门禁": "门禁", "验收审阅": "审阅", "执行修复": "修复", "交付": "交付", "熔断": "熔断", "合并预演": "合并预演", "取材与需求": "取材与需求", "技术设计": "技术设计", "文档复核": "文档复核", "产品验收": "产品验收" };
+const TEMPLATE = { [PIPELINE]: ["取材与需求", "技术设计", "文档复核", "写代码", "门禁", "产品验收", "交付", "合并预演"], [FIX_LOOP]: ["门禁", "交付"], [GATE_ONLY]: ["门禁"] };
 const CHECK_LINE = /^([✔✘-])\s+([\w:-]+)(?::\s*skip)?(?:\s+\((\d+)ms\))?/;
 
 function buildStages(r) {
@@ -1099,7 +1110,8 @@ function renderDetail() {
   });
   if (r.status === "running") {
     const seen = new Set(real.map((s) => s.label));
-    const ghosts = (TEMPLATE[r.graph] || []).filter((l) => !seen.has(l) && !(l === "设计稿" && seen.has("Spec")));
+    const planned = (r.events || []).find((e) => e.type === "plan")?.nodes?.map((n) => STEP_LABEL[n] || n);
+    const ghosts = (planned || TEMPLATE[r.graph] || []).filter((l) => !seen.has(l) && !(l === "设计稿" && seen.has("Spec")));
     for (const l of ghosts) flow += (flow ? `<span class="arrow">${icon("arrow")}</span>` : "") + `<div class="step ghost"><div class="n">${esc(l)}</div><div class="s">等待</div></div>`;
   }
 
