@@ -114,6 +114,9 @@ dialog.merge.picker-dlg { width: min(720px, calc(100vw - 32px)); }
 .picker .choice > span { font-weight: 600; font-size: 12px; color: var(--muted); }
 .picker .seg { flex-wrap: wrap; }
 .picker .why { color: var(--faint); font-size: 11.5px; }
+.picker .choice.busy .seg button { pointer-events: none; }
+.picker .choice.loading .seg { opacity: .6; }
+.picker .choice.loading > span::after { content: ""; display: inline-block; width: 10px; height: 10px; margin-left: 6px; vertical-align: -1px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: rot .8s linear infinite; }
 .picker .why span[title] { text-decoration: underline dotted; text-underline-offset: 2px; cursor: help; }
 .choice > span { color: var(--faint); font-size: 12px; }
 .seg { display: inline-flex; background: var(--panel-2); border-radius: var(--r); padding: 2px; gap: 2px; }
@@ -598,27 +601,42 @@ function renderChoices() {
   }).join("");
   box.onclick = (e) => { const b = e.target.closest("[data-k]"); if (b) openChoices(b.dataset.k); };
 }
+const whyHtml = (key, list) => {
+  const o = list().find((x) => x.key === prefOf(wsOf(current), key));
+  return o ? (o.available ? availText(o.detail) : esc(`本机不可用：${o.detail || ""}`)) : "";
+};
 function openChoices(focus) {
   const dlg = $("choice-dlg"), ws = wsOf(current);
   if (!ws) return;
-  const draw = () => {
-    dlg.innerHTML = `<header><h3 id="choice-title">选择 agent</h3><button class="btn icon ghost" id="ch-x" type="button" aria-label="关闭">${icon("x")}</button></header>
-      <div class="body picker">${ROLES.map(([key, name, , list]) => {
-        const v = prefOf(ws, key), o = list().find((x) => x.key === v);
-        return segHtml(key, name, list().map((x) => [x.key, optLabel(key, x), x.available, x.detail]), v)
-          + `<div class="why">${o ? (o.available ? availText(o.detail) : esc(`本机不可用：${o.detail || ""}`)) : ""}</div>`;
-      }).join("")}<div class="why">建议三者选不同的 agent，避免同源偏差。每个项目记住自己的选择。</div></div>
-      <footer><span class="grow"></span><button class="btn primary" id="ch-ok" type="button">完成</button></footer>`;
-    $("ch-x").onclick = $("ch-ok").onclick = () => dlg.close();
-    dlg.querySelectorAll(".seg").forEach((seg) => seg.onclick = async (e) => {
-      const b = e.target.closest("button[data-v]");
-      if (!b) return;
-      await choose(seg.dataset.k, b.dataset.v);
-      draw();
+  // 只在打开时生成一次；切换时就地改高亮和说明，不重建（重建会闪、丢焦点）
+  dlg.innerHTML = `<header><h3 id="choice-title">选择 agent</h3><button class="btn icon ghost" id="ch-x" type="button" aria-label="关闭">${icon("x")}</button></header>
+    <div class="body picker">${ROLES.map(([key, name, , list]) =>
+      segHtml(key, name, list().map((x) => [x.key, optLabel(key, x), x.available, x.detail]), prefOf(ws, key))
+        + `<div class="why" data-why="${key}">${whyHtml(key, list)}</div>`).join("")}
+      <div class="why">建议三者选不同的 agent，避免同源偏差。每个项目记住自己的选择。</div></div>
+    <footer><span class="grow"></span><button class="btn primary" id="ch-ok" type="button">完成</button></footer>`;
+  $("ch-x").onclick = $("ch-ok").onclick = () => dlg.close();
+  dlg.querySelectorAll(".seg").forEach((seg) => seg.onclick = async (e) => {
+    const b = e.target.closest("button[data-v]");
+    const key = seg.dataset.k, group = seg.closest(".choice");
+    if (!b || group.classList.contains("busy") || b.getAttribute("aria-pressed") === "true") return;
+    const list = ROLES.find((r) => r[0] === key)[3];
+    const mark = (v) => {
+      seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === v)));
+      dlg.querySelector(`[data-why="${key}"]`).innerHTML = whyHtml(key, list);
       renderChoices();
-    });
-  };
-  draw();
+    };
+    const prev = prefOf(ws, key);
+    // 保存期间这一组不能再点；超过 150ms 才显示转圈，快的话看不到
+    group.classList.add("busy");
+    const slow = setTimeout(() => group.classList.add("loading"), 150);
+    const saving = choose(key, b.dataset.v);
+    mark(b.dataset.v);   // 先切过去，不等保存
+    const ok = await saving;
+    clearTimeout(slow);
+    group.classList.remove("busy", "loading");
+    if (!ok) mark(prev);
+  });
   if (!dlg.open) dlg.showModal();
   dlg.querySelector(`.seg[data-k="${focus}"] button[aria-pressed="true"]`)?.focus();
 }
@@ -627,15 +645,22 @@ function segHtml(key, label, opts, chosen) {
   return `<div class="choice"><span>${label}</span><div class="seg" data-k="${key}" role="group" aria-label="${label}">${opts.map(([k, l, ok, d]) =>
     `<button type="button" data-v="${esc(k)}" aria-pressed="${k === chosen}" class="${ok ? "" : "na"}" title="${esc(ok ? (isPath(d) ? `已安装：${d}` : d || l) : d || "本机不可用")}">${esc(l)}</button>`).join("")}</div></div>`;
 }
+/** 保存一项选择（工作空间偏好）；先在本地改好，失败再改回去。返回是否保存成功。 */
 async function choose(key, value) {
   const ws = wsOf(current);
   const opt = key === "review_backend" ? AGENTS.reviewers.find((r) => r.key === value) : AGENTS.agents.find((a) => a.key === value);
   if (opt && !opt.available) toast(`${opt.label || value}：${opt.detail || "本机不可用"}。仍可选择，运行时会失败。`, true);
-  document.querySelectorAll(`.seg[data-k="${key}"] button`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === value)));
+  const before = { ...(ws.prefs || {}) };
+  ws.prefs = { ...before, [key]: value };
   try {
     const updated = await post("/api/workspaces/prefs", { path: ws.path, prefs: { [key]: value } });
     Object.assign(ws, { prefs: updated.prefs });
-  } catch (err) { toast(err.message, true); }
+    return true;
+  } catch (err) {
+    ws.prefs = before;
+    toast(err.message, true);
+    return false;
+  }
 }
 
 // 设计稿：一键用 MasterGo 当前选中，或选本地导出的 .json
