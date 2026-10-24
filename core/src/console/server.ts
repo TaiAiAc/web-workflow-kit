@@ -333,7 +333,7 @@ export interface ConsoleServer {
 const POST_ROUTES = new Set(["/api/runs", "/api/pick-folder", "/api/pick-file", "/api/pick-images", "/api/init", "/api/open",
   "/api/workspaces/add", "/api/workspaces/remove", "/api/workspaces/prefs",
   "/api/settings", "/api/settings/test", "/api/auth/login", "/api/workspaces/fix-gitignore",
-  "/api/flow/rehearse", "/api/flow/merge", "/api/flow/hold", "/api/flow/discard"])
+  "/api/flow/rehearse", "/api/flow/merge", "/api/flow/hold", "/api/flow/discard", "/api/flow/abandon"])
 
 /** 设置页按项目读写时，只认已加入的工作空间。 */
 function workspaceOrNull(project: unknown): string | null {
@@ -493,7 +493,12 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
           FL.startRehearsal(cfg, m, String(body.target ?? ""), message)
           return [202, FL.describeFlow(cfg, runId)]
         }
-        if (path === "/api/flow/merge")
+        if (path === "/api/flow/abandon") {
+          if ([...store.runs.values()].some(r => r.id === runId && r.status === "running"))
+            throw new Error("这次运行还在进行中")
+          FL.abandonRun(cfg, runId)
+        }
+        else if (path === "/api/flow/merge")
           FL.mergeRun(cfg, runId, String(body.target ?? ""), message)
         else
           FL.holdRun(cfg, runId, path === "/api/flow/hold" ? "hold" : "discard")

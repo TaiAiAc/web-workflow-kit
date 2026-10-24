@@ -675,12 +675,24 @@ function showProblems(problems) {
   el.innerHTML = `<div class="problems">${problems.map((p, i) => `<div class="p"><span>${esc(p.message)}</span>${
     p.code === "GITIGNORE" ? `<button class="btn" type="button" data-fix="${i}">一键修复</button>`
     : p.code === "PENDING" ? `<button class="btn" type="button" data-fix="${i}">去处理</button>`
+    : p.code === "INTERRUPTED" ? `<button class="btn" type="button" data-fix="${i}">收尾</button>`
     : p.code === "DIRTY" && p.detail ? `<span class="tag" title="${esc(p.detail.join("\n"))}">${esc(p.detail.slice(0, 3).join("、"))}${p.detail.length > 3 ? " …" : ""}</span>` : ""}</div>`).join("")}</div>`;
   el.onclick = async (e) => {
     const b = e.target.closest("[data-fix]");
     if (!b) return;
     const p = problems[Number(b.dataset.fix)];
     if (p.code === "PENDING") return handlePending(p.detail[0]);
+    if (p.code === "INTERRUPTED") {
+      if (!confirm("会把中断运行留下的未提交改动存成 patch 后清掉，切回原分支，并把这次运行标为失败（作业分支按保留策略处理）。继续？")) return;
+      try {
+        for (const id of p.detail) await post("/api/flow/abandon", { project: current, run: id });
+        toast("已收尾，可以重新运行");
+        el.innerHTML = "";
+        await loadWs();
+        refreshRuns(false);
+      } catch (err) { toast(err.message, true); }
+      return;
+    }
     if (!confirm("会把 .agent/ 追加到 .gitignore，并在当前分支上单独提交一次（只含 .gitignore）。继续？")) return;
     try {
       await post("/api/workspaces/fix-gitignore", { path: current });

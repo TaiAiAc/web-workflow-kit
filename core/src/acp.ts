@@ -239,6 +239,8 @@ export class ACPAgent implements Agent {
               }
             }
           })()
+          // prompt 失败（如额度用完回 JSON-RPC 错误）时这个循环也会被拒绝，而这时没人在 await 它：先接住，免得整个进程因未处理的拒绝退出
+          reading.catch(() => {})
           const text0 = withPolicyNote(prompt, this.allowKinds)
           const response = await session.prompt(images.length
             ? [{ type: "text", text: text0 }, ...images.map(i => ({ type: "image" as const, data: i.data, mimeType: i.mimeType }))]
@@ -260,7 +262,9 @@ export class ACPAgent implements Agent {
       return { stopReason: mapStopReason(result.stopReason), text, usage: result.usage }
     }
     catch (e) { // 连接失败、握手失败、协议错误、超时
-      const msg = e instanceof Error ? e.message : String(e)
+      // JSON-RPC 错误的具体原因（如「Quota exceeded」）在 data.message 里
+      const detail = (e as { data?: { message?: unknown } }).data?.message
+      const msg = (e instanceof Error ? e.message : String(e)) + (typeof detail === "string" && detail ? `（${detail}）` : "")
       const tail = stderr.trim() ? `\n[agent stderr]\n${stderr.trim().slice(-1500)}` : ""
       return { stopReason: ERROR, text: `ACP ${this.agent}: ${msg}${tail}` }
     }

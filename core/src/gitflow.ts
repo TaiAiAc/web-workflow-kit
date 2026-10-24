@@ -145,6 +145,12 @@ export function listManifests(stateDir: string): Manifest[] {
     .sort((a, b) => b.started_at.localeCompare(a.started_at))
 }
 
+/** 中途中断的运行：manifest 还是 running，但没有活着的进程持锁（进程崩了 / 被杀了）。 */
+export function interruptedRuns(stateDir: string): Manifest[] {
+  const lock = heldLock(stateDir)
+  return listManifests(stateDir).filter(m => m.status === "running" && lock?.run_id !== m.run_id)
+}
+
 /** 还没处理完的运行（待合并 / 待处理）：有它在就不许开新运行。 */
 export const pendingRuns = (stateDir: string): Manifest[] => listManifests(stateDir).filter(m => m.status === "ready_to_merge" || m.status === "held")
 
@@ -199,7 +205,7 @@ export function releaseLock(stateDir: string, runId: string): void {
 // ---------------- 开工 ----------------
 
 export interface Problem {
-  code: "NOT_GIT" | "NO_COMMITS" | "DETACHED" | "GITIGNORE" | "DIRTY" | "PENDING" | "LOCKED"
+  code: "NOT_GIT" | "NO_COMMITS" | "DETACHED" | "GITIGNORE" | "DIRTY" | "PENDING" | "LOCKED" | "INTERRUPTED"
   message: string
   /** DIRTY：未提交的文件；PENDING：待处理的运行 id */
   detail?: string[]
@@ -221,6 +227,9 @@ export function preflight(ctx: FlowContext): Problem[] {
   if (!gitOk(ctx.root, ["rev-parse", "--verify", "HEAD"]))
     return [{ code: "NO_COMMITS", message: "仓库还没有任何提交：先提交一次再开工" }]
   const problems: Problem[] = []
+  const interrupted = interruptedRuns(ctx.stateDir)
+  if (interrupted.length) // 不处理的话新作业分支会从上一个作业分支拉出来
+    problems.push({ code: "INTERRUPTED", message: `运行 ${interrupted.map(m => m.run_id).join("、")} 中途中断（进程退出），仓库可能还停在作业分支上：先收尾`, detail: interrupted.map(m => m.run_id) })
   if (!currentBranch(ctx.root))
     problems.push({ code: "DETACHED", message: "当前处于分离 HEAD：先切到一个分支，作业分支从当前分支拉出" })
   const rel = stateRel(ctx)
@@ -363,6 +372,13 @@ export class Flow {
       pruneFailedBranches(this.ctx)
     return m
   }
+}
+
+/** 中断收尾：和正常失败一样存残留、切回原分支、标失败；作业分支按保留策略处理。 */
+export function abandonRun(ctx: FlowContext, m: Manifest): Manifest {
+  if (!interruptedRuns(ctx.stateDir).some(x => x.run_id === m.run_id))
+    throw new FlowError([{ code: "LOCKED", message: `运行 ${m.run_id} 不是中断状态（${m.status}），不用收尾` }])
+  return new Flow(ctx, m).finish(false, "运行中途中断（进程退出），已收尾")
 }
 
 /** 失败的作业分支只留最近 keep_failed_branches 个；待处理的不动。 */

@@ -130,6 +130,13 @@ export function mergeRun(cfg: Config, runId: string, target: string, message?: s
   return done
 }
 
+export function abandonRun(cfg: Config, runId: string): F.Manifest {
+  const m = F.readManifest(cfg.stateDir, runId)
+  if (!m)
+    throw new Error(`运行 ${runId} 没有作业分支记录`)
+  return F.abandonRun(flowContext(cfg), m)
+}
+
 export function holdRun(cfg: Config, runId: string, action: "hold" | "discard"): F.Manifest {
   const m = F.readManifest(cfg.stateDir, runId)
   if (!m)

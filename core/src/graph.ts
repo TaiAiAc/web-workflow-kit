@@ -345,7 +345,8 @@ function addGate(g: MainGraph, source: Source, reviewgraph: ReturnType<typeof bu
 
 function addEnds(g: MainGraph, source: Source): void {
   g.addNode(N.DELIVER, async (state: State) => {
-      const { cfg, log } = resolveDeps(source, state)
+      const deps = resolveDeps(source, state)
+      const { cfg, log } = deps
       // 流水线自己的产物目录（.agent/）不算改动
       const own = relative(cfg.projectRoot, cfg.stateDir).replaceAll("\\", "/")
       const ownPrefix = own && !own.startsWith("..") ? own + "/" : null
@@ -363,7 +364,8 @@ function addEnds(g: MainGraph, source: Source): void {
       }, null, 2))
       // 有编码前快照（pipeline）时是“本次改动”；fix_loop 没有快照，只能说工作区里有多少未提交改动
       const changed = state.baseline ? `本次改动 ${files.length} 个文件` : `工作区有 ${files.length} 个未提交的改动文件`
-      const summary = `已交付：门禁通过，${changed}` + (rounds ? `，经过 ${rounds} 轮自动修复` : "") + "。代码未提交，等待人工签字发布。"
+      const after = deps.commit ? "改动已提交在作业分支上，等你在合并弹窗里确认。" : "代码未提交，等待人工签字发布。"
+      const summary = `已交付：门禁通过，${changed}` + (rounds ? `，经过 ${rounds} 轮自动修复` : "") + `。${after}`
       log(`[交付] ${summary}`)
       return { status: "delivered" as const, summary, changed_files: files }
     })

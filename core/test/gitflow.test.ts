@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, it } from "node:test"
 import {
-  checkResume, discard, type FlowContext, fixGitignore, FlowError, git, hold, installCommandFor, listManifests,
+  abandonRun, checkResume, discard, type FlowContext, fixGitignore, FlowError, git, hold, installCommandFor, listManifests,
   merge, mergeTargets, NeedsRehearsal, preflight, readManifest, rehearse, slugify, startRun, worktreeDir,
 } from "../src/gitflow.ts"
 import { WhitelistError } from "../src/whitelist.ts"
@@ -167,6 +167,24 @@ describe("作业分支与阶段提交", () => {
       flow.finish(false)
     }
     assert.deepEqual(branches.map(b => exists(ctx, b)), [false, false, true, true, true])
+  })
+
+  it("进程半路退出：开工检查拦下（否则新分支会从作业分支拉出），收尾后切回原分支、标失败", () => {
+    const ctx = repo()
+    const flow = startRun(ctx, "r1", "x")
+    writeFileSync(join(ctx.root, "app.ts"), "半截改动\n")
+    // 模拟进程崩溃：锁里的进程已经不在，manifest 还停在 running
+    writeFileSync(join(ctx.stateDir, "lock"), JSON.stringify({ run_id: "r1", pid: 2 ** 22 + 4321, started_at: "t" }))
+    const p = preflight(ctx).find(x => x.code === "INTERRUPTED")
+    assert.deepEqual(p?.detail, ["r1"])
+    assert.throws(() => startRun(ctx, "r2", "y"), /中途中断/)
+    const m = abandonRun(ctx, readManifest(ctx.stateDir, "r1")!)
+    assert.equal(m.status, "failed")
+    assert.equal(branch(ctx), "main")
+    assert.equal(readFileSync(join(ctx.root, "app.ts"), "utf8"), "export const a = 1\n")
+    assert.ok(exists(ctx, flow.branch))
+    assert.deepEqual(preflight(ctx), [])
+    assert.throws(() => abandonRun(ctx, m), /不是中断状态/)
   })
 
   it("断点恢复：分支或 head 对不上就拒绝", () => {

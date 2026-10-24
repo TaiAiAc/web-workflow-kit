@@ -5,6 +5,7 @@ import { dirname, join } from "node:path"
 import process from "node:process"
 import { describe, it } from "node:test"
 import { fileURLToPath } from "node:url"
+import { ACPAgent } from "../src/acp.ts"
 import { loadConfig } from "../src/config.ts"
 import { parseDoc } from "../src/docs.ts"
 import { analyzeImages, cleanBody, visionPreflight } from "../src/vision.ts"
@@ -74,6 +75,17 @@ describe("vision", () => {
     assert.equal(r.backend, "codex_cli")
     assert.match(r.text, /CLI 收到 images=1 sandbox=read-only model=default prompt_before_images=true/)
     assert.ok(logs.some(l => l.includes("适配器不支持图片输入")))
+  })
+
+  it("ACP 回 JSON-RPC 错误（如额度用完）：返回出错原因、不让进程崩，vision 改走 CLI", async () => {
+    const { cfg, docDir, img } = setup()
+    const agent = new ACPAgent({ agent: "stub", command: [process.execPath, STUB], timeoutSec: 30 })
+    const r = await withEnv({ STUB_PROMPT_ERROR: "1" }, () => agent.run("hi", tempDir()))
+    assert.equal(r.stopReason, "error")
+    assert.match(r.text, /Internal error（Quota exceeded\.）/)
+    await new Promise(res => setTimeout(res, 300)) // 之前这里会因未处理的拒绝让整个进程退出
+    const v = await withEnv({ STUB_PROMPT_ERROR: "1" }, () => analyzeImages(cfg, { images: [img("q.png", [4])], requirement: "x", docDir }))
+    assert.equal(v.backend, "codex_cli")
   })
 
   it("backend=codex_cli 直接走 CLI，带上模型；CLI 失败时报出 stderr", async () => {
