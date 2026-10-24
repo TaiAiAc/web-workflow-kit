@@ -59,7 +59,8 @@
       "label": "WorkBuddy（CodeBuddy）",
       "backend": "acp",
       "agent": "workbuddy",
-      "command": ["codebuddy", "--acp"],
+      "command": ["codebuddy", "--acp", "--tools", "Read,Glob,Grep,Edit,MultiEdit,Write,TodoWrite"],
+      "env": { "CODEBUDDY_DISABLE_AUTO_MEMORY": "1", "CODEBUDDY_CODE_DISABLE_AUTO_MEMORY": "1" },
       "requires": "codebuddy"
     },
     "dsh": {

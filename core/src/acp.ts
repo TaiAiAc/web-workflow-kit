@@ -62,9 +62,34 @@ function relativeInProject(path: string, root: string): string | null {
 }
 
 export interface ToolCallLike {
+  toolCallId?: string | null
   kind?: string | null
   title?: string | null
   locations?: { path?: string | null }[] | null
+  rawInput?: unknown
+}
+
+/**
+ * 权限请求里的 toolCall 是增量（ToolCallUpdate）：有的 agent（如 CodeBuddy）只带 toolCallId 和 rawInput，
+ * kind / title / locations 在之前的 tool_call 通知里。按 toolCallId 合并后再判断，否则一律被当成 'other' 拒掉。
+ */
+export function mergeToolCall(known: ToolCallLike | undefined, call: ToolCallLike): ToolCallLike {
+  const out: ToolCallLike = { ...known }
+  for (const [k, v] of Object.entries(call))
+    if (v !== null && v !== undefined && !(Array.isArray(v) && !v.length) && !(k === "rawInput" && isEmptyObject(v)))
+      (out as Record<string, unknown>)[k] = v
+  return out
+}
+const isEmptyObject = (v: unknown) => typeof v === "object" && v !== null && !Object.keys(v).length
+
+// 没有 locations 时从工具参数里找目标路径（各家字段名不同）
+const PATH_KEYS = ["file_path", "filePath", "path", "notebook_path", "target_file"]
+function targetPaths(call: ToolCallLike): string[] {
+  const locations = (call.locations ?? []).map(l => l?.path).filter((p): p is string => !!p)
+  if (locations.length)
+    return locations
+  const input = (call.rawInput ?? {}) as Record<string, unknown>
+  return PATH_KEYS.map(k => input[k]).filter((p): p is string => typeof p === "string" && !!p)
 }
 
 export function isAllowed(toolCall: ToolCallLike, root: string, allowKinds: string[], protectedPaths: string[]): [boolean, string] {
@@ -72,7 +97,7 @@ export function isAllowed(toolCall: ToolCallLike, root: string, allowKinds: stri
   if (!allowKinds.includes(kind))
     return [false, `kind '${kind}' not allowed`]
   if (WRITE_KINDS.has(kind)) {
-    const locations = (toolCall.locations ?? []).map(l => l?.path).filter((p): p is string => !!p)
+    const locations = targetPaths(toolCall)
     if (!locations.length)
       return [false, "write without a target path"]
     for (const raw of locations) {
@@ -84,6 +109,17 @@ export function isAllowed(toolCall: ToolCallLike, root: string, allowKinds: stri
     }
   }
   return [true, "ok"]
+}
+
+/**
+ * 不允许执行命令时，开头先说清楚：有的 agent（如 CodeBuddy）习惯用 ls / cat 浏览项目，
+ * 命令一被拒就结束整轮。告诉它只用文件工具，检查交给流水线的门禁。
+ */
+export function withPolicyNote(prompt: string, allowKinds: string[]): string {
+  if (allowKinds.includes("execute"))
+    return prompt
+  return "【运行环境说明】本环境会拒绝一切运行 shell 命令的请求（包括 ls、cat、grep、npm、git）。"
+    + "浏览、搜索、读取、修改文件请只用你的文件读取 / 搜索 / 编辑工具；不要运行测试或构建，流水线的门禁会负责检查。\n\n" + prompt
 }
 
 /** 内置适配器默认经 npx 拉起，每次运行都要访问 npm；本机全局装了同名命令（如 codex-acp）时直接用它。 */
@@ -122,6 +158,7 @@ export class ACPAgent implements Agent {
       return { stopReason: ERROR, text: `no ACP command for agent '${this.agent}'; set command in agent.config.json` }
     const exe = which(command[0], this.env) ?? command[0]
     const denied: string[] = []
+    const calls = new Map<string, ToolCallLike>()   // toolCallId → 通知里报过的 kind / title / locations / rawInput
     let stderr = ""
     let child: ChildProcess | undefined
     let timer: NodeJS.Timeout | undefined
@@ -149,7 +186,8 @@ export class ACPAgent implements Agent {
       )
       const app = acp.client({ name: "web-workflow-kit" })
         .onRequest(acp.methods.client.session.requestPermission, async ({ params }) => {
-          const call = params.toolCall as ToolCallLike
+          const raw = params.toolCall as ToolCallLike
+          const call = mergeToolCall(raw.toolCallId ? calls.get(raw.toolCallId) : undefined, raw)
           let [ok, why] = isAllowed(call, cwd, this.allowKinds, this.protectedPaths)
           if (ok) {
             const allow = params.options.find(o => o.kind === "allow_once")
@@ -157,8 +195,10 @@ export class ACPAgent implements Agent {
               return { outcome: { outcome: "selected", optionId: allow.optionId } }
             why = "no allow_once option offered"
           }
-          denied.push(`${call.title || call.kind}: ${why}`)
-          return { outcome: { outcome: "cancelled" } }
+          denied.push(`${call.title || call.kind || "tool"}: ${why}`)
+          // 拒绝要选 reject 选项：回 cancelled 在 ACP 里表示“整轮被取消”，agent 会直接停下而不是换个做法
+          const reject = params.options.find(o => o.kind === "reject_once") ?? params.options.find(o => o.kind === "reject_always")
+          return reject ? { outcome: { outcome: "selected", optionId: reject.optionId } } : { outcome: { outcome: "cancelled" } }
         })
       const work = app.connectWith(stream, async (ctx) => {
         await ctx.request(acp.methods.agent.initialize, {
@@ -178,11 +218,16 @@ export class ACPAgent implements Agent {
               const u = m.update
               if (u.sessionUpdate === "agent_message_chunk" && u.content.type === "text")
                 texts.push(u.content.text)
-              else if (u.sessionUpdate === "tool_call")
-                toolCalls++
+              else if (u.sessionUpdate === "tool_call" || u.sessionUpdate === "tool_call_update") {
+                if (u.sessionUpdate === "tool_call")
+                  toolCalls++
+                const c = u as ToolCallLike
+                if (c.toolCallId)
+                  calls.set(c.toolCallId, mergeToolCall(calls.get(c.toolCallId), c))
+              }
             }
           })()
-          const response = await session.prompt(prompt)
+          const response = await session.prompt(withPolicyNote(prompt, this.allowKinds))
           await reading
           const text = texts.join("")
           const tokens = (response as { usage?: { totalTokens?: number } }).usage?.totalTokens

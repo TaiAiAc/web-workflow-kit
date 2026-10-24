@@ -101,7 +101,7 @@ wwk ui
 
 **设置**（侧栏左下）
 - 各 agent 是否安装、是否已登录、版本；没装的给安装命令，可登录的点「登录」在系统终端里打开登录命令（带上配置的代理）；
-- 代理（可一键填入系统代理，并检测到 Anthropic / OpenAI / DeepSeek / npm 的连通性）、API Key（只写不读，DeepSeek Key 可一键测试）、熔断邮件；
+- 代理（「用系统代理」一键填入并保存，并检测到 Anthropic / OpenAI / DeepSeek / npm 的连通性）、API Key（只写不读，DeepSeek Key 可一键测试）、熔断邮件；
 - 可以写全局，也可以只写当前项目的 `.env`（项目覆盖全局）；对下一次运行生效。
 
 运行记录在结束时写进项目的 `.agent/runs/`（每个项目保留最近 50 条），服务重启后仍可回看；交付记录另存 `.agent/delivery.json`。编码子图、审阅修复子图的单独调试在 LangGraph Studio 或 API 里用。
@@ -155,7 +155,7 @@ wwk --project /path/to/my-app
 | Claude Code（`claude`） | `claude -p` | 安装并登录 Claude Code |
 | Codex（`codex`） | ACP 协议，适配器 `codex-acp` | 安装 Codex（`npm install -g @openai/codex`），已登录或在 `~/.codex/config.toml` 配好模型服务 |
 | OpenCode（`opencode`） | ACP 协议，`opencode acp` | 安装并登录 OpenCode |
-| WorkBuddy（`workbuddy`） | ACP 协议，`codebuddy --acp` | 安装 WorkBuddy 的引擎 CodeBuddy Code（`npm install -g @tencent-ai/codebuddy-code`），运行一次 `codebuddy` 登录 |
+| WorkBuddy（`workbuddy`） | ACP 协议，`codebuddy --acp`（只开放文件工具，不给 Bash） | 安装 WorkBuddy 的引擎 CodeBuddy Code（`npm install -g @tencent-ai/codebuddy-code`），运行一次 `codebuddy` 登录 |
 | DeepSeek Harness（`dsh`） | `dsh headless` | 安装 DeepSeek Harness，配好 `DEEPSEEK_API_KEY` |
 
 Codex 的 ACP 适配器默认每次经 npx 下载，网络不稳时会在开始写代码前就失败；先全局安装一次（`npm install -g @agentclientprotocol/codex-acp@1.13.0`），之后直接用本机的 `codex-acp`，不再访问 npm。
@@ -218,7 +218,7 @@ Codex 的 ACP 适配器默认每次经 npx 下载，网络不稳时会在开始�
 Claude Code 没登录。终端运行 `claude` 登录后重试。
 
 **Claude Code 登录时报 `403`，或 claude / codex 连不上**
-国内网络访问 Anthropic、OpenAI 需要代理；命令行程序不会自动用系统代理。在设置页里填 `HTTPS_PROXY`（可一键填入系统代理）并点「检测连通性」，再用设置页的「登录」按钮重新登录。
+国内网络访问 Anthropic、OpenAI 需要代理；命令行程序不会自动用系统代理。在设置页里填 `HTTPS_PROXY`（「用系统代理」一键保存）并点「检测连通性」，再用设置页的「登录」按钮重新登录。
 
 **OpenCode / dsh 一轮下来什么都没改就熔断了：`agent 本轮没有任何输出`**
 多半是该 agent 自己的 Key 失效或没登录（比如 OpenCode 里存的 DeepSeek Key 无效）。在 agent 自己的配置里换一个能用的 Key，或在 `agent.config.json` 里给它的预设设 `model`。
@@ -229,7 +229,7 @@ Claude Code 没登录。终端运行 `claude` 登录后重试。
 ## 已知限制
 
 - 同一个项目同一时间只能有一次运行。
-- 真实项目上跑通过完整流程的：Claude Code（编程）、Codex（编程、修复）。OpenCode 在本机因自身的 Key 失效没能完成修复（流水线按出错熔断并给出原因）；WorkBuddy、dsh 还没在真实项目上跑过。
+- 真实项目上跑通过完整流程的：Claude Code（编程）、Codex（编程、修复）、WorkBuddy（编程）、DeepSeek Harness（审阅、修复）。OpenCode 在本机因自身的 Key 失效没能完成修复（流水线按出错熔断并给出原因）。
 - Electron 视觉验收只在 Windows 上用 Electron 45 实测过；应用若在生产包里禁用了远程调试，会报 `VISUAL_UNAVAILABLE`。
 
 ## 文档

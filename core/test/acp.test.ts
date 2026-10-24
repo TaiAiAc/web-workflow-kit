@@ -6,7 +6,7 @@ import { dirname, join } from "node:path"
 import process from "node:process"
 import { describe, it } from "node:test"
 import { fileURLToPath } from "node:url"
-import { ACPAgent, DEFAULT_ALLOW_KINDS, DEFAULT_PROTECTED, fnmatch, isAllowed, localAdapter, mapStopReason } from "../src/acp.ts"
+import { ACPAgent, DEFAULT_ALLOW_KINDS, DEFAULT_PROTECTED, fnmatch, isAllowed, localAdapter, mapStopReason, mergeToolCall, withPolicyNote } from "../src/acp.ts"
 import { END_TURN, ERROR, MAX_TOKENS } from "../src/agents.ts"
 import { tempDir } from "./helpers.ts"
 
@@ -31,6 +31,9 @@ describe("权限策略", () => {
     assert.equal(check("edit", "../elsewhere.ts"), false)
     assert.equal(check("execute"), false)
     assert.deepEqual(isAllowed({ kind: "edit" }, root, DEFAULT_ALLOW_KINDS, DEFAULT_PROTECTED), [false, "write without a target path"])
+    // 没有 locations 时用工具参数里的路径
+    assert.equal(isAllowed({ kind: "edit", rawInput: { file_path: join(root, "src/x.ts") } }, root, DEFAULT_ALLOW_KINDS, DEFAULT_PROTECTED)[0], true)
+    assert.match(isAllowed({ kind: "edit", rawInput: { file_path: join(root, "rules.yaml") } }, root, DEFAULT_ALLOW_KINDS, DEFAULT_PROTECTED)[1], /protected path/)
     assert.match(isAllowed({ kind: "delete", locations: [{ path: "/etc/passwd" }] }, root, ["delete"], DEFAULT_PROTECTED)[1], /write outside project/)
   })
 
@@ -59,6 +62,22 @@ describe("权限策略", () => {
   })
 })
 
+describe("withPolicyNote", () => {
+  it("不允许执行命令时在任务前说明只用文件工具；允许时原样", () => {
+    assert.match(withPolicyNote("写个登录页", DEFAULT_ALLOW_KINDS), /^【运行环境说明】.*拒绝一切运行 shell 命令[\s\S]*写个登录页$/)
+    assert.equal(withPolicyNote("写个登录页", [...DEFAULT_ALLOW_KINDS, "execute"]), "写个登录页")
+  })
+})
+
+describe("mergeToolCall", () => {
+  it("权限请求里的空字段不覆盖通知里报过的值", () => {
+    const known = { toolCallId: "t1", kind: "execute", title: "`ls -la`", rawInput: { command: "ls -la" } }
+    assert.deepEqual(mergeToolCall(known, { toolCallId: "t1", kind: null, rawInput: {} }), known)
+    assert.equal(mergeToolCall(known, { toolCallId: "t1", kind: "edit" }).kind, "edit")
+    assert.equal(mergeToolCall(undefined, { toolCallId: "t2" }).kind, undefined)
+  })
+})
+
 describe("ACP agent（真实协议，对端是桩）", () => {
   async function runStub(writes: string, stop = "end_turn", extra: { model?: string, env?: Record<string, string> } = {}) {
     const root = tempDir()
@@ -77,6 +96,19 @@ describe("ACP agent（真实协议，对端是桩）", () => {
     assert.match(r.text, /wrote=src\/a\.ts denied=rules\.yaml,verify\/verify\.ts,\.\.\/outside\.txt/)
     assert.match(r.text, /protected path: rules\.yaml/)
     assert.match(r.text, /write outside project/)
+  })
+
+  it("拒绝时选 reject 选项（不回 cancelled，agent 才会继续而不是整轮停下）", async () => {
+    const { r } = await runStub("src/a.ts;rules.yaml")
+    assert.match(r.text, /outcomes=allow,reject/)
+  })
+
+  it("权限请求只带 toolCallId 时（CodeBuddy）：按先前的 tool_call 通知合并后判断", async () => {
+    const { root, r } = await runStub("src/b.ts;rules.yaml;../outside.txt", "end_turn", { env: { STUB_SPLIT: "1" } })
+    assert.ok(existsSync(join(root, "src/b.ts")))
+    assert.equal(existsSync(join(root, "rules.yaml")), false)
+    assert.match(r.text, /wrote=src\/b\.ts denied=rules\.yaml,\.\.\/outside\.txt/)
+    assert.match(r.text, /protected path: rules\.yaml/)
   })
 
   it("指定模型：会话开始后经 session/set_model 设上", async () => {
