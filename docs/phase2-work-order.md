@@ -175,6 +175,19 @@ machine: {ac_status: {AC-1: pass}, verdict: pass|fail, return_stage: null|discov
 
 **校验脚本（零 token）**：front-matter 完整、schema 合法、AC 覆盖 100%、引用存在、`open_questions` 清零、无占位符；不过自动打回重写，不占复核轮次（但受 `max_doc_lint_failures` 限制）。03 打回用「回应表」对 04 的每条 R-x。
 
+**校验细则［三定］**（第 3 步实现时补齐的取值）：
+
+- front-matter：`status` ∈ `draft | approved | rejected`；`version` 为 ≥ 1 的整数；`inputs` 为数组，引用的 01–06 必须已存在；`generated_at` 为 ISO 8601；`stage` 必须与文档编号对应的阶段一致；
+- 编号格式：`AC-n`、`A-n`、`D-n`、`R-n`，同一文档内不重复；
+- 04：`severity` ∈ `blocker | major | minor`；`rejected` 至少一条 `fix_required: true`，`approved` 不能有；`ac_ref` 必须是 02 里的 AC 或留空；
+- 03 被打回后：正文里的 markdown 表格要逐条出现每个 `fix_required` 的 `R-x`（不要求回应的条目不强制）；
+- 03 的 `impl` / `test` 文件引用：设计阶段是计划，不查；代码写完后（门禁、验收时）以 `implemented: true` 再校验一次，文件必须存在；
+- 05 / 06：`ac_status` 必须覆盖 02 的全部 AC；06 `pass` 时全部 AC 为 pass 且 `return_stage: null`，`fail` 时必须给出 `return_stage`；
+- 占位符：`TODO` / `TBD` / `FIXME` / `XXX` / 待补充 / 待定 / 待完善 / 待确认 / `{{…}}` / `<placeholder>` / lorem ipsum；
+- 素材 `hash` 为内容的完整 sha256（十六进制），文件名取其前 12 位；
+- 版本历史：覆盖前存到 `.agent/stages/<stage>/history/<文件名>.v<version>.md`，没有 `version` 时按已有历史顺延；
+- 白名单补充：任何来源都不能提交 `.agent/**`、`.env`、`.env.*`；CI 配置指 `.github/**`、`.gitlab-ci.yml`、`.circleci/**`、`.buildkite/**`、`.travis.yml`、`azure-pipelines.yml`、`Jenkinsfile`；`verify/` 按整个目录算。
+
 **每阶段提交路径白名单［定稿］**
 
 | 提交来源 | 允许的路径 |
@@ -226,7 +239,11 @@ machine: {ac_status: {AC-1: pass}, verdict: pass|fail, return_stage: null|discov
    - 新状态字段 `stage_status`（按键合并）；`delivery.json` 记录各阶段结果；
    - `max_retries` 改由 `limits.max_retries` 决定，`agent.config.json` 里还写着就报错并指路；
    - 遗留：`implement` 目前仍包含读取设计稿和生成 Spec，等 discovery / tech-design 实现后再拆出去；`limits.max_retries`「每次进入 gate 重新计数」要等验收打回能回到 gate 时再做；
-3. 文档契约 + 校验脚本 + 提交路径白名单；
+3. 文档契约 + 校验脚本 + 提交路径白名单——**已完成**（模块就绪，接进流水线在后续阶段实现时做）：
+   - `core/src/docs.ts`：`parseDoc` / `lintDoc`（零 token，问题一次列全）/ `storeAsset` / `archiveDoc` / `docPath`；
+   - `core/src/whitelist.ts`：`checkCommitPaths` / `assertCommitAllowed`（读暂存区，改名拆成删除 + 新增两边都查，越界抛 `WhitelistError`）；
+   - core 新增依赖 `yaml`（与 `verify/` 同一个包）；
+   - 遗留：「同一文档连续 `max_doc_lint_failures` 次不过 = 运行失败」的计数由流水线在接入时实现；
 4. 作业分支 / 锁 / 合并预演 / 弹窗，后端 + 前端；
 5. vision 适配；
 6. 指标与拒绝原因回流（每轮 token、耗时、打回原因，按 agent 汇总）。
