@@ -99,6 +99,8 @@ kbd { font: 11px var(--mono); color: inherit; opacity: .75; }
 .recent button:hover { color: var(--text); border-color: var(--muted); }
 .choices { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); }
 .choice { display: flex; align-items: center; gap: 8px; }
+.choice.full { flex-basis: 100%; }   /* 审阅选项多（含全部编程 agent），单独占一行 */
+.choice.full .seg { flex-wrap: wrap; }
 .choice > span { color: var(--faint); font-size: 12px; }
 .seg { display: inline-flex; background: var(--panel-2); border-radius: var(--r); padding: 2px; gap: 2px; }
 .seg button { border: 0; background: none; color: var(--muted); padding: 3px 9px; border-radius: 5px; font-size: 12px; white-space: nowrap; }
@@ -569,7 +571,7 @@ function renderMain() {
 }
 
 function segHtml(key, label, opts, chosen) {
-  return `<div class="choice"><span>${label}</span><div class="seg" data-k="${key}" role="group" aria-label="${label}">${opts.map(([k, l, ok, d]) =>
+  return `<div class="choice${key === "review_backend" ? " full" : ""}"><span>${label}</span><div class="seg" data-k="${key}" role="group" aria-label="${label}">${opts.map(([k, l, ok, d]) =>
     `<button type="button" data-v="${esc(k)}" aria-pressed="${k === chosen}" class="${ok ? "" : "na"}" title="${esc(ok ? l : d || "本机不可用")}">${esc(l)}</button>`).join("")}</div></div>`;
 }
 async function choose(key, value) {
