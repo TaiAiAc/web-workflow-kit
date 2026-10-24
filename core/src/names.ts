@@ -4,7 +4,7 @@
 // 主图
 export const CODE = "编码"            // 包住 codegraph：设计稿 → Spec → 写代码
 export const VERIFY = "门禁"          // verify.ts，exit code 是唯一放行依据
-export const REVIEW = "审阅修复"      // 包住 reviewgraph：验收顾问 → 修复
+export const REVIEW = "审阅修复"      // 包住 reviewgraph：修复审阅 → 修复
 export const DELIVER = "交付"
 export const BREAKER = "熔断"
 export const REHEARSE = "合并预演"   // 不是图里的节点：运行结束后在临时 worktree 里对合并结果跑门禁
@@ -21,7 +21,7 @@ export const SPEC = "生成Spec"
 export const WRITE_CODE = "写代码"
 
 // reviewgraph
-export const ADVISE = "验收审阅"
+export const ADVISE = "修复审阅"
 export const FIX = "执行修复"
 
 export const PIPELINE_NAME = "前端交付流水线"

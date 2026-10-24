@@ -102,12 +102,12 @@ export function buildReviewGraph(source: Source) {
         diff_hunks: changedHunks(cfg.projectRoot, state.baseline, failures,
           Number(dcfg.max_chars ?? 12000), Number(dcfg.context_lines ?? 3)),
       }
-      log(`[验收审阅] ${failures.length} 个失败项、${payload.diff_hunks.length} 个改动块 → 验收顾问`)
+      log(`[修复审阅] ${failures.length} 个失败项、${payload.diff_hunks.length} 个改动块 → 修复审阅`)
       const t = Date.now()
       const plan = await reviewer(payload)
       deps.metrics?.agentCall("gate", "review", plan.reviewer ?? "review", state.attempt ?? 1, Date.now() - t,
         { stopReason: plan.verdict === "unavailable" ? "error" : "end_turn" })
-      log(`[验收审阅] 结论 ${plan.verdict}（经 ${plan.reviewer ?? "?"}）：${plan.summary ?? ""}`)
+      log(`[修复审阅] 结论 ${plan.verdict}（经 ${plan.reviewer ?? "?"}）：${plan.summary ?? ""}`)
       const out: Update = { plan }
       if (plan.verdict === "needs_human")
         out.break_reason = `NEEDS_HUMAN: ${plan.summary ?? ""}`
@@ -147,7 +147,7 @@ export function routeAfterVerify(state: State, maxRetries: number): string {
 const BREAK_EXPLAINED: Record<string, string> = {
   GATE_CONFIG_ERROR: "门禁规则或运行环境有误（verify 退出码 2），模型无权也无法修复，请检查 rules.yaml 和 Node 环境",
   RETRY_LIMIT: "已自动修复到上限仍未通过门禁",
-  NEEDS_HUMAN: "验收顾问判断需要人来决定",
+  NEEDS_HUMAN: "修复审阅判断需要人来决定",
   DESIGN_ERROR: "设计稿读取失败",
   SPEC_ERROR: "Spec 生成失败",
   CODE_AGENT_ERROR: "编码 agent 出错",

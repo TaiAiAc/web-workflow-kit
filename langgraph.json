@@ -19,7 +19,7 @@
     },
     "审阅修复子图": {
       "path": "./core/src/studio.ts:reviewgraph",
-      "description": "单独调试用：验收顾问按失败项出修复计划 → 修复 agent 改文件。输入需带上一轮门禁的失败项。"
+      "description": "单独调试用：修复审阅按失败项出修复计划 → 修复 agent 改文件。输入需带上一轮门禁的失败项。"
     }
   }
 }

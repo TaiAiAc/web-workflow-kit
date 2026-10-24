@@ -1,15 +1,22 @@
 # web-workflow-kit
 
-本地前端交付流水线：把“提需求 → 读设计稿 → 写 Spec → 写代码 → 构建 → 门禁 → 验收 → 失败回环 → 交付”串成一条自动流程，覆盖 **Web 中后台、UniApp、微信/支付宝小程序、Electron 桌面端**。
+本地前端交付流水线：把“提需求 → 取材 → 需求规格 → 技术设计 → 文档复核 → 写代码 → 门禁 ⇄ 修复 → 产品验收 → 合并”串成一条自动流程，覆盖 **Web 中后台、UniApp、微信/支付宝小程序、Electron 桌面端**。全程在作业分支上自动进行，**人只在最后的合并弹窗点一次**。
 
 它是一个 TypeScript 写的 LangGraph 应用，只依赖 Node：可以用**桌面端**（双击打开），也可以装成 `wwk` 命令，用 `wwk ui` 打开纯本地的中文网页控制台，或直接在命令行里跑。
 
 ```
-需求 ─→ 编码（设计稿 → Spec → 写代码）─→ 门禁 ─┬─ 通过 ──────────────→ 交付（代码不提交，等人签字发布）
-                                         ▲     ├─ 失败且未超限 → 审阅修复 ─┐
-                                         └─────┼───────────────────────────┘
-                                               └─ 规则错误 / 修复到上限 / 需要人决定 / agent 出错 → 熔断（邮件通知，人介入）
+需求（纯文字 / 图片 + 文字 / MasterGo）
+  └─ 拉作业分支 wwk/<时间>-<slug>
+      取材与需求（01 设计分析 + 02 需求规格）
+      → 技术设计（03）⇄ 文档复核（04，最多 2 轮，超了交仲裁）
+      → 写代码（按 02 + 03，附 05 自测）
+      → 门禁 ⇄ 修复审阅 → 修复（最多 limits.max_retries 轮）
+      → 产品验收（06，没过按 return_stage 回退重做，最多 2 轮）
+      → 切回原分支，在临时目录预演合并并复跑门禁 → 合并弹窗：合并 / 不合并 / 作废
+  任何一步超限或出错 → 熔断（邮件通知，人介入），作业分支保留
 ```
+
+每个阶段每轮一次提交，提交前按阶段的路径白名单检查（越界即中止）；01–03 随作业分支入库到 `docs/wwk/`，其余文档留在 `.agent/`。工具永不 push。
 
 ## 设计原则
 
@@ -21,8 +28,11 @@
 | 模型异构 | 写代码、验收、修复可以用不同的 agent，避免同源偏差 |
 | 输入最小化 | 只传本次改动块和失败项，验收每次无状态 |
 | 多端通用 | 四类项目共用同一张图，差异只在 `rules.yaml` |
+| 文档有契约 | 每份文档 = 正文 + 末尾 `machine` 块；零 token 的校验脚本把关（AC 覆盖、引用、占位符……），不过就打回重写 |
+| 流程里不问人 | 信息不足写进假设；agent 之间可以补问一次（product 问 vision） |
+| 只在合并时签字 | 作业分支上全自动；目标分支只在预演门禁通过、人点「合并」后移动一次 |
 
-人仍在两处签字：熔断时、发布前。流水线交付后**不会提交代码**。
+人仍在两处介入：熔断时、合并时。流水线**从不 push**。
 
 ## 快速开始
 
@@ -51,7 +61,7 @@ pnpm install && pnpm build && npm install -g .
 | --- | --- |
 | 生成 Spec、写代码（默认） | 安装并登录 [Claude Code](https://claude.com/claude-code)：`npm install -g @anthropic-ai/claude-code`，终端里运行一次 `claude` 按提示登录 |
 | 修复（默认） | 安装 DeepSeek Harness（`dsh` 命令可用）并配好 `DEEPSEEK_API_KEY`；也可以在控制台的「修复」里换成其他已安装的 agent |
-| 验收审阅 | 可选：配置 `DEEPSEEK_API_KEY`；不配则自动改用 dsh，见[验收审阅](#验收审阅) |
+| 修复审阅 | 可选：配置 `DEEPSEEK_API_KEY`；不配则自动改用 dsh，见[修复审阅](#修复审阅) |
 | 熔断邮件 | 可选：SMTP 配置 |
 
 这些都可以在控制台的**设置页**里看状态、点「登录」、填 Key 和代理：写进 `~/.web-workflow-kit/.env`（所有项目共用）或项目自己的 `.env`，模板见 [.env.example](.env.example)。
@@ -93,7 +103,10 @@ wwk ui
 
 **右侧：选中的项目**
 - 工具栏：「跑门禁」只跑一次门禁；「修复回环」对当前改动跑门禁，失败就审阅修复，直到通过或熔断；「打开目录」；项目没有 `rules.yaml` 时会提示「生成配置」；
-- 需求框：写需求点「运行」（`⌘/Ctrl + Enter`）跑完整流水线；「最近」里点一下就能复用之前的需求；「设计稿」可选本地 `.json` 或一键用 MasterGo 当前选中的图层；
+- 需求框：写需求点「运行」（`⌘/Ctrl + Enter`）跑完整流水线；「最近」里点一下就能复用之前的需求；素材二选一：「图片」选截图或设计稿导出图（可多选，由 Codex 看图），「设计稿」选本地 `.json` 或一键用 MasterGo 当前选中的图层；什么都不选就是纯文字需求；
+- 开工检查：不是 git 仓库、工作区有未提交改动、`.gitignore` 没忽略 `.agent/`、还有待处理的运行时不会开工，并直接列出问题（`.gitignore` 可一键修复）；
+- 合并弹窗：跑完自动弹出，列出本地分支（落后几个提交、上游领先 / 落后、冲突预检），默认上次选的目标；先在临时目录预演合并并跑门禁，通过才能点「合并」（squash）；也可以「不合并」（保留分支待处理）或「作废」。关掉后可以从运行记录或项目页的横幅重新打开；页面不在前台时发系统通知；
+- 「指标」：按 agent 汇总最近的运行：调用次数、平均耗时、token、产出被打回的次数和常见原因；
 - 编程 / 修复 / 审阅：点按钮选，每个项目记住自己的选择；本机没装的选项会划掉；
 - 流程进度条：按实际发生的顺序排出 Spec → 写代码 → 门禁 → 审阅 → 修复 → 门禁 #2 → 交付 / 熔断，每一步显示用了哪个 agent、耗时，失败的门禁直接标出哪几项没过，回环用 ⟳ 标出；
 - 门禁检查项：最近一次门禁的 typecheck / lint / test / build … 逐项 ✔ / ✘，以及已修复几轮；
@@ -104,7 +117,7 @@ wwk ui
 - 代理（「用系统代理」一键填入并保存，并检测到 Anthropic / OpenAI / DeepSeek / npm 的连通性）、API Key（只写不读，DeepSeek Key 可一键测试）、熔断邮件；
 - 可以写全局，也可以只写当前项目的 `.env`（项目覆盖全局）；对下一次运行生效。
 
-运行记录在结束时写进项目的 `.agent/runs/`（每个项目保留最近 50 条），服务重启后仍可回看；交付记录另存 `.agent/delivery.json`。编码子图、审阅修复子图的单独调试在 LangGraph Studio 或 API 里用。
+运行记录在结束时写进项目的 `.agent/runs/`（每个项目保留最近 50 条），服务重启后仍可回看；交付记录另存 `.agent/delivery.json`。「修复回环」「跑门禁」是对当前工作区的操作，不拉作业分支。编码子图、审阅修复子图的单独调试在 LangGraph Studio 或 API 里用。
 
 控制台只在本机运行，页面不加载任何外部资源。安全细节见 [docs/architecture.md](docs/architecture.md#安全)。
 
@@ -115,6 +128,8 @@ wwk --project /path/to/my-app
 ```
 
 在终端里不带命令即进入交互模式，直接输入需求就跑完整流水线（`wwk repl` 不要求终端，可以用管道喂命令）。
+
+命令行同样走取材、技术设计、复核、验收这些文档阶段（文档写进 `docs/wwk/<日期>-<slug>/`），但**不拉作业分支、不合并**：改动留在当前工作区，由你自己提交。作业分支和合并弹窗只在控制台里有。
 
 | 交互模式输入 | 作用 |
 | --- | --- |
@@ -141,7 +156,7 @@ wwk --project /path/to/my-app
 | `--project <目录>` | 目标项目（默认当前目录） |
 | `--agent claude\|codex\|opencode\|workbuddy\|dsh` | 写代码用哪个 agent |
 | `--fix-agent <同上>` | 修复用哪个 agent（默认取配置 `fix`，即 dsh） |
-| `--review auto\|api\|dsh\|skip` | 验收审阅方式 |
+| `--review auto\|api\|dsh\|skip` | 修复审阅方式 |
 | `--config <文件>` | 额外的配置文件 |
 | `--json` | stdout 只输出结果 JSON，日志走 stderr（给脚本用） |
 | `--version` / `--help` | 版本 / 用法 |
@@ -164,9 +179,9 @@ Codex 的 ACP 适配器默认每次经 npx 下载，网络不稳时会在开始�
 
 生成 Spec 不受这个选项影响，默认仍用 Claude Code（可改为 GPT，见 [docs/configuration.md](docs/configuration.md#spec)）。
 
-## 验收审阅
+## 修复审阅
 
-门禁失败后，先由“验收顾问”读失败项和改动块，给出修复计划，再交给修复 agent（默认 dsh）去改。修复 agent 和编程 agent 一样可以选：控制台的「修复」按钮、`--fix-agent`，可选项相同；建议和编程 agent 选不同的，避免同源偏差。
+门禁失败后，先由“修复审阅”读失败项和改动块，给出修复计划，再交给修复 agent（默认 dsh）去改。修复 agent 和编程 agent 一样可以选：控制台的「修复」按钮、`--fix-agent`，可选项相同；建议和编程 agent 选不同的，避免同源偏差。
 
 | 选项 | 行为 |
 | --- | --- |
@@ -177,14 +192,17 @@ Codex 的 ACP 适配器默认每次经 npx 下载，网络不稳时会在开始�
 
 所以 **DeepSeek API Key 不是必需的**。无论哪种方式，顾问都没有放行权。
 
-## 设计稿（MasterGo）
+## 三种输入
 
-流水线可以把设计稿交给 Spec 生成：
+三种输入产出同样结构的 01（设计分析），之后走同一条流水线：
 
-- **本地文件**：设计稿字段填导出的 `.json` 路径；
-- **MasterGo**：在项目的 `agent.config.json` 里设 `design.enabled: true`，在 MasterGo 客户端里**选中目标页面或图层**，设计稿字段填 `mastergo`（命令行是 `--design mastergo` 或交互模式的 `:design mastergo`）。
+- **纯文字**：01 由代码直接生成（引用需求原文），不花 token；
+- **图片 + 文字**：Codex 只读地看图写 01（默认经 ACP，失败退到 `codex exec --sandbox read-only`），图片按内容 hash 存进 `docs/wwk/<日期>-<slug>/assets/`，同样的图和需求命中缓存；写需求规格时 product 可以补问 vision 一次；需要本机装好 Codex；
+- **设计稿**：
+  - **本地文件**：设计稿字段填导出的 `.json` 路径；
+  - **MasterGo**：在项目的 `agent.config.json` 里设 `design.enabled: true`，在 MasterGo 客户端里**选中目标页面或图层**，设计稿字段填 `mastergo`（命令行是 `--design mastergo` 或交互模式的 `:design mastergo`）。读取的是本机正在运行的 MasterGo 客户端（默认 `http://localhost:30678`）里当前选中的图层和文件变量，不是按链接取稿。没选中图层时会以“设计稿读取失败”停下，不发邮件，选中后重跑即可。
 
-读取的是本机正在运行的 MasterGo 客户端（默认 `http://localhost:30678`）里当前选中的图层和文件变量，不是按链接取稿。没选中图层时会以“设计稿读取失败”停下，不发邮件，选中后重跑即可。
+设计稿由 product 分析后写 01。哪些阶段开、各角色用哪个 agent、轮次上限都在工作流配置里（`~/.web-workflow-kit/workflow.json` + 每个工作区的覆盖），见 [docs/configuration.md](docs/configuration.md#workflowjson)。
 
 ## Electron 视觉验收
 
@@ -196,7 +214,12 @@ Codex 的 ACP 适配器默认每次经 npx 下载，网络不稳时会在开始�
 
 | 文件 | 内容 |
 | --- | --- |
-| `spec.md` | 本次生成的 Spec |
+| `stages/<阶段>/` | 04 复核报告、05 自测、06 验收报告；`history/` 里是每份文档的历史版本 |
+| `runs/<id>/` | `manifest.json`（作业分支、预演、合并记录）、`config.snapshot.json`（生效配置，已脱敏）、`metrics.jsonl`（指标）、`leftover.patch`（被清掉的残留） |
+| `arbitration/` | 仲裁结论 |
+| `cache/vision/` | 看图结果缓存 |
+| `lock` | 运行锁（运行中、预演中、合并中才有） |
+| `spec.md` | 本次生成的 Spec（只在没开取材 / 技术设计时） |
 | `verify-report.json` | 最近一次门禁报告（含全部失败项） |
 | `code-task.md` / `fix-task.md` / `review-task.md` | 交给命令行 agent 的任务 |
 | `delivery.json` | 交付记录：需求、修复轮数、改动文件、各轮门禁结果 |
@@ -234,10 +257,11 @@ Claude Code 没登录。终端运行 `claude` 登录后重试。
 
 ## 文档
 
-- [docs/configuration.md](docs/configuration.md)：`agent.config.json` 与 `.env` 全部配置项
+- [docs/configuration.md](docs/configuration.md)：`workflow.json`、`agent.config.json` 与 `.env` 全部配置项
 - [docs/rules.md](docs/rules.md)：`rules.yaml`、各项检查与失败码
 - [docs/architecture.md](docs/architecture.md)：图与节点、原则如何落地、安全模型、LangGraph Studio / API
 - [docs/development.md](docs/development.md)：开发、测试、打包、CI
 - [docs/desktop.md](docs/desktop.md)：桌面端（Electron）：工作方式、开发与打包
 - [core/README.md](core/README.md)：TS 核心：模块与实现要点
-- [docs/roadmap.md](docs/roadmap.md)：第一阶段交付与验证情况、遗留问题、第二阶段候选
+- [docs/roadmap.md](docs/roadmap.md)：第一、第二阶段的交付与验证情况、遗留问题
+- [docs/phase2-work-order.md](docs/phase2-work-order.md)：第二阶段施工单（设计决定的出处）

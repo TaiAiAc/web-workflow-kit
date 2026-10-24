@@ -1,4 +1,4 @@
-// 验收审阅后端：auto / api / dsh / skip，以及 dsh 审阅的只读校验。
+// 修复审阅后端：auto / api / dsh / skip，以及 dsh 审阅的只读校验。
 import assert from "node:assert/strict"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { createServer } from "node:http"

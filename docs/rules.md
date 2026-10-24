@@ -149,7 +149,7 @@ Electron 可选项。带 `--remote-debugging-port=0` 启动应用，经 Chrome D
 | `RENDERER_ERROR` | 渲染进程未捕获异常 | 按堆栈修 |
 | `CONFIG_ERROR` | 规则文件或环境有误（退出码 2） | 修 `rules.yaml` 或安装 Node |
 
-验收顾问看到的失败码说明在 [review-prompt.md](../assets/prompts/review-prompt.md)；新增失败码时同步更新那张表。
+修复审阅看到的失败码说明在 [review-prompt.md](../assets/prompts/review-prompt.md)；新增失败码时同步更新那张表。
 
 ## 单独运行门禁
 

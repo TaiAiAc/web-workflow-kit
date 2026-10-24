@@ -67,7 +67,7 @@ describe("主图", () => {
     assert.equal(s.status, "broken")
     assert.deepEqual(fixer.calls, [])
     assert.equal(sent.length, 1)
-    assert.match(s.summary, /验收顾问判断需要人来决定（证书）/)
+    assert.match(s.summary, /修复审阅判断需要人来决定（证书）/)
   })
 
   it("门禁规则错误（退出码 2）直接熔断", async () => {

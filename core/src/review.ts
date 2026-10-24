@@ -1,4 +1,4 @@
-// 验收审阅（顾问）的后端：DeepSeek API / DeepSeek Harness / 跳过，默认自动选。
+// 修复审阅（顾问）的后端：DeepSeek API / DeepSeek Harness / 跳过，默认自动选。
 //
 // 顾问只出修复计划、无放行权，且必须只读：
 // - api：直接调 HTTP 接口，天然改不了文件，并强制 JSON 输出；
@@ -139,7 +139,7 @@ export function makeReviewer(cfg: Config, choice: string | null | undefined, val
     const touched = changedFiles(before, fingerprint(root))
     if (touched.length) {
       const listed = touched.slice(0, 10).join("、") + (touched.length > 10 ? ` 等 ${touched.length} 个` : "")
-      return { verdict: "needs_human", summary: `验收顾问（dsh）违规改动了文件：${listed}。请检查后再继续`, fixes: [], reviewer: backend, violation: touched }
+      return { verdict: "needs_human", summary: `修复审阅（dsh）违规改动了文件：${listed}。请检查后再继续`, fixes: [], reviewer: backend, violation: touched }
     }
     if (r.code !== 0)
       return unavailable(`dsh 退出码 ${r.code}：${(r.stderr || r.stdout).slice(-300)}`, backend)

@@ -44,7 +44,7 @@
 
 ### diff
 
-验收审阅时只传本次改动块，这里控制大小。
+修复审阅时只传本次改动块，这里控制大小。
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
@@ -112,11 +112,11 @@
 
 ### review
 
-验收审阅（门禁失败后出修复计划）。
+修复审阅（门禁失败后出修复计划）。
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `backend` | `"auto"` | `auto` / `api` / `dsh` / `skip`，见 [README](../README.md#验收审阅) |
+| `backend` | `"auto"` | `auto` / `api` / `dsh` / `skip`，见 [README](../README.md#修复审阅) |
 | `dsh_command` | `["dsh", "headless", "{prompt}"]` | 用 dsh 审阅时的命令 |
 | `base_url` | `https://api.deepseek.com` | API 审阅的接口地址（OpenAI 兼容） |
 | `model` | `deepseek-chat` | API 审阅的模型 |
@@ -168,7 +168,7 @@
 
 | 变量 | 用途 |
 | --- | --- |
-| `DEEPSEEK_API_KEY` | API 方式的验收审阅（可选） |
+| `DEEPSEEK_API_KEY` | API 方式的修复审阅（可选） |
 | `OPENAI_API_KEY` | `spec.backend = openai_compatible` 时（可选） |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | 发熔断邮件的 SMTP；端口 465 用 SSL，其他端口用 STARTTLS |
 | `NOTIFY_EMAIL` | 熔断邮件收件人 |
