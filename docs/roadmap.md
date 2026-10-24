@@ -92,3 +92,4 @@
 5. **命令行接入作业分支**：`wwk run` 拉作业分支并在终端里给出合并选项；接上断点恢复的分支校验（`checkResume` 已实现）。
 6. **时间与 token 预算**：`limits.time_budget_sec` / `token_budget` 目前只是配置项，尚未强制。
 7. **MasterGo 物料导出**：现在只有 `get_selection_node` / `get_variables`，设计稿模式的 01 没有素材图。
+8. **文档阶段丢弃 agent 的擅自改动**：codex 在 read-only 模式下改工作区文件也不申请权限；文档阶段（取材、技术设计、复核、验收）的 agent 若改了代码，现在会在提交时被白名单拦下、整次运行失败。更好的做法是这些阶段结束时把文档以外的改动存成 patch 后丢弃。
