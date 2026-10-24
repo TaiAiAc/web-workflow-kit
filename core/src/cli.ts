@@ -25,7 +25,7 @@ import type { State } from "./state.ts"
 declare const __WWK_VERSION__: string | undefined
 export const VERSION = typeof __WWK_VERSION__ === "string" ? __WWK_VERSION__ : "dev"
 
-const USAGE = `用法：wwk [fix|verify|run|resume|init|ui|repl] [需求] [--project <dir>] [--agent <名称>] [--fix-agent <名称>] [--review auto|api|dsh|skip] [--design <ref>] [--config <文件>] [--json] [--version]
+const USAGE = `用法：wwk [fix|verify|run|resume|init|ui|repl] [需求] [--project <dir>] [--agent <名称>] [--fix-agent <名称>] [--review auto|api|dsh|skip|<编程 agent>] [--design <ref>] [--config <文件>] [--json] [--version]
 不带命令进交互模式（REPL）。`
 
 function summary(state: State) {

@@ -104,7 +104,9 @@ describe("控制台服务", () => {
     assert.deepEqual(body.agents.map((a: any) => a.key), ["claude", "codex", "opencode", "workbuddy", "dsh"])
     assert.equal(body.fix_default, "dsh")
     assert.ok(body.agents.every((a: any) => "available" in a && a.label))
-    assert.deepEqual(body.reviewers.map((r: any) => r.key), ["auto", "api", "dsh", "skip"])
+    // 编程 agent 也都能当审阅（dsh 本来就是固定选项，不重复）
+    assert.deepEqual(body.reviewers.map((r: any) => r.key), ["auto", "api", "dsh", "claude", "codex", "opencode", "workbuddy", "skip"])
+    assert.ok(body.reviewers.find((r: any) => r.key === "codex").label)
     assert.match(body.reviewers[0].label, /当前会用/)
     let r = await request("POST", "/api/runs", { graph: N.PIPELINE_NAME, input: { project_root: tempDir(), requirement: "x", coding_agent: "cursor" } })
     assert.deepEqual([r.status, r.body.error], [400, "未知的编程 agent：cursor"])

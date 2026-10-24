@@ -116,7 +116,7 @@
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `backend` | `"auto"` | `auto` / `api` / `dsh` / `skip`，见 [README](../README.md#修复审阅) |
+| `backend` | `"auto"` | `auto` / `api` / `dsh` / `skip`，或任一 `coding_agents` 预设名（只读审阅），见 [README](../README.md#修复审阅) |
 | `dsh_command` | `["dsh", "headless", "{prompt}"]` | 用 dsh 审阅时的命令 |
 | `base_url` | `https://api.deepseek.com` | API 审阅的接口地址（OpenAI 兼容） |
 | `model` | `deepseek-chat` | API 审阅的模型 |

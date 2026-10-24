@@ -85,7 +85,7 @@ export function checkChoices(values: Json): void {
     if (values[field] && !(values[field] in agents))
       throw new Error(`未知的${what} agent：${values[field]}`)
   }
-  if (values.review_backend && !(values.review_backend in BACKENDS))
+  if (values.review_backend && !(values.review_backend in BACKENDS) && !(values.review_backend in agents)) // 编程 agent 也能只读审阅
     throw new Error(`未知的审阅方式：${values.review_backend}`)
 }
 

@@ -156,7 +156,7 @@ wwk --project /path/to/my-app
 | `--project <目录>` | 目标项目（默认当前目录） |
 | `--agent claude\|codex\|opencode\|workbuddy\|dsh` | 写代码用哪个 agent |
 | `--fix-agent <同上>` | 修复用哪个 agent（默认取配置 `fix`，即 dsh） |
-| `--review auto\|api\|dsh\|skip` | 修复审阅方式 |
+| `--review auto\|api\|dsh\|skip\|<编程 agent>` | 修复审阅方式；编程 agent 填预设名，如 `codex` |
 | `--config <文件>` | 额外的配置文件 |
 | `--json` | stdout 只输出结果 JSON，日志走 stderr（给脚本用） |
 | `--version` / `--help` | 版本 / 用法 |
@@ -188,6 +188,7 @@ Codex 的 ACP 适配器默认每次经 npx 下载，网络不稳时会在开始�
 | 自动（默认） | 配了 `DEEPSEEK_API_KEY` 用 API；没配但装了 dsh 就用 dsh；都没有就跳过 |
 | DeepSeek API | 直接调接口：天然只读，强制 JSON 输出 |
 | DeepSeek Harness | 用 dsh 审阅；审阅前后比对项目文件，顾问若改动了任何文件即判违规并熔断，列出被改文件交给人处理 |
+| Claude Code / Codex / OpenCode / WorkBuddy | 任一编程 agent 预设都能审阅：只读启动（Claude 不批准编辑，ACP 只放读、搜索、思考），同样比对审阅前后的项目文件；可以和写代码、修复的 agent 选不同的，三方异构 |
 | 跳过 | 不出计划，修复 agent 直接按失败码和出错位置修 |
 
 所以 **DeepSeek API Key 不是必需的**。无论哪种方式，顾问都没有放行权。
