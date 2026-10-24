@@ -161,6 +161,7 @@
 - `git.keep_failed_branches`（默认 `3`）：失败的作业分支只留最近几个；
 - `stages.gate.install_command`（默认 `"auto"`）：合并预演前在临时目录里装依赖的命令。`"auto"` 按锁文件选冻结安装（pnpm / npm ci / yarn / bun），写命令字符串则用它，`null` 跳过；
 - `documents.repo_dir`（默认 `docs/wwk`）：入库文档目录；
+- `vision`：看图（图片 + 文字输入）用的 codex。`backend` 默认 `codex_acp`（经 ACP 发图片，失败时退到 CLI），可改成 `codex_cli`；`model` 为空用 codex 的默认模型；`timeout_sec` 默认 300；`cli_command` 默认 `["codex"]`；ACP 适配器的命令取 `coding_agents.codex.command`；
 - 其他字段的含义见 [phase2-work-order.md](phase2-work-order.md) 第 3 节。
 
 ## .env

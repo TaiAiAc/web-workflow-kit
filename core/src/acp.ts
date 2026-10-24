@@ -23,6 +23,9 @@ export const DEFAULT_COMMANDS: Record<string, string[]> = {
   codex: ["npx", "--yes", "@agentclientprotocol/codex-acp@1.13.0"],
 }
 
+/** 适配器不支持图片时错误信息的前缀，vision 据此改走 CLI */
+export const IMAGE_UNSUPPORTED = "IMAGE_UNSUPPORTED"
+
 const STOP_REASONS: Record<string, string> = { end_turn: END_TURN, max_tokens: MAX_TOKENS, max_turn_requests: MAX_TOKENS }
 
 /** refusal / cancelled / 缺失 一律按 error 处理，交给熔断。 */
@@ -133,6 +136,12 @@ export function localAdapter(command: string[] | undefined, env?: NodeJS.Process
   return found ? [found] : command
 }
 
+/** 随 prompt 一起发的图片（vision 用）：base64 内容 + MIME 类型 */
+export interface PromptImage {
+  data: string
+  mimeType: string
+}
+
 export class ACPAgent implements Agent {
   readonly agent: string
   readonly command: string[] | null
@@ -152,7 +161,8 @@ export class ACPAgent implements Agent {
     this.env = opts.env
   }
 
-  async run(prompt: string, cwd: string): Promise<AgentResult> {
+  /** images 不为空时按 ACP image 块一起发；agent 没声明 promptCapabilities.image 就直接报错，不悄悄丢图。 */
+  async run(prompt: string, cwd: string, images: PromptImage[] = []): Promise<AgentResult> {
     const command = this.command ?? localAdapter(DEFAULT_COMMANDS[this.agent], this.env)
     if (!command?.length)
       return { stopReason: ERROR, text: `no ACP command for agent '${this.agent}'; set command in agent.config.json` }
@@ -201,10 +211,12 @@ export class ACPAgent implements Agent {
           return reject ? { outcome: { outcome: "selected", optionId: reject.optionId } } : { outcome: { outcome: "cancelled" } }
         })
       const work = app.connectWith(stream, async (ctx) => {
-        await ctx.request(acp.methods.agent.initialize, {
+        const init = await ctx.request(acp.methods.agent.initialize, {
           protocolVersion: acp.PROTOCOL_VERSION,
           clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
         })
+        if (images.length && init.agentCapabilities?.promptCapabilities?.image !== true)
+          throw new Error(`${IMAGE_UNSUPPORTED}: ${this.agent} 的 ACP 适配器没有声明支持图片输入`)
         return ctx.buildSession(resolve(cwd)).withSession(async (session) => {
           if (this.model) // 选模型是 ACP 的不稳定扩展（OpenCode 支持）；指定了却设不上就报错，不悄悄用默认模型
             await ctx.request("session/set_model", { sessionId: session.sessionId, modelId: this.model })
@@ -227,7 +239,10 @@ export class ACPAgent implements Agent {
               }
             }
           })()
-          const response = await session.prompt(withPolicyNote(prompt, this.allowKinds))
+          const text0 = withPolicyNote(prompt, this.allowKinds)
+          const response = await session.prompt(images.length
+            ? [{ type: "text", text: text0 }, ...images.map(i => ({ type: "image" as const, data: i.data, mimeType: i.mimeType }))]
+            : text0)
           await reading
           const text = texts.join("")
           const tokens = (response as { usage?: { totalTokens?: number } }).usage?.totalTokens

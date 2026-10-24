@@ -7,7 +7,7 @@
     "vision": { "agent": "codex" },
     "arbiter": { "agent": "dsh" }
   },
-  "vision": { "backend": "codex_acp", "model": null, "timeout_sec": 300 },
+  "vision": { "backend": "codex_acp", "model": null, "timeout_sec": 300, "cli_command": ["codex"] },
   "stages": {
     "discovery": { "order": 10, "role": "product" },
     "tech-design": { "order": 20, "role": "tech" },

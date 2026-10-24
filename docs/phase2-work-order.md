@@ -257,7 +257,15 @@ machine: {ac_status: {AC-1: pass}, verdict: pass|fail, return_stage: null|discov
      - 预演用原项目的 `rules.yaml`（不一定入库）；
      - 只有控制台的完整流水线走作业分支；修复回环、仅门禁、命令行 `wwk run` 维持第一阶段行为（命令行没有合并弹窗），留作后续；
    - 遗留：`time_budget_sec` 尚未强制；断点恢复的分支校验（`checkResume`）已实现并有测试，但控制台运行不用检查点，等命令行接入作业分支时再接上；
-5. vision 适配；
+5. vision 适配——**已完成**：
+   - `core/src/vision.ts`：`analyzeImages`（图片 + 需求 → 01）、`visionPreflight`（B 模式开工预检）；`assets/prompts/vision-prompt.md`；
+   - 默认经 codex ACP 发 image 块；适配器没声明 `promptCapabilities.image`、起不来或出错时退到 codex CLI（`--sandbox read-only`，prompt 在 `-i` 前面）；
+   - 只读：在只放了图片副本的临时目录里跑，碰不到项目文件；ACP 权限只放 read / search / think；
+   - 正文由模型写，front-matter 和 machine 块（来源、素材）由代码拼，模型不能编；结果当场按 01 校验；
+   - 缓存键 = 图片内容 hash + 需求 + 补充问题 + 模型，存在 `.agent/cache/vision/`，只缓存校验通过的结果；
+   - `ACPAgent.run` 增加可选的图片参数（与 PR #14 的会话模式改动互不依赖）；新增 `vision.cli_command`（默认 `["codex"]`）；
+   - 已用本机 codex 真实验证 ACP 与 CLI 两条路径，产出的 01 都一次通过校验；
+   - 遗留：B 模式的开工预检和「product 补问一次」要等 discovery 阶段实现时接进流水线；
 6. 指标与拒绝原因回流（每轮 token、耗时、打回原因，按 agent 汇总）。
 
 ## 9. 预研/风险
