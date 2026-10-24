@@ -36,6 +36,7 @@
 - 安装包未签名、未公证；macOS 只打 arm64。
 - Electron 视觉验收只在 Windows + Electron 45 上实测。
 - WorkBuddy 不能执行命令（有意为之）；CodeBuddy 遇到任何被拒的权限请求都会结束整轮，所以预设只给文件工具。
+- Codex（codex-acp 1.13.0）在工作区内的编辑和沙箱内的命令都不发权限请求：`agent` 和 `read-only` 两种模式都是 on-request + workspaceWrite 沙箱，`protected` 和 `allow_kinds` 在协议层拦不住它（实测改 `rules.yaml` 时 0 次 `session/request_permission`）。现在的做法：会话开始后切到 `read-only`（不让它的 auto_review 代批越出沙箱的动作），跑完把被改动的保护文件还原并在结果里列出（对所有 ACP agent 生效）。仍未覆盖：Codex 的 `allow_kinds` 不含 `execute` 时，沙箱内的命令照样会执行（无网络，写入限于工作区）。
 
 ## 第二阶段（候选，未排期）
 
