@@ -2,9 +2,10 @@
 //
 // 和 CLI 后端的差别：stop_reason 直接取自 ACP 的 session/prompt 结果，不用猜；
 // 写文件等动作要走 session/request_permission，由这里的策略应答——门禁文件在这一层就改不了。
-// 客户端不声明文件系统和终端能力，agent 自己读写文件，每次写都要先申请权限。
+// 客户端不声明文件系统和终端能力，agent 自己读写文件，按协议每次写都要先申请权限。
+// 但不是每家都照做（codex-acp 工作区内的编辑不申请），所以跑完还会把被改动的保护文件还原。
 import { type ChildProcess, spawn } from "node:child_process"
-import { existsSync, realpathSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path"
 import process from "node:process"
 import { Readable, Writable } from "node:stream"
@@ -21,6 +22,58 @@ const WRITE_KINDS = new Set(["edit", "delete", "move"])
 export const DEFAULT_COMMANDS: Record<string, string[]> = {
   claude: ["npx", "--yes", "@agentclientprotocol/claude-agent-acp@0.81.0"],
   codex: ["npx", "--yes", "@agentclientprotocol/codex-acp@1.13.0"],
+}
+
+// 会话模式：codex-acp 默认 agent（auto_review，由它自己的审阅代为批准）；read-only 下超出沙箱的动作才交给我们审批。
+// 注意两种模式下工作区内的编辑和沙箱内的命令都不来申请权限，所以还要靠下面的 snapshotProtected / restoreProtected 兜底。
+export const DEFAULT_MODES: Record<string, string> = { codex: "read-only" }
+
+const SKIP_DIRS = new Set([".git", "node_modules"])
+
+/** 项目里命中保护规则的文件（相对路径 → 内容）。 */
+export function snapshotProtected(root: string, protectedPaths: string[]): Map<string, Buffer> {
+  const out = new Map<string, Buffer>()
+  const walk = (dir: string, prefix: string) => {
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    }
+    catch {
+      return
+    }
+    for (const e of entries) {
+      const rel = prefix + e.name
+      if (e.isDirectory() && !SKIP_DIRS.has(e.name))
+        walk(join(dir, e.name), `${rel}/`)
+      else if (e.isFile() && protectedPaths.some(p => fnmatch(rel, p)))
+        out.set(rel, readFileSync(join(dir, e.name)))
+    }
+  }
+  walk(root, "")
+  return out
+}
+
+/**
+ * 有的 agent 不经权限请求就直接写文件（codex-acp 工作区内的编辑）：跑完后把保护文件还原成运行前的样子，
+ * 改了的写回、删了的补回、新建的删掉。返回被还原的相对路径。
+ */
+export function restoreProtected(root: string, before: Map<string, Buffer>, protectedPaths: string[]): string[] {
+  const after = snapshotProtected(root, protectedPaths)
+  const restored: string[] = []
+  for (const [rel, data] of before) {
+    if (after.get(rel)?.equals(data))
+      continue
+    mkdirSync(dirname(join(root, rel)), { recursive: true })
+    writeFileSync(join(root, rel), data)
+    restored.push(rel)
+  }
+  for (const rel of after.keys()) {
+    if (!before.has(rel)) {
+      rmSync(join(root, rel), { force: true })
+      restored.push(rel)
+    }
+  }
+  return restored.sort()
 }
 
 const STOP_REASONS: Record<string, string> = { end_turn: END_TURN, max_tokens: MAX_TOKENS, max_turn_requests: MAX_TOKENS }
@@ -137,15 +190,17 @@ export class ACPAgent implements Agent {
   readonly agent: string
   readonly command: string[] | null
   readonly model: string | null
+  readonly mode: string | null
   readonly allowKinds: string[]
   readonly protectedPaths: string[]
   readonly timeout: number
   readonly env: NodeJS.ProcessEnv | undefined
 
-  constructor(opts: { agent?: string, command?: string[] | null, model?: string | null, allowKinds?: string[], protectedPaths?: string[], timeoutSec?: number, env?: NodeJS.ProcessEnv } = {}) {
+  constructor(opts: { agent?: string, command?: string[] | null, model?: string | null, mode?: string | null, allowKinds?: string[], protectedPaths?: string[], timeoutSec?: number, env?: NodeJS.ProcessEnv } = {}) {
     this.agent = opts.agent ?? "claude"
     this.command = opts.command ?? null
     this.model = opts.model ?? null
+    this.mode = opts.mode !== undefined ? opts.mode : DEFAULT_MODES[this.agent] ?? null
     this.allowKinds = opts.allowKinds ?? DEFAULT_ALLOW_KINDS
     this.protectedPaths = opts.protectedPaths ?? DEFAULT_PROTECTED
     this.timeout = opts.timeoutSec ?? 1800
@@ -153,6 +208,15 @@ export class ACPAgent implements Agent {
   }
 
   async run(prompt: string, cwd: string): Promise<AgentResult> {
+    const before = snapshotProtected(cwd, this.protectedPaths)
+    const result = await this.runSession(prompt, cwd)
+    const restored = restoreProtected(cwd, before, this.protectedPaths)
+    if (restored.length)
+      result.text += `\n\n[protected files changed without a permission request, restored]\n${restored.map(r => `- ${r}`).join("\n")}`
+    return result
+  }
+
+  private async runSession(prompt: string, cwd: string): Promise<AgentResult> {
     const command = this.command ?? localAdapter(DEFAULT_COMMANDS[this.agent], this.env)
     if (!command?.length)
       return { stopReason: ERROR, text: `no ACP command for agent '${this.agent}'; set command in agent.config.json` }
@@ -206,6 +270,8 @@ export class ACPAgent implements Agent {
           clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
         })
         return ctx.buildSession(resolve(cwd)).withSession(async (session) => {
+          if (this.mode) // 设不上就报错：在默认模式下跑，保护路径可能拦不住
+            await ctx.request(acp.methods.agent.session.setMode, { sessionId: session.sessionId, modeId: this.mode })
           if (this.model) // 选模型是 ACP 的不稳定扩展（OpenCode 支持）；指定了却设不上就报错，不悄悄用默认模型
             await ctx.request("session/set_model", { sessionId: session.sessionId, modelId: this.model })
           const texts: string[] = []

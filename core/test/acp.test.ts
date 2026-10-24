@@ -1,7 +1,7 @@
 // ACP agent：权限策略与 stop_reason 映射。
 // 端到端用例走真实的 stdio + JSON-RPC，对端是 test/fixtures/stub-acp-agent.mjs。
 import assert from "node:assert/strict"
-import { existsSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import process from "node:process"
 import { describe, it } from "node:test"
@@ -79,9 +79,13 @@ describe("mergeToolCall", () => {
 })
 
 describe("ACP agent（真实协议，对端是桩）", () => {
-  async function runStub(writes: string, stop = "end_turn", extra: { model?: string, env?: Record<string, string> } = {}) {
+  async function runStub(writes: string, stop = "end_turn", extra: { model?: string, agent?: string, files?: Record<string, string>, env?: Record<string, string> } = {}) {
     const root = tempDir()
-    const agent = new ACPAgent({ agent: "stub", command: [process.execPath, STUB], timeoutSec: 60, model: extra.model,
+    for (const [rel, text] of Object.entries(extra.files ?? {})) {
+      mkdirSync(dirname(join(root, rel)), { recursive: true })
+      writeFileSync(join(root, rel), text)
+    }
+    const agent = new ACPAgent({ agent: extra.agent ?? "stub", command: [process.execPath, STUB], timeoutSec: 60, model: extra.model,
       env: { ...process.env, STUB_WRITES: writes, STUB_STOP: stop, ...extra.env } })
     return { root, r: await agent.run("do it", root) }
   }
@@ -114,6 +118,24 @@ describe("ACP agent（真实协议，对端是桩）", () => {
   it("指定模型：会话开始后经 session/set_model 设上", async () => {
     assert.match((await runStub("")).r.text, /model=default/)
     assert.match((await runStub("", "end_turn", { model: "deepseek/deepseek-flash" })).r.text, /model=deepseek\/deepseek-flash/)
+  })
+
+  it("不经权限请求直接写（codex-acp）：保护文件跑完被还原，普通文件保留", async () => {
+    const { root, r } = await runStub("", "end_turn", {
+      files: { "rules.yaml": "a: 1\n", ".agent/spec.md": "spec\n" },
+      env: { STUB_DIRECT: "src/c.ts;rules.yaml;-.agent/spec.md;verify/new.ts" },
+    })
+    assert.equal(r.stopReason, END_TURN)
+    assert.equal(readFileSync(join(root, "src/c.ts"), "utf8"), "direct\n")
+    assert.equal(readFileSync(join(root, "rules.yaml"), "utf8"), "a: 1\n")
+    assert.equal(readFileSync(join(root, ".agent/spec.md"), "utf8"), "spec\n")
+    assert.equal(existsSync(join(root, "verify/new.ts")), false)
+    assert.match(r.text, /restored\]\n- \.agent\/spec\.md\n- rules\.yaml\n- verify\/new\.ts$/)
+  })
+
+  it("codex 会话开始后切到 read-only 模式；其他 agent 不动模式", async () => {
+    assert.match((await runStub("")).r.text, /mode=default/)
+    assert.match((await runStub("", "end_turn", { agent: "codex" })).r.text, /mode=read-only/)
   })
 
   it("什么都没做却回 end_turn（0 token）：判为出错", async () => {
