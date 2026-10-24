@@ -1,4 +1,4 @@
-// 测试公用：临时目录、假 agent、假门禁，与 Python 版 tests/test_pipeline.py 的 make_deps 对应。
+// 测试公用：临时目录、假 agent、假门禁。
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"

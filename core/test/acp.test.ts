@@ -1,4 +1,4 @@
-// ACP agent：权限策略与 stop_reason 映射（对应 Python 版 tests/test_integrations.py 的 ACP 部分）。
+// ACP agent：权限策略与 stop_reason 映射。
 // 端到端用例走真实的 stdio + JSON-RPC，对端是 test/fixtures/stub-acp-agent.mjs。
 import assert from "node:assert/strict"
 import { existsSync } from "node:fs"

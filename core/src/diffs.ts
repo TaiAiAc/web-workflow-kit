@@ -1,4 +1,4 @@
-// 只取本次改动块，不传整文件（与 Python 版 diffs.py 一致）。
+// 只取本次改动块，不传整文件。
 import { spawnSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"

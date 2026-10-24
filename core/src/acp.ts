@@ -1,4 +1,4 @@
-// ACP 后端：驱动 Codex / OpenCode / WorkBuddy / Claude 等 ACP agent（与 Python 版 acp_agent.py 行为一致）。
+// ACP 后端：驱动 Codex / OpenCode / WorkBuddy / Claude 等 ACP agent。
 //
 // 和 CLI 后端的差别：stop_reason 直接取自 ACP 的 session/prompt 结果，不用猜；
 // 写文件等动作要走 session/request_permission，由这里的策略应答——门禁文件在这一层就改不了。
@@ -17,7 +17,7 @@ export const DEFAULT_PROTECTED = ["rules.yaml", "verify/*", "agent.config.json",
 export const DEFAULT_ALLOW_KINDS = ["read", "search", "think", "edit"]
 const WRITE_KINDS = new Set(["edit", "delete", "move"])
 
-// 内置适配器，版本与 Python 版依赖的 langgraph-acp 一致
+// 内置适配器（固定版本；本机装了同名命令时直接用它，见 localAdapter）
 export const DEFAULT_COMMANDS: Record<string, string[]> = {
   claude: ["npx", "--yes", "@agentclientprotocol/claude-agent-acp@0.81.0"],
   codex: ["npx", "--yes", "@agentclientprotocol/codex-acp@1.13.0"],
@@ -38,7 +38,7 @@ export function fnmatch(name: string, pattern: string): boolean {
   return new RegExp(`^${re}$`, isWin ? "i" : "").test(name)
 }
 
-/** 像 Python 的 Path.resolve()：已存在的部分解析符号链接（macOS 的 /var → /private/var），不存在的部分原样拼回。 */
+/** 尽量解析成真实路径：已存在的部分解析符号链接（macOS 的 /var → /private/var），不存在的部分原样拼回。 */
 function realish(p: string): string {
   const abs = resolve(p)
   let cur = abs

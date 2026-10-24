@@ -1,4 +1,4 @@
-// 配置加载与 agent 构建（对应 Python 版 tests/test_coding_agents.py 中与 TS 核心第一阶段相关的部分）。
+// 配置加载与 agent 构建。
 import assert from "node:assert/strict"
 import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"

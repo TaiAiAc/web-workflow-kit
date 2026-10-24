@@ -1,4 +1,4 @@
-// 设计稿：vibe-mcp 输出的解析（对应 Python 版 DesignDecodeTest），以及经真实 MCP stdio 协议读取（对端是桩）。
+// 设计稿：vibe-mcp 输出的解析，以及经真实 MCP stdio 协议读取（对端是桩）。
 import assert from "node:assert/strict"
 import { writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"

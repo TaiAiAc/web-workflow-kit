@@ -40,7 +40,7 @@ profiles:
 - 默认 `fail_fast: false`：命令检查全部跑完，一轮就收集齐所有失败项，减少来回修复的轮数。
 - **前置失败即跳过**：`build` 失败时，依赖构建产物的检查（`artifacts`、`package_size`、`unpacked`、`installer`、`smoke`、`visual`）直接跳过；`smoke` 失败时跳过 `visual`。避免同一个问题被报成一串连带失败。
 
-默认规则见 [web_workflow_kit/assets/rules.yaml](../web_workflow_kit/assets/rules.yaml)，包含四类项目的完整示例。
+默认规则见 [assets/rules.yaml](../assets/rules.yaml)，包含四类项目的完整示例。
 
 ## 检查项
 
@@ -149,7 +149,7 @@ Electron 可选项。带 `--remote-debugging-port=0` 启动应用，经 Chrome D
 | `RENDERER_ERROR` | 渲染进程未捕获异常 | 按堆栈修 |
 | `CONFIG_ERROR` | 规则文件或环境有误（退出码 2） | 修 `rules.yaml` 或安装 Node |
 
-验收顾问看到的失败码说明在 [review-prompt.md](../web_workflow_kit/assets/prompts/review-prompt.md)；新增失败码时同步更新那张表。
+验收顾问看到的失败码说明在 [review-prompt.md](../assets/prompts/review-prompt.md)；新增失败码时同步更新那张表。
 
 ## 单独运行门禁
 
@@ -157,10 +157,10 @@ Electron 可选项。带 `--remote-debugging-port=0` 启动应用，经 Chrome D
 agent --project D:/projects/my-app --verify
 ```
 
-门禁本身是一个单文件 Node 脚本，也可以脱离 Python 直接调用（例如放进项目自己的 CI）：
+门禁本身是一个单文件 Node 脚本，也可以脱离流水线直接调用（例如放进项目自己的 CI）：
 
 ```bash
-node <安装目录>/web_workflow_kit/assets/verify.mjs --cwd D:/projects/my-app --json
+node <仓库>/assets/verify.mjs --cwd D:/projects/my-app --json
 ```
 
 | 参数 | 说明 |

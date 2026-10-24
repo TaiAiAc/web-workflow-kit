@@ -1,4 +1,4 @@
-// 用假 agent / 假门禁跑通主图与两个子图（对应 Python 版 tests/test_pipeline.py）。
+// 用假 agent / 假门禁跑通主图与两个子图。
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync, writeFileSync } from "node:fs"

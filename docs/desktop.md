@@ -1,6 +1,6 @@
 # 桌面端
 
-`desktop/` 是基于 [electronup-template](https://github.com/QuiteerJs/electronup-template) 的 Electron 应用，把本地控制台包成一个桌面程序：双击打开，不用开终端、不用记端口，**也不需要装 Python**。
+`desktop/` 是基于 [electronup-template](https://github.com/QuiteerJs/electronup-template) 的 Electron 应用，把本地控制台包成一个桌面程序：双击打开，不用开终端、不用记端口。
 
 ## 工作方式
 
@@ -11,17 +11,17 @@ Electron 主进程 ──启动──→ Electron 自带的 Node 运行 resource
 ```
 
 - **后端是 TS 核心**：`core/` 打成单文件 `wwk.mjs`（依赖全部内联），用 Electron 自带的 Node（`ELECTRON_RUN_AS_NODE`）运行；流水线、门禁、agent 调用、工作空间都在里面，桌面端只负责启动、展示和收尾。
-- **随应用分发的文件**：`resources/core/wwk.mjs` 和 `resources/assets/`（默认配置、提示词、门禁脚本 `verify.mjs`、控制台页面），后端经 `WWK_ASSETS` 找到后者。
-- **不需要 Python**；门禁和 agent 仍要用到本机的命令（项目自己的 `pnpm` / `node`，以及 `claude`、`codex`、`dsh` 等），这些本来就是前端开发机上有的。本机没有 `node` 时，门禁会退回用 Electron 自带的 Node 跑 `verify.mjs`。
+- **随应用分发的文件**：`resources/core/`，即 `core/dist` 原样复制：`wwk.mjs` 和它旁边的 `assets/`（默认配置、提示词、门禁脚本 `verify.mjs`、控制台页面），核心自己会找到 `assets/`。
+- 门禁和 agent 要用到本机的命令（项目自己的 `pnpm` / `node`，以及 `claude`、`codex`、`dsh` 等），这些本来就是前端开发机上有的。本机没有 `node` 时，门禁会退回用 Electron 自带的 Node 跑 `verify.mjs`。
 - **固定端口**：优先用 18765（被占用时依次试 18766–18769），页面存在 localStorage 里的主题、草稿才不会丢。
 - **退出即停止**：退出时结束后端进程树，包括它拉起的门禁命令和编程 agent。Windows 关闭窗口即退出；macOS 按惯例关窗口后应用留在程序坞，`Cmd+Q` 才退出。
 - **继承 shell 的 PATH**（macOS / Linux）：从访达、程序坞启动的应用只有系统默认 PATH，启动时会向登录 shell 要一次 PATH，这样才能找到 `node`、`pnpm` 和 `claude` / `codex` / `dsh` 等命令。
 
 ## 和浏览器版的区别
 
-| | 浏览器版（`agent ui`） | 桌面端 |
+| | 浏览器版（`wwk ui`） | 桌面端 |
 | --- | --- | --- |
-| 启动 | 终端里运行 `wwk ui`（或 Python 版的 `agent ui`） | 双击应用 |
+| 启动 | 终端里运行 `wwk ui` | 双击应用 |
 | 选择项目目录 | 后端弹系统对话框（macOS 用 AppleScript，Windows 用 PowerShell，Linux 用 zenity） | Electron 原生对话框 |
 | 外部链接 | 浏览器内打开 | 系统浏览器打开 |
 | 后端异常退出 | 页面显示断开 | 回到启动页，显示最后的日志，可一键重试 |
@@ -110,6 +110,6 @@ pnpm 12 默认不安装发布不到约一天的包。刚发布的依赖（如 el
 - 还没有应用图标，用的是 Electron 默认图标。
 - 安装包没有签名，Windows 首次运行可能出现 SmartScreen 提示；macOS 的 dmg 只有 ad-hoc 签名、没有公证，从网上下载后首次打开要在「系统设置 → 隐私与安全性」里点「仍要打开」。
 - macOS 安装包只打了 arm64（Apple 芯片）。
-- 切到 TS 核心后，macOS（Apple 芯片）实测过：`pnpm dev` 启动并加载控制台（进程树里没有 Python）、读回原来的工作空间和运行记录、退出后门禁命令无残留；dmg 打包后按访达的环境启动，跑通一次真实门禁（`pnpm` / `node` 经继承的 PATH 找到），退出后无残留。
-- Windows 上的桌面端还没在 TS 核心上实测（TS 核心本身在 CI 的 Windows 上测试与 18 个场景都通过）。
+- macOS（Apple 芯片）实测过：`pnpm dev` 启动并加载控制台、读回原来的工作空间和运行记录、退出后门禁命令无残留；dmg 打包后按访达的环境启动，跑通一次真实门禁（`pnpm` / `node` 经继承的 PATH 找到），退出后无残留。
+- Windows 上的桌面端还没实测（核心本身在 CI 的 Windows 上测试与 18 个场景都通过）。
 - Linux 还没实测。

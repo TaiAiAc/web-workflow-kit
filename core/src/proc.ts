@@ -6,7 +6,7 @@ import process from "node:process"
 
 const isWin = process.platform === "win32"
 
-/** 等同 Python 的 shutil.which：Windows 上 dsh / claude 是 .cmd，要按 PATHEXT 找。 */
+/** 按 PATH 找命令：Windows 上 dsh / claude 是 .cmd，要按 PATHEXT 找。 */
 export function which(cmd: string, env: NodeJS.ProcessEnv = process.env): string | null {
   const pathext = isWin ? (env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean) : []
   // 已带扩展名（node.exe）或不是 Windows 时先按原名找，再试 PATHEXT 里的扩展名

@@ -1,4 +1,4 @@
-// 调用门禁脚本。放行只看退出码；报告 JSON 只用来把失败项喂给下游（与 Python 版 gate.py 一致）。
+// 调用门禁脚本。放行只看退出码；报告 JSON 只用来把失败项喂给下游。
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
 import { join, resolve } from "node:path"
 import process from "node:process"

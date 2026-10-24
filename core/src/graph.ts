@@ -1,4 +1,4 @@
-// 主图（平铺）：codegraph → verify ⇄ reviewgraph → deliver | breaker（与 Python 版 main_graph.py 一致）。
+// 主图（平铺）：codegraph → verify ⇄ reviewgraph → deliver | breaker。
 // 放行只看 verify_exit == 0；熔断由 attempt 计数在代码里强制，与模型输出无关。
 import { relative } from "node:path"
 import type { BaseCheckpointSaver, LangGraphRunnableConfig } from "@langchain/langgraph"

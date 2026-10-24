@@ -1,4 +1,4 @@
-// 图状态（与 Python 版 state.py 的 PipelineState 一一对应，字段名是对外契约，保持英文）。
+// 图状态。字段名是对外契约（控制台、检查点、Studio 都按它取值），保持英文。
 import { Annotation } from "@langchain/langgraph"
 import type { Baseline } from "./diffs.ts"
 import type { Failure } from "./gate.ts"

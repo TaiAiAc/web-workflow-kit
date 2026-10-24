@@ -32,7 +32,7 @@ jobs:
       - name: bundled verify.mjs is up to date
         run: |
           pnpm build
-          git diff --exit-code -- ../web_workflow_kit/assets/verify.mjs || (echo "::error::verify.mjs is stale - run 'pnpm build' in verify/ and commit" && exit 1)
+          git diff --exit-code -- ../assets/verify.mjs || (echo "::error::verify.mjs is stale - run 'pnpm build' in verify/ and commit" && exit 1)
         shell: bash
 
   core:
@@ -67,36 +67,10 @@ jobs:
         shell: bash
         working-directory: .
         run: |
-          node .fx-stage/run-all.mjs --verbose \
-            --verify "$PWD/web_workflow_kit/assets/verify.mjs" \
-            --core "$PWD/core"
-
-  pipeline:
-    name: pipeline (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: python -m pip install -e ".[checkpoint,acp]"
-      - run: python -m unittest discover tests -v
-      - name: gate and fix-loop scenarios (.fx-stage)
-        shell: bash
-        run: |
-          node .fx-stage/run-all.mjs --verbose \
-            --verify "$PWD/web_workflow_kit/assets/verify.mjs" \
-            --python "$(python -c 'import sys; print(sys.executable)')"
+          node .fx-stage/run-all.mjs --verbose
 
   package:
-    name: wheel works outside the repo (${{ matrix.os }})
+    name: npm package works outside the repo (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -104,22 +78,25 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: pnpm/action-setup@v4
         with:
-          python-version: "3.10"
+          version: 10
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: python -m pip wheel --no-deps . -w dist
-      - name: install into a clean venv and use it from an unrelated directory
+          cache: pnpm
+          cache-dependency-path: core/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: core
+      - name: pack, install into a clean prefix and use it from an unrelated directory
         shell: bash
         run: |
-          python -m venv "$RUNNER_TEMP/venv"
-          if [ "$RUNNER_OS" = "Windows" ]; then BIN="$RUNNER_TEMP/venv/Scripts"; else BIN="$RUNNER_TEMP/venv/bin"; fi
-          "$BIN/python" -m pip install dist/*.whl
+          cd core && npm pack --pack-destination "$RUNNER_TEMP" && cd ..
+          npm install -g --prefix "$RUNNER_TEMP/prefix" "$RUNNER_TEMP"/web-workflow-kit-*.tgz
+          if [ "$RUNNER_OS" = "Windows" ]; then WWK="$RUNNER_TEMP/prefix/wwk.cmd"; else WWK="$RUNNER_TEMP/prefix/bin/wwk"; fi
           mkdir -p "$RUNNER_TEMP/app" && cd "$RUNNER_TEMP/app" && git init -q
-          "$BIN/agent" --version
-          "$BIN/agent" --init
+          "$WWK" --version
+          "$WWK" init
           test -f rules.yaml && test -f agent.config.json
           printf 'project_type: web\nprofiles:\n  web:\n    checks: [typecheck]\n    typecheck:\n      run: "node -e \\"console.log(1)\\""\n' > rules.yaml
-          "$BIN/agent" --verify
+          "$WWK" verify

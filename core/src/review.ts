@@ -1,4 +1,4 @@
-// 验收审阅（顾问）的后端：DeepSeek API / DeepSeek Harness / 跳过，默认自动选（与 Python 版 review.py 一致）。
+// 验收审阅（顾问）的后端：DeepSeek API / DeepSeek Harness / 跳过，默认自动选。
 //
 // 顾问只出修复计划、无放行权，且必须只读：
 // - api：直接调 HTTP 接口，天然改不了文件，并强制 JSON 输出；

@@ -56,6 +56,7 @@ svg.i { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor;
 .side-foot { border-top: 1px solid var(--line); padding: 8px; display: flex; flex-direction: column; gap: 2px; }
 .side-foot .row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; color: var(--muted); border-radius: var(--r); background: none; border: 0; text-align: left; width: 100%; }
 .side-foot button.row:hover { background: var(--hover); color: var(--text); }
+.side-foot button.row[aria-current="true"] { background: var(--sel); color: var(--text); }
 
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-2); flex: none; }
 .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.warn { background: var(--warn); }
@@ -204,6 +205,34 @@ kbd { font: 11px var(--mono); color: inherit; opacity: .75; }
 .pop .sep { height: 1px; background: var(--line); margin: 4px 2px; }
 .pop .agent-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 10px; }
 .pop .agent-row .d { color: var(--faint); font-size: 12px; }
+/* 设置页 */
+.settings { flex: 1; overflow-y: auto; padding: 18px 22px 40px; }
+.settings h2 { font-size: 16px; margin: 0; }
+.set-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+.set-head .grow { flex: 1; }
+.set-note { color: var(--faint); font-size: 12px; margin: 0 0 14px; }
+.set-sec { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; margin-top: 14px; }
+.set-sec > header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.set-sec > header h3 { margin: 0; font-size: 13.5px; flex: 1; }
+.set-sec .body { padding: 12px 16px; }
+.agent-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.agent-card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.agent-card .t { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.agent-card .v { color: var(--faint); font-size: 11.5px; font-weight: 400; margin-left: auto; }
+.agent-card .d { color: var(--muted); font-size: 12px; }
+.agent-card .n { color: var(--faint); font-size: 11.5px; }
+.agent-card .acts { display: flex; gap: 6px; margin-top: 2px; }
+.field { display: grid; grid-template-columns: 170px minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.field:first-child { border-top: 0; }
+.field .lbl { font-weight: 600; }
+.field .lbl small { display: block; font-weight: 400; color: var(--faint); font-size: 11.5px; }
+.field input { height: 30px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--panel); color: var(--text); padding: 0 10px; font: 12.5px var(--mono); width: 100%; }
+.field input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+.field .acts { display: flex; gap: 6px; }
+.field .hint { grid-column: 2 / 4; color: var(--faint); font-size: 11.5px; margin-top: -2px; }
+.net-rows { margin-top: 10px; display: grid; gap: 4px; font-size: 12px; }
+.net-rows div { display: flex; gap: 10px; align-items: center; }
+.sec-foot { display: flex; gap: 8px; justify-content: flex-end; padding: 0 16px 12px; }
 .toasts { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 30; }
 .toast { background: var(--text); color: var(--bg); padding: 9px 14px; border-radius: 8px; max-width: 420px; box-shadow: 0 6px 20px rgba(0, 0, 0, .2); }
 .toast.bad { background: var(--bad); color: #fff; }
@@ -259,6 +288,7 @@ const ICONS = {
   x: '<path d="M6 6l12 12M18 6L6 18"/>',
   chev: '<path d="M9 6l6 6-6 6"/>',
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   cpu: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   wand: '<path d="M15 4V2M15 10V8M11 6h2M17 6h2M4 20L14 10"/>',
@@ -322,6 +352,7 @@ function setConn(ok, text) { $("conn-dot").className = "dot " + (ok ? "ok" : "ba
 let AGENTS = { agents: [], reviewers: [] };
 let WS = [];                 // 工作空间（含最近一次运行）
 let current = store.get("wwk.ws", null);   // 选中的工作空间路径
+let view = "ws";             // ws：工作空间；settings：设置页
 let RUNS = [];               // 当前工作空间的运行记录
 let run = null;              // 正在看的运行（含事件）
 let runFilter = "all";       // 日志按阶段筛选
@@ -356,7 +387,7 @@ function renderSide() {
   list.innerHTML = WS.map((w) => {
     const r = w.last_run;
     const sub = r ? `${statusText(r)} · ${ago(r.started)}` : (w.inspect?.exists === false ? "目录不存在" : "未运行");
-    return `<li class="ws" data-path="${esc(w.path)}" aria-current="${w.path === current}" title="${esc(w.path)}">
+    return `<li class="ws" data-path="${esc(w.path)}" aria-current="${view === "ws" && w.path === current}" title="${esc(w.path)}">
       <span class="dot ${statusDot(r)}"></span>
       <div class="grow"><div class="name">${esc(w.name)}</div><div class="sub">${esc(sub)}${w.branch ? " · " + esc(w.branch) : ""}</div></div>
       <button class="btn icon ghost more" type="button" data-more="${esc(w.path)}" aria-label="更多操作">${icon("more")}</button></li>`;
@@ -411,16 +442,12 @@ async function loadWs() {
 }
 
 // ---------- Agent 状态 ----------
-$("agents-btn").innerHTML = icon("cpu") + "Agent 状态";
-$("agents-btn").onclick = (e) => {
-  const rows = AGENTS.agents.map((a) => `<div class="agent-row"><span class="dot ${a.available ? "ok" : "bad"}" style="margin-top:6px"></span><div><div>${esc(a.label)}</div><div class="d">${esc(a.available ? `经 ${a.via} 调用` : a.detail)}</div></div></div>`).join("")
-    + `<div class="sep"></div>` + AGENTS.reviewers.map((r) => `<div class="agent-row"><span class="dot ${r.available ? "ok" : "bad"}" style="margin-top:6px"></span><div><div>审阅 · ${esc(reviewerLabel(r.key))}</div><div class="d">${esc(r.detail || "")}</div></div></div>`).join("")
-    + `<div class="sep"></div><button data-act="refresh">刷新</button>`;
-  openPop(e.currentTarget, rows, async () => { AGENTS = await api("/api/agents"); renderMain(); toast("已刷新 agent 状态"); });
-};
+$("agents-btn").innerHTML = icon("gear") + "设置：账号、Key 与代理";
+$("agents-btn").onclick = () => { view = "settings"; renderSide(); renderMain(); };
 
 // ---------- 主区 ----------
 function selectWs(path) {
+  view = "ws";
   current = path;
   store.set("wwk.ws", path);
   run = null; runFilter = "all"; design = null; openGroups.clear();
@@ -430,6 +457,8 @@ function selectWs(path) {
 }
 
 function renderMain() {
+  $("agents-btn").setAttribute("aria-current", String(view === "settings"));
+  if (view === "settings") return renderSettings();
   const ws = wsOf(current);
   if (!ws) {
     $("main").innerHTML = `<div class="blank"><div class="card"><h2>添加你的第一个项目</h2>
@@ -574,6 +603,132 @@ async function startRun(graph) {
   } catch (err) {
     toast(err.message, true);
   }
+}
+
+// ---------- 设置页：agent 账号、代理、API Key、熔断邮件 ----------
+let SET = null;          // /api/settings 的结果
+let AUTH = null;         // /api/auth 的结果（各 agent 登录状态）
+let setScope = "user";   // user：全局；project：当前工作空间的 .env
+let NET = null;          // 连通性检测结果
+
+const STATE_TAG = { ok: ["可用", "ok"], login: ["未登录", "warn"], key: ["缺 Key", "warn"], missing: ["未安装", "bad"], unknown: ["未知", ""] };
+const projectOf = () => (setScope === "project" && wsOf(current) ? wsOf(current).path : "");
+
+async function loadSettings(withAuth) {
+  const q = projectOf() ? "?project=" + encodeURIComponent(projectOf()) : "";
+  const jobs = [api("/api/settings" + q).then((d) => (SET = d))];
+  if (withAuth) { AUTH = null; jobs.push(api("/api/auth" + q).then((d) => (AUTH = d))); }
+  await Promise.all(jobs);
+}
+
+async function renderSettings() {
+  const ws = wsOf(current);
+  if (setScope === "project" && !ws) setScope = "user";
+  $("main").innerHTML = `<section class="settings" id="settings"><div class="blank"><div class="card"><p>正在读取设置…</p></div></div></section>`;
+  try { await loadSettings(!AUTH); } catch (err) { toast(err.message, true); return; }
+  drawSettings();
+  if (!AUTH) { await loadSettings(true).catch((err) => toast(err.message, true)); drawSettings(); }
+}
+
+function drawSettings() {
+  const box = $("settings");
+  if (!box || !SET) return;
+  const ws = wsOf(current);
+  const scopeName = setScope === "project" ? `项目：${ws?.name}` : "全局（所有项目）";
+  const file = setScope === "project" ? SET.project_file : SET.user_file;
+  const group = (g) => SET.items.filter((i) => i.group === g);
+  const srcText = { project: "项目 .env", user: "全局 .env", system: "系统环境变量" };
+  const field = (it) => {
+    const mine = setScope === "project" ? it.project : it.user;
+    const eff = it.source && it.source !== (setScope === "project" ? "project" : "user")
+      ? `<span class="tag">${it.source === "system" ? "当前生效：系统环境变量" : `当前生效：${srcText[it.source]}`}</span>` : "";
+    const input = it.secret
+      ? `<input type="password" data-k="${it.key}" placeholder="${esc(mine ? `${mine}（输入新值以替换）` : it.placeholder || "未设置")}" autocomplete="off">`
+      : `<input data-k="${it.key}" value="${esc(mine || "")}" placeholder="${esc(it.placeholder || "")}" spellcheck="false">`;
+    const acts = [
+      it.key === "HTTPS_PROXY" && SET.system_proxy ? `<button class="btn" type="button" data-sys="${esc(SET.system_proxy)}">用系统代理</button>` : "",
+      it.test ? `<button class="btn" type="button" data-test="${it.test}">测试</button>` : "",
+      mine ? `<button class="btn ghost" type="button" data-clear="${it.key}">清除</button>` : "",
+    ].join("");
+    return `<div class="field"><div class="lbl">${esc(it.label)}<small>${esc(it.key)}</small></div>${input}<div class="acts">${acts}</div>
+      ${it.hint || eff ? `<div class="hint">${eff} ${esc(it.hint || "")}</div>` : ""}</div>`;
+  };
+  const section = (g, title, extra = "") => `<section class="set-sec" data-g="${g}"><header><h3>${title}</h3>${extra}</header>
+    <div class="body">${group(g).map(field).join("")}</div><div class="sec-foot"><button class="btn primary" type="button" data-save="${g}">保存</button></div></section>`;
+  const cards = AUTH ? AUTH.map((a) => {
+    const [t, c] = STATE_TAG[a.state] || STATE_TAG.unknown;
+    const acts = [
+      a.installed && a.can_login ? `<button class="btn" type="button" data-login="${a.key}">${a.state === "ok" ? "重新登录" : "登录"}</button>` : "",
+      !a.installed && a.install ? `<button class="btn" type="button" data-copy="${esc(a.install)}">复制安装命令</button>` : "",
+      a.key === "dsh" && a.state === "key" ? `<button class="btn" type="button" data-goto="DEEPSEEK_API_KEY">填 Key</button>` : "",
+    ].join("");
+    return `<div class="agent-card"><div class="t"><span class="dot ${c === "ok" ? "ok" : c === "bad" ? "bad" : c === "warn" ? "warn" : ""}"></span>${esc(a.label)}<span class="v">${esc(a.version || "")}</span></div>
+      <div><span class="tag ${c}">${t}</span> <span class="d">${esc(a.detail || "")}</span></div><div class="n">${esc(a.note || "")}</div>${acts ? `<div class="acts">${acts}</div>` : ""}</div>`;
+  }).join("") : `<div class="d" style="color:var(--faint)">正在检测各 agent…</div>`;
+  const net = NET ? `<div class="net-rows">${NET.map((r) => `<div><span class="dot ${r.ok ? "ok" : "bad"}"></span><b style="min-width:170px">${esc(r.name)}</b><span style="color:var(--faint)">${r.status ? "HTTP " + r.status : ""} ${r.ms} ms</span><span style="color:var(--bad)">${esc(r.error || "")}</span></div>`).join("")}</div>` : "";
+
+  box.innerHTML = `
+    <div class="set-head"><h2>设置</h2><span class="grow"></span>
+      <div class="seg" id="scope-seg"><button type="button" data-scope="user" aria-pressed="${setScope === "user"}">全局（所有项目）</button>
+      ${ws ? `<button type="button" data-scope="project" aria-pressed="${setScope === "project"}">项目：${esc(ws.name)}</button>` : ""}</div></div>
+    <p class="set-note">正在编辑：${esc(scopeName)} · <code>${esc(file || "")}</code>。项目 .env 覆盖全局；填了对下一次运行生效。密钥只写不读，这里只显示末尾几位。</p>
+    ${setScope === "project" && SET.project_env_ignored === false ? `<div class="banner" style="margin:0 0 6px"><span class="grow">这个项目的 .env 没有被 .gitignore 忽略：密钥可能被提交进仓库。先把 .env 加进 .gitignore。</span></div>` : ""}
+    <section class="set-sec"><header><h3>Agent 账号</h3><button class="btn ghost" type="button" id="auth-refresh">${icon("loop")}重新检测</button></header><div class="body"><div class="agent-cards">${cards}</div></div></section>
+    ${section("proxy", "网络代理", `<button class="btn ghost" type="button" id="net-test">检测连通性</button>`)}
+    ${net ? `<div class="set-sec" style="margin-top:-6px;border-top-left-radius:0;border-top-right-radius:0"><div class="body">${net}</div></div>` : ""}
+    ${section("keys", "API Key")}
+    ${section("mail", "熔断邮件（可选）")}`;
+
+  box.querySelectorAll("[data-scope]").forEach((b) => b.onclick = () => { setScope = b.dataset.scope; NET = null; renderSettings(); });
+  $("auth-refresh").onclick = async () => { AUTH = null; drawSettings(); await loadSettings(true).catch((e) => toast(e.message, true)); drawSettings(); };
+  $("net-test").onclick = async (e) => {
+    e.currentTarget.disabled = true; e.currentTarget.textContent = "检测中…";
+    try { NET = await post("/api/settings/test", { kind: "network", project: projectOf() }); } catch (err) { toast(err.message, true); }
+    drawSettings();
+  };
+  box.querySelectorAll("[data-save]").forEach((b) => b.onclick = () => saveGroup(b.dataset.save));
+  box.querySelectorAll("[data-clear]").forEach((b) => b.onclick = () => saveValues({ [b.dataset.clear]: "" }, "已清除"));
+  box.querySelectorAll("[data-sys]").forEach((b) => b.onclick = () => {
+    for (const k of ["HTTPS_PROXY", "HTTP_PROXY"]) { const el = box.querySelector(`input[data-k="${k}"]`); if (el) el.value = b.dataset.sys; }
+    const np = box.querySelector('input[data-k="NO_PROXY"]'); if (np && !np.value) np.value = "127.0.0.1,localhost";
+    toast("已填入系统代理，点「保存」生效");
+  });
+  box.querySelectorAll("[data-test]").forEach((b) => b.onclick = async () => {
+    b.disabled = true;
+    try { const r = await post("/api/settings/test", { kind: b.dataset.test, project: projectOf() }); toast(r.detail, !r.ok); }
+    catch (err) { toast(err.message, true); } finally { b.disabled = false; }
+  });
+  box.querySelectorAll("[data-login]").forEach((b) => b.onclick = async () => {
+    try {
+      const r = await post("/api/auth/login", { agent: b.dataset.login, project: projectOf() });
+      toast(desktop ? "已在终端里打开登录，完成后点「重新检测」" : `已在终端里打开：${r.line}`);
+    } catch (err) { toast(err.message, true); }
+  });
+  box.querySelectorAll("[data-copy]").forEach((b) => b.onclick = async () => {
+    try { if (desktop) await desktop.copy(b.dataset.copy); else await navigator.clipboard.writeText(b.dataset.copy); toast("已复制：" + b.dataset.copy); }
+    catch { toast(b.dataset.copy); }
+  });
+  box.querySelectorAll("[data-goto]").forEach((b) => b.onclick = () => box.querySelector(`input[data-k="${b.dataset.goto}"]`)?.focus());
+}
+
+async function saveValues(values, msg) {
+  try {
+    SET = await post("/api/settings", { scope: setScope, project: projectOf(), values });
+    toast(msg || "已保存");
+    AGENTS = await api("/api/agents");   // 审阅方式等可用性随 Key 变化
+    drawSettings();
+  } catch (err) { toast(err.message, true); }
+}
+
+function saveGroup(g) {
+  const values = {};
+  $("settings").querySelectorAll(`.set-sec[data-g="${g}"] input[data-k]`).forEach((el) => {
+    const it = SET.items.find((i) => i.key === el.dataset.k);
+    if (it.secret) { if (el.value.trim()) values[it.key] = el.value.trim(); }   // 密钥：留空 = 不改
+    else values[it.key] = el.value.trim();                                         // 普通值：留空 = 删除
+  });
+  if (!Object.keys(values).length) return toast("没有要保存的改动");
+  saveValues(values);
 }
 
 // ---------- 运行记录 ----------

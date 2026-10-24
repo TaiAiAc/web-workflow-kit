@@ -8,7 +8,7 @@
 | `rules.yaml` | 门禁检查什么，见 [rules.md](rules.md) | 项目根目录（可选，没有则用包内默认规则） |
 | `.env` | 密钥与 SMTP | `~/.web-workflow-kit/.env` 和/或项目根目录 |
 
-用 `agent --project <目录> --init` 把默认的 `agent.config.json`、`rules.yaml` 复制到项目里再改。
+用 `wwk init --project <目录>`（或控制台的「生成配置」）把默认的 `agent.config.json`、`rules.yaml` 复制到项目里再改。
 
 ## 合并规则
 
@@ -18,7 +18,7 @@
   { "max_retries": 5 }
   ```
 
-  `agent --config <文件>` 可以额外指定一份配置，代替项目里的那份。
+  `wwk --config <文件>` 可以额外指定一份配置，代替项目里的那份。
 - **`.env`**：先读用户级 `~/.web-workflow-kit/.env`，再读项目根目录的 `.env`，后者覆盖前者；进程环境变量作为最后的兜底。用户级目录可用环境变量 `WWK_HOME` 改位置。
 - 每次运行都现读配置：在控制台里改了项目配置，下一次运行就生效，不用重启。
 

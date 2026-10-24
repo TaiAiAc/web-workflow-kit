@@ -1,6 +1,9 @@
 // 把 TS 核心（命令行 + 本地控制台）打成单文件 ESM：依赖全部内联，运行时只需要 Node（或 Electron 自带的 Node）。
-// 桌面端打包时随应用分发；默认配置、提示词、门禁脚本、页面仍从 assets 目录读（WWK_ASSETS 指定）。
+// 产物 dist/ = wwk.mjs + assets/（默认配置、提示词、门禁脚本、页面）：桌面端随应用分发，也是 npm 包的全部内容。
+import { cpSync, readFileSync, rmSync } from "node:fs"
 import { build } from "esbuild"
+
+const { version } = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"))
 
 await build({
   entryPoints: ["src/cli.ts"],
@@ -10,6 +13,8 @@ await build({
   format: "esm",
   target: "node22",
   legalComments: "none",
+  define: { __WWK_VERSION__: JSON.stringify(version) },
+  // 入口 src/cli.ts 自带 #!/usr/bin/env node，esbuild 会保留在第一行
   banner: {
     // nodemailer 等依赖是 CommonJS，会 require 内置模块；ESM 产物里得补一个真正的 require
     js: [
@@ -20,3 +25,7 @@ await build({
   },
   logLevel: "warning",
 })
+
+// 默认配置、提示词、门禁脚本、控制台页面跟着产物走：npm 安装后的 wwk 也能找到它们
+rmSync("dist/assets", { recursive: true, force: true })
+cpSync("../assets", "dist/assets", { recursive: true })
