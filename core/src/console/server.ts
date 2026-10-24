@@ -14,7 +14,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net"
 import { join } from "node:path"
 import { agentAvailability, codingAgentChoices, defaultFixChoice } from "../agents.ts"
-import { ASSETS_DIR, DEFAULTS, initProject, loadConfig } from "../config.ts"
+import { ASSETS_DIR, DEFAULTS, initProject, loadConfig, writeSnapshot } from "../config.ts"
 import { defaultDeps } from "../deps.ts"
 import { buildMainGraph } from "../graph.ts"
 import * as N from "../names.ts"
@@ -132,6 +132,7 @@ class Run {
       fixAgent: state.fix_agent || this.input.fix_agent,
     })
     try {
+      writeSnapshot(loadConfig(this.projectRoot), this.id) // 本次运行的生效配置（已脱敏）
       if (this.graph === GATE_ONLY) {
         this.result = await this.gateOnly(source({ project_root: this.projectRoot }).gate)
         this.status = "done"

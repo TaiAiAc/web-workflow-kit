@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "roles": {
+    "product": { "agent": "claude" },
+    "tech": { "agent": "codex" },
+    "dev": { "agent": "claude" },
+    "vision": { "agent": "codex" },
+    "arbiter": { "agent": "dsh" }
+  },
+  "vision": { "backend": "codex_acp", "model": null, "timeout_sec": 300 },
+  "stages": {
+    "discovery": { "order": 10, "role": "product" },
+    "tech-design": { "order": 20, "role": "tech" },
+    "doc-review": { "order": 30, "role": "product", "max_rounds": 2, "on_exceed": "arbiter" },
+    "implement": { "order": 40, "role": "dev" },
+    "gate": { "order": 50, "kind": "verify", "install_command": "auto" },
+    "acceptance": { "order": 60, "role": "product", "max_rounds": 2 }
+  },
+  "input_modes": {
+    "mastergo": { "intake": "mastergo_mcp" },
+    "image": { "intake": "vision" },
+    "text": { "intake": "none" }
+  },
+  "git": { "branch_prefix": "wwk/", "merge_method": "squash", "keep_failed_branches": 3 },
+  "documents": { "repo_dir": "docs/wwk", "schema_version": 1 },
+  "limits": { "max_retries": 3, "max_doc_lint_failures": 3, "token_budget": 0, "time_budget_sec": 0 }
+}

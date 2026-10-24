@@ -56,7 +56,7 @@
     "product": {"agent": "claude"}, "tech": {"agent": "codex"},
     "dev": {"agent": "claude"}, "vision": {"agent": "codex"}, "arbiter": {"agent": "dsh"}
   },
-  "vision": {"backend": "codex_cli", "model": null, "timeout_sec": 300},
+  "vision": {"backend": "codex_acp", "model": null, "timeout_sec": 300},   // 第 0 步结论：走 ACP，codex_cli 为退路
   "stages": {
     "discovery":   {"order": 10, "role": "product"},
     "tech-design": {"order": 20, "role": "tech"},
@@ -212,7 +212,13 @@ machine: {ac_status: {AC-1: pass}, verdict: pass|fail, return_stage: null|discov
 ## 8. 实施顺序［定稿］
 
 0. **预研（与第 1 步并行，半天内出结论）**：Codex 图片通道——ACP 是否透传 image block；不行就走 CLI 图片参数。结论决定第 5 步的做法；
-1. 配置层（含合并语义测试、快照脱敏测试）；
+   - **结论（2026-10-24，codex-cli 0.164.0 / codex-acp 1.13.0 实测）**：两条都通。**第 5 步走 ACP**：
+     - 适配器 initialize 声明 `promptCapabilities.image: true`，会把 ACP 的 image 块转成 data URL 交给模型；模型不支持图片时会直接报错，不会悄悄把图丢掉；
+     - 能复用 `acp.ts` 现有的启动、超时、杀进程组和权限应答；
+     - 接法：`ACPAgent` 增加接收 `ContentBlock[]` 的入口；`session/new` 之后调 `session/set_mode read-only`；`promptCapabilities.image` 不为 true 时退到 CLI；vision 的 allowKinds 只放 `read/search/think`；
+     - 注意：codex-acp 的 read-only 模式不是 Codex 原生的只读沙箱，真正兜底的是我们这边的权限应答；
+   - CLI 作为退路：`codex exec --sandbox read-only --skip-git-repo-check --ephemeral --color never -o <文件> "<prompt>" -i <图片> </dev/null`（prompt 放在 `-i` 前面，否则会被当成图片路径；stdin 必须关掉；超时靠调用方杀进程组）。原生只读沙箱更硬，每次输入 token 约是 ACP 的 1/4（实测 3.5k 对 14.9k）；
+1. 配置层（含合并语义测试、快照脱敏测试）——**已完成**：`assets/workflow.json` 默认值；`config.ts` 的 `loadWorkflow` / `resolveWorkflow` / `validateWorkflow` / `writeSnapshot`；`workspaces.ts` 的工作区覆盖、重新绑定、导出导入；控制台每次运行写 `.agent/runs/<id>/config.snapshot.json`。工作流配置在用到时才加载，写坏了不影响控制台启动。遗留给第 2 步：`agent.config.json` 的 `max_retries` 与 `workflow.json` 的 `limits.max_retries` 重复，主图改为配置驱动时以后者为准，并删掉前者；
 2. 阶段注册表（主图改为配置驱动，未启用阶段跳过）；
 3. 文档契约 + 校验脚本 + 提交路径白名单；
 4. 作业分支 / 锁 / 合并预演 / 弹窗，后端 + 前端；
@@ -221,7 +227,8 @@ machine: {ac_status: {AC-1: pass}, verdict: pass|fail, return_stage: null|discov
 
 ## 9. 预研/风险
 
-- Codex 图片通道（ACP vs CLI）——已提到第 0 步；
+- Codex 图片通道（ACP vs CLI）——第 0 步已有结论，见第 8 节；
+- **codex 写代码时，保护路径可能被绕过（未验证）**：codex-acp 默认是 `agent` 模式，审批交给它自己的 auto_review，只有它认为危险的操作才会来问。现在 `acp.ts` 跑 codex 时没有切换模式，普通编辑可能根本不经过我们的 `requestPermission`，`protected` 路径的限制可能失效。属于第一阶段遗留，需要单独实测并修复；
 - MasterGo 物料导出（现只有 `get_selection_node` / `get_variables`）；
 - 断点（checkpoint）与新状态字段兼容，以及恢复时的分支校验；
 - 多端模板默认值（UniApp / 小程序 / Electron）；

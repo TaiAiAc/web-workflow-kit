@@ -139,6 +139,22 @@
 | `notify.dedup_hours` | `24` | 同一项目、同一组失败码在这么多小时内只发一封熔断邮件 |
 | `checkpoint.enabled` | `true` | 命令行运行时把每个节点后的状态写进 `.agent/checkpoints.sqlite`，供 `:resume`；需安装 `[checkpoint]` |
 
+## workflow.json（第二阶段，建设中）
+
+第二阶段的工作流配置不放在项目里，而是存在软件里，分三层，后面的覆盖前面的：
+
+| 层 | 位置 |
+| --- | --- |
+| 包内默认 | `assets/workflow.json` |
+| 通用配置 | `~/.web-workflow-kit/workflow.json` |
+| 工作区覆盖 | `~/.web-workflow-kit/workspaces.json` 里该工作区的 `workflowOverrides` |
+
+- 合并语义：对象深合并，数组整体替换，`null` 照写；阶段是一个 map，按 `order` 排序，`enabled: false` 关掉该阶段（关掉的阶段不参与 `order` 查重）；
+- 保存通用配置或工作区覆盖前，会把合并后的结果整体校验一遍，所有问题一次列出；不合法就不保存；
+- 每次在控制台运行时，生效配置写入 `.agent/runs/<id>/config.snapshot.json`，里面记录每个字段来自哪一层。快照里没有任何密钥值：字段名像密钥的，或者值里含 `.env` 中密钥的，一律替换成 `[redacted]`；`.env` 只记录「哪个键来自哪个文件」；
+- 导出和导入使用同一套脱敏规则；导入时只覆盖本机已经添加过的工作区，其他路径会跳过；
+- 主流程还没有读取这份配置（第二阶段第 2 步才改为配置驱动），字段含义见 [phase2-work-order.md](phase2-work-order.md) 第 3 节。
+
 ## .env
 
 | 变量 | 用途 |

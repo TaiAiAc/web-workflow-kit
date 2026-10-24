@@ -1,14 +1,20 @@
 // 配置加载与 agent 构建。
 import assert from "node:assert/strict"
-import { readFileSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import process from "node:process"
 import { describe, it } from "node:test"
 import { ACPAgent } from "../src/acp.ts"
 import { agentAvailability, buildCodingAgent, ClaudeCodeCLI, CommandAgent, END_TURN, ERROR } from "../src/agents.ts"
-import { DEFAULTS, loadConfig, render, userHome } from "../src/config.ts"
+import {
+  DEFAULTS, type Layer, loadConfig, REDACTED, redact, render, resolveWorkflow, saveUserWorkflow, userHome,
+  userWorkflowFile, WORKFLOW_DEFAULTS, writeSnapshot,
+} from "../src/config.ts"
+import * as W from "../src/console/workspaces.ts"
 import { buildFixAgent } from "../src/deps.ts"
 import { tempDir } from "./helpers.ts"
+
+type Json = Record<string, any>
 
 describe("配置", () => {
   it("项目 agent.config.json 深合并到默认值上", () => {
@@ -41,6 +47,182 @@ describe("配置", () => {
 
   it("模板替换：字符串原样，对象转 JSON", () => {
     assert.equal(render("a {x} b {y}", { x: "1", y: { k: [1] } }), "a 1 b {\n  \"k\": [\n    1\n  ]\n}")
+  })
+})
+
+describe("工作流配置", () => {
+  const D: [Layer, Json] = ["default", WORKFLOW_DEFAULTS]
+  // 用户级通用配置是全局文件：每个用例写完就删，不串到别的用例
+  const userWorkflow = (data: Json, t: { after: (fn: () => void) => void }): void => {
+    writeFileSync(userWorkflowFile(), JSON.stringify(data))
+    t.after(() => rmSync(userWorkflowFile(), { force: true }))
+  }
+
+  it("包内默认值本身合法，来源全是 default", () => {
+    const wf = resolveWorkflow([D])
+    assert.deepEqual(wf.raw, WORKFLOW_DEFAULTS)
+    assert.equal(wf.origin["stages.gate.install_command"], "default")
+    assert.ok(Object.values(wf.origin).every(l => l === "default"))
+  })
+
+  it("合并语义：对象深合并、数组整体替换、null 照写，并记录每个字段的来源", () => {
+    const wf = resolveWorkflow([
+      D,
+      ["user", { roles: { dev: { agent: "codex" } }, documents: { tags: ["a", "b", "c"] }, stages: { gate: { install_command: "pnpm i" } } }],
+      ["workspace", { documents: { tags: ["z"] }, stages: { gate: { install_command: null } } }],
+    ])
+    assert.equal(wf.raw.roles.dev.agent, "codex")
+    assert.equal(wf.raw.roles.product.agent, "claude") // 没写的保留
+    assert.deepEqual(wf.raw.documents.tags, ["z"]) // 数组不拼接
+    assert.equal(wf.raw.stages.gate.install_command, null)
+    assert.equal(wf.raw.stages.gate.order, 50)
+    assert.equal(wf.origin["roles.dev.agent"], "user")
+    assert.equal(wf.origin["documents.tags"], "workspace")
+    assert.equal(wf.origin["stages.gate.install_command"], "workspace")
+    assert.equal(wf.origin["stages.gate.order"], "default")
+  })
+
+  it("对象换成叶子时，下面的旧来源作废", () => {
+    const wf = resolveWorkflow([D, ["user", { input_modes: { text: "none" } }]])
+    assert.equal(wf.origin["input_modes.text"], "user")
+    assert.equal(wf.origin["input_modes.text.intake"], undefined)
+  })
+
+  it("enabled:false 关掉的阶段不参与 order 查重", () => {
+    const moved = { stages: { implement: { order: 60 } } }
+    assert.throws(() => resolveWorkflow([D, ["workspace", moved]]), /stages\.\S+\.order 与 stages\.\S+ 重复：60/)
+    const wf = resolveWorkflow([D, ["workspace", { stages: { ...moved.stages, acceptance: { enabled: false } } }]])
+    assert.equal(wf.raw.stages.acceptance.enabled, false)
+  })
+
+  it("校验一次列出所有问题", () => {
+    const bad = {
+      roles: { tech: { agent: "" } },
+      stages: { "doc-review": { max_rounds: 0, role: "nobody" } },
+      git: { merge_method: "rebase" },
+      limits: { max_retries: 0 },
+    }
+    assert.throws(() => resolveWorkflow([D, ["user", bad]]), (e: Error) => {
+      for (const msg of ["roles.tech.agent", "max_rounds", "role 不在 roles 里：nobody", "merge_method", "limits.max_retries"])
+        assert.ok(e.message.includes(msg), `缺少：${msg}\n${e.message}`)
+      return true
+    })
+  })
+
+  it("loadConfig：用户级通用配置 + 本工作区覆盖，别的项目不受影响", (t) => {
+    userWorkflow({ roles: { arbiter: { agent: "claude" } }, limits: { max_retries: 4 } }, t)
+    const root = tempDir()
+    const other = tempDir()
+    W.add(root)
+    W.add(other)
+    W.setWorkflowOverrides(root, { limits: { max_retries: 2 } })
+    const wf = loadConfig(root).workflow
+    assert.equal(wf.raw.roles.arbiter.agent, "claude")
+    assert.equal(wf.raw.limits.max_retries, 2)
+    assert.equal(wf.origin["limits.max_retries"], "workspace")
+    assert.equal(wf.origin["roles.arbiter.agent"], "user")
+    assert.equal(loadConfig(other).workflow.raw.limits.max_retries, 4)
+  })
+
+  it("通用配置写坏了不影响加载 agent.config.json，用到工作流时才报错", (t) => {
+    userWorkflow({ git: { merge_method: "rebase" } }, t)
+    const cfg = loadConfig(tempDir())
+    assert.equal(cfg.maxRetries, DEFAULTS.max_retries)
+    assert.throws(() => cfg.workflow, /merge_method/)
+  })
+
+  it("覆盖不合法就不存；空对象 = 完全继承", () => {
+    const root = tempDir()
+    W.add(root)
+    assert.throws(() => W.setWorkflowOverrides(root, { stages: { gate: { order: "x" } } }), /order 必须是数字/)
+    assert.equal(W.find(root)?.workflowOverrides, undefined)
+    W.setWorkflowOverrides(root, { limits: { max_retries: 5 } })
+    W.setWorkflowOverrides(root, {})
+    assert.equal(W.find(root)?.workflowOverrides, undefined)
+  })
+
+  it("通用配置和某个工作区的覆盖合不出合法配置时拒绝保存", (t) => {
+    t.after(() => rmSync(userWorkflowFile(), { force: true }))
+    const root = tempDir()
+    W.add(root)
+    W.setWorkflowOverrides(root, { stages: { review2: { order: 70, role: "qa" } }, roles: { qa: { agent: "claude" } } })
+    t.after(() => W.setWorkflowOverrides(root, {}))
+    // 单独看合法，和工作区的 review2 撞了 order
+    assert.throws(() => saveUserWorkflow({ stages: { lint: { order: 70, kind: "verify" } } }), /与工作区 .* 的覆盖合并后不合法：[\s\S]*重复：70/)
+    assert.ok(!existsSync(userWorkflowFile()))
+  })
+
+  it("文件夹搬家后重新绑定，偏好和覆盖跟着走", () => {
+    const oldRoot = tempDir()
+    const newRoot = tempDir()
+    W.add(oldRoot)
+    W.setPrefs(oldRoot, { coding_agent: "codex" })
+    W.setWorkflowOverrides(oldRoot, { limits: { max_retries: 2 } })
+    W.rebind(oldRoot, newRoot)
+    assert.equal(W.find(oldRoot), undefined)
+    assert.equal(W.find(newRoot)?.prefs.coding_agent, "codex")
+    assert.equal(loadConfig(newRoot).workflow.raw.limits.max_retries, 2)
+    assert.throws(() => W.rebind(newRoot, join(newRoot, "missing")), /不存在/)
+  })
+})
+
+describe("快照与导出脱敏", () => {
+  const KEY = "sk-user-secret-123456"
+  const PASS = "smtp-pass-abcdef"
+  const INLINE = "sk-inline-999999"
+
+  it("快照不含任何密钥值，只记密钥来自哪个文件的哪个键", (t) => {
+    writeFileSync(join(userHome(), ".env"), `DEEPSEEK_API_KEY=${KEY}\n`)
+    t.after(() => rmSync(join(userHome(), ".env"), { force: true }))
+    const root = tempDir()
+    writeFileSync(join(root, ".env"), `SMTP_PASS=${PASS}\nSMTP_HOST=smtp.example\n`)
+    writeFileSync(join(root, "agent.config.json"), JSON.stringify({
+      review: { api_key: INLINE }, // 有人把 Key 直接写进了配置
+      coding_agents: { dsh: { env: { DEEPSEEK_API_KEY: KEY, EXTRA: `Bearer ${KEY}` } } },
+    }))
+    const path = writeSnapshot(loadConfig(root), "abc123")
+    assert.equal(path, join(root, ".agent", "runs", "abc123", "config.snapshot.json"))
+    const text = readFileSync(path, "utf8")
+    for (const secret of [KEY, PASS, INLINE])
+      assert.ok(!text.includes(secret), `快照里出现了密钥 ${secret}`)
+    const snap = JSON.parse(text)
+    assert.equal(snap.agent_config.review.api_key, REDACTED)
+    assert.equal(snap.agent_config.coding_agents.dsh.env.EXTRA, REDACTED) // 值里含已知密钥也打码
+    assert.equal(snap.agent_config.review.api_key_env, "DEEPSEEK_API_KEY") // 变量名不是密钥，保留
+    assert.match(snap.env.DEEPSEEK_API_KEY, /\.env$/)
+    assert.equal(snap.env.SMTP_PASS, ".env")
+    assert.equal(snap.env.SMTP_HOST, ".env")
+    assert.equal(snap.origin["limits.max_retries"], "default")
+    assert.equal(snap.workflow.git.merge_method, "squash")
+  })
+
+  it("redact：字段名像密钥的打码，存放密钥的变量名不动", () => {
+    const out = redact({ apiKey: "x1", SMTP_PASS: "x2", access_token: "x3", password: "x4", api_key_env: "K", env_keys: ["A"], max_tokens: 5, token_budget: 0 })
+    assert.deepEqual(out, { apiKey: REDACTED, SMTP_PASS: REDACTED, access_token: REDACTED, password: REDACTED, api_key_env: "K", env_keys: ["A"], max_tokens: 5, token_budget: 0 })
+  })
+
+  it("导出不含密钥；导入只覆盖本机已有的工作区，其余跳过", (t) => {
+    writeFileSync(join(userHome(), ".env"), `OPENAI_API_KEY=${KEY}\n`)
+    t.after(() => rmSync(join(userHome(), ".env"), { force: true }))
+    t.after(() => rmSync(userWorkflowFile(), { force: true }))
+    const root = tempDir()
+    W.add(root)
+    saveUserWorkflow({ roles: { tech: { agent: "claude" } }, vision: { token: INLINE, note: `key=${KEY}` } })
+    W.setWorkflowOverrides(root, { limits: { max_retries: 2 } })
+    const exported = W.exportWorkflow()
+    const text = JSON.stringify(exported)
+    assert.ok(!text.includes(KEY) && !text.includes(INLINE))
+    assert.equal(exported.workflow.roles.tech.agent, "claude")
+
+    rmSync(userWorkflowFile())
+    W.setWorkflowOverrides(root, {})
+    const r = W.importWorkflow({ ...exported, workspaces: [...exported.workspaces, { path: "/not/here", workflowOverrides: {} }] })
+    assert.ok(r.workspaces.includes(W.normalize(root)))
+    assert.deepEqual(r.skipped, ["/not/here"])
+    const wf = loadConfig(root).workflow.raw
+    assert.equal(wf.roles.tech.agent, "claude")
+    assert.equal(wf.limits.max_retries, 2)
+    assert.throws(() => W.importWorkflow({ kind: "other" }), /不是 web-workflow-kit 导出/)
   })
 })
 
