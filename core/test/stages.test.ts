@@ -218,6 +218,13 @@ describe("文档阶段", () => {
     assert.match(product.calls[0], /"name": "登录页"/)
     const d01 = parseDoc(readFileSync(s.artifacts["01"], "utf8"))
     assert.deepEqual([d01.machine!.sources[0].type, d01.machine!.sources[0].ref], ["mastergo", "mastergo"])
+
+    // 本地导出的 .json：项目外的只记文件名，不把本机路径写进入库文档
+    const p2 = new Scripted("## 概览\n\n登录页设计稿。", SPEC(), REVIEW("approved", 1), ACCEPT(true))
+    const r2 = setup([PASS], { product: p2, tech: new Scripted(DESIGN()) })
+    r2.deps.design = async () => ({ selection: { name: "登录页" } })
+    const s2 = await runPipeline(r2.deps, "按设计稿做登录页", "/Users/someone/Downloads/login.mastergo.json")
+    assert.equal(parseDoc(readFileSync(s2.artifacts["01"], "utf8")).machine!.sources[0].ref, "login.mastergo.json")
   })
 
   it("agent 回复的包装（代码块、front-matter、末尾闲话）都去掉", () => {

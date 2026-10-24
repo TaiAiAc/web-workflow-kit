@@ -282,6 +282,8 @@ machine: {ac_status: {AC-1: pass}, verdict: pass|fail, return_stage: null|discov
 
 ## 10. 完成标准
 
+> **完成情况（2026-10-24）**：三种输入已在演示项目克隆上用真实 agent 各跑通一次并合并（直连 MasterGo 客户端未验证，用的是本地导出 JSON）；白名单越界、预演门禁失败不移动目标、squash 删除校验都有测试；构建与测试通过，文档已同步。三平台 CI 要等推送后才会跑。详见 [roadmap.md](roadmap.md#第二阶段2026-10-24)。
+
 - 三种输入各跑通一次：人只点一次合并、01/02/03 入库、合并后删分支、全程无 push；
 - **［定稿］用真实 agent 在演示项目 `wwk-demo-dashboard` 上跑这三次**，不只靠桩测试；
 - 越界修改被提交白名单拦下（有测试）；

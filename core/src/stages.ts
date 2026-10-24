@@ -4,7 +4,7 @@
 // - 流程里不向人提问；agent 之间的一次补问（product 问 vision）不算。
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync } from "node:fs"
-import { basename, join } from "node:path"
+import { basename, isAbsolute, join, relative } from "node:path"
 import YAML from "yaml"
 import { type Agent, type AgentResult, buildAgent, END_TURN } from "./agents.ts"
 import { type Config, prompt, render, writeText } from "./config.ts"
@@ -172,6 +172,14 @@ function textAnalysis(requirement: string): { body: string, machine: Json } {
   }
 }
 
+/** 01 入库，来源里不写本机绝对路径：项目里的文件记相对路径，项目外的只记文件名 */
+function designRef(root: string, ref: string): string {
+  if (!/[\\/]/.test(ref))
+    return ref // mastergo / selection
+  const rel = relative(root, ref).replaceAll("\\", "/")
+  return rel && !rel.startsWith("..") && !isAbsolute(rel) ? rel : basename(ref)
+}
+
 const ASK_VISION = /^\s*【问视觉】\s*([\s\S]+)$/
 
 export async function discoveryStage(deps: Deps, s: State, opts: { vision: (input: VisionInput) => Promise<VisionResult>, roleAgent: (role: string) => RoleAgent }): Promise<Update> {
@@ -239,7 +247,7 @@ export async function discoveryStage(deps: Deps, s: State, opts: { vision: (inpu
     const r = await produce(deps, s, {
       id: "01", role: "product", round, inputs: [],
       prompt: fb => render(prompt("mastergo-analysis-prompt.md"), { requirement, design: json }) + (fb ? `\n\n${fb}` : ""),
-      machine: { sources: [{ type: "mastergo", ref: String(s.design_ref), hash: sha256(json) }], assets: [], open_questions: [] },
+      machine: { sources: [{ type: "mastergo", ref: designRef(cfg.projectRoot, String(s.design_ref)), hash: sha256(json) }], assets: [], open_questions: [] },
       lint: { docDir: dir },
     }, product)
     if (!r.ok)

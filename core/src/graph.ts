@@ -105,8 +105,9 @@ export function buildReviewGraph(source: Source) {
       log(`[修复审阅] ${failures.length} 个失败项、${payload.diff_hunks.length} 个改动块 → 修复审阅`)
       const t = Date.now()
       const plan = await reviewer(payload)
-      deps.metrics?.agentCall("gate", "review", plan.reviewer ?? "review", state.attempt ?? 1, Date.now() - t,
-        { stopReason: plan.verdict === "unavailable" ? "error" : "end_turn" })
+      if (plan.reviewer !== "skip") // 手动跳过审阅不算一次调用
+        deps.metrics?.agentCall("gate", "review", plan.reviewer ?? "review", state.attempt ?? 1, Date.now() - t,
+          { stopReason: plan.verdict === "unavailable" ? "error" : "end_turn" })
       log(`[修复审阅] 结论 ${plan.verdict}（经 ${plan.reviewer ?? "?"}）：${plan.summary ?? ""}`)
       const out: Update = { plan }
       if (plan.verdict === "needs_human")

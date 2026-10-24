@@ -441,7 +441,9 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
     }
     if (parts.length === 3 && parts[0] === "api" && parts[1] === "runs") {
       const run = store.runs.get(parts[2])
-      const rec = run ? run.record() : project ? W.loadRun(project, parts[2]) : null
+      const saved = !run && project ? W.loadRun(project, parts[2]) : null
+      // 落盘的记录里作业分支状态是运行结束时的快照，之后合并 / 作废过：按 manifest 现取
+      const rec = run ? run.record() : saved ? { ...saved, flow: FL.flowBrief(dirname(W.runsDir(project)), parts[2]) ?? saved.flow ?? null } : null
       if (!rec)
         throw new HttpError(404, "运行记录不存在")
       const after = Number(url.searchParams.get("after") ?? 0) || 0

@@ -290,6 +290,10 @@ describe("控制台服务", () => {
       const ws = (await request("GET", "/api/workspaces")).body.find((w: any) => w.path === root.replaceAll("\\", "/"))
       assert.equal(ws.lastMergeTarget, "main")
       assert.deepEqual(ws.pending_runs, [])
+      // 落盘的运行记录（服务重启后读的就是它）里作业分支状态跟着 manifest 走
+      c.store.runs.delete(run.id)
+      const saved = (await request("GET", `/api/runs/${run.id}?project=${encodeURIComponent(root)}`)).body
+      assert.equal(saved.flow.status, "merged")
     }
     finally {
       llm.close()
