@@ -23,7 +23,7 @@ import { buildMainGraph } from "../graph.ts"
 import { Metrics, metricsFile, summarize } from "../metrics.ts"
 import { stagePlan } from "../workflow.ts"
 import * as N from "../names.ts"
-import { availability as reviewAvailability, BACKENDS } from "../review.ts"
+import { availability as reviewAvailability, BACKENDS, resolveBackend } from "../review.ts"
 import type { State } from "../state.ts"
 import { openFolder, pickFile, pickFolder, pickImages } from "./pickers.ts"
 import * as FL from "./flow.ts"
@@ -164,7 +164,7 @@ class Run {
       const graph = buildMainGraph(source as never, GRAPHS[this.graph], { workflow: cfg.workflow })
       // 本次要走的步骤（按生效配置），页面据此画还没开始的步骤
       const steps = stagePlan(cfg.workflow, GRAPHS[this.graph]).map(p => (p.name === "implement" ? N.WRITE_CODE : p.node))
-      this.emit({ type: "plan", nodes: [...steps, N.DELIVER, ...(flow ? [N.REHEARSE] : [])] })
+      this.emit({ type: "plan", nodes: [...steps, N.DELIVER, ...(flow ? [N.REHEARSE] : [])], agents: stepAgents(cfg, this.input) })
       let final: Json = {}
       // subgraphs：编码、审阅修复里的子节点（Spec / 写代码 / 审阅 / 修复）也上报，页面按阶段展示
       const input = { ...this.input, ...(flow ? { docs_dir: flow.manifest.docs_dir } : {}) } // 文档放进作业分支对应的目录
@@ -239,6 +239,39 @@ class Run {
     this.log(`[门禁] ${summary}`)
     this.emit({ type: "node_end", node: N.VERIFY, parent: null, error: null })
     return { status, verify_exit: r.exitCode, failures: r.failures, summary }
+  }
+}
+
+/** 每一步是谁做的（显示名），页面的进度条和日志分组都标出来；没有模型参与的步骤也写明 */
+export function stepAgents(cfg: Config, input: Json): Record<string, string> {
+  const presets: Json = cfg.raw.coding_agents ?? {}
+  const label = (key: string | undefined) => (key ? presets[key]?.label ?? key : "")
+  const roles: Json = cfg.workflow.raw.roles ?? {}
+  const product = label(roles.product?.agent)
+  const coder = label(input.coding_agent || roles.dev?.agent || cfg.get("code").agent)
+  const fixKey = input.fix_agent || defaultFixChoice(cfg)
+  let reviewer: string
+  try {
+    const [backend] = resolveBackend(cfg, input.review_backend)
+    reviewer = backend in BACKENDS ? BACKENDS[backend] : label(backend)
+  }
+  catch {
+    reviewer = String(input.review_backend ?? "")
+  }
+  const scfg = cfg.get("spec")
+  const script = "门禁脚本（无模型）"
+  return {
+    [N.DISCOVERY]: input.images?.length ? `${product}（看图：${label(roles.vision?.agent)}）` : product,
+    [N.TECH_DESIGN]: label(roles.tech?.agent),
+    [N.DOC_REVIEW]: `${product}（仲裁：${label(roles.arbiter?.agent)}）`, // 超过复核轮次才交给仲裁
+    [N.DESIGN]: input.design_ref === "mastergo" ? "MasterGo（无模型）" : "读取文件（无模型）",
+    [N.SPEC]: scfg.backend === "openai_compatible" ? `GPT 兼容接口${scfg.model ? `（${scfg.model}）` : ""}` : "Claude Code",
+    [N.WRITE_CODE]: coder,
+    [N.VERIFY]: script,
+    [N.ADVISE]: reviewer,
+    [N.FIX]: fixKey ? label(fixKey) : "fix 段配置",
+    [N.ACCEPTANCE]: product,
+    [N.REHEARSE]: script,
   }
 }
 

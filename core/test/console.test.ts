@@ -7,7 +7,8 @@ import type { AddressInfo } from "node:net"
 import { join } from "node:path"
 import process from "node:process"
 import { after, before, describe, it } from "node:test"
-import { type ConsoleServer, GATE_ONLY, startConsole } from "../src/console/server.ts"
+import { type ConsoleServer, GATE_ONLY, startConsole, stepAgents } from "../src/console/server.ts"
+import { loadConfig } from "../src/config.ts"
 import * as W from "../src/console/workspaces.ts"
 import * as N from "../src/names.ts"
 import { DOC_STAGES, tempDir } from "./helpers.ts"
@@ -268,6 +269,10 @@ describe("控制台服务", () => {
       ])
       assert.equal(run.result.status, "delivered")
       assert.ok("changed_files" in run.result)
+      // 计划事件带上每一步是谁做的，页面按它标注进度条和日志
+      const plan = run.events.find((e: any) => e.type === "plan")
+      assert.equal(plan.agents[N.WRITE_CODE], "DeepSeek Harness")
+      assert.equal(plan.agents[N.VERIFY], "门禁脚本（无模型）")
       // 跑完已切回 main，作业分支待合并，默认目标的预演已通过
       assert.equal(gitOut(root, "symbolic-ref", "--short", "HEAD"), "main")
       assert.equal(run.flow.status, "ready_to_merge")
@@ -313,6 +318,21 @@ describe("控制台服务", () => {
     assert.equal(gitOut(root, "log", "-1", "--format=%s"), "chore: 忽略 .agent/（web-workflow-kit 运行产物）")
     // 修复回环、仅门禁不拉作业分支，也就不要求这些
     assert.equal((await request("POST", "/api/runs", { graph: GATE_ONLY, input: { project_root: tempDir() } })).status, 201)
+  })
+
+  it("每一步是谁做的：按工作流角色和本次的选择算，没有模型的步骤也写明", () => {
+    const cfg = loadConfig(tempDir())
+    const a = stepAgents(cfg, { coding_agent: "workbuddy", fix_agent: "dsh", review_backend: "codex" })
+    assert.equal(a[N.DISCOVERY], "Claude Code")
+    assert.equal(a[N.TECH_DESIGN], "Codex")
+    assert.equal(a[N.DOC_REVIEW], "Claude Code（仲裁：DeepSeek Harness）")
+    assert.equal(a[N.WRITE_CODE], cfg.raw.coding_agents.workbuddy.label)
+    assert.equal(a[N.ADVISE], "Codex")
+    assert.equal(a[N.FIX], "DeepSeek Harness")
+    assert.equal(a[N.ACCEPTANCE], "Claude Code")
+    assert.equal(a[N.VERIFY], "门禁脚本（无模型）")
+    assert.match(stepAgents(cfg, { images: ["/a.png"] })[N.DISCOVERY], /看图：Codex/)
+    assert.equal(stepAgents(cfg, { review_backend: "skip" })[N.ADVISE], "跳过审阅")
   })
 
   it("三种输入：图片和设计稿二选一，图片要存在且是图片；图片选择器返回多个路径", async () => {

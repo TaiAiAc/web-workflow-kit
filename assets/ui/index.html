@@ -1132,6 +1132,7 @@ const TEMPLATE = { [PIPELINE]: ["取材与需求", "技术设计", "文档复核
 const CHECK_LINE = /^([✔✘-])\s+([\w:-]+)(?::\s*skip)?(?:\s+\((\d+)ms\))?/;
 
 function buildStages(r) {
+  const plan = (r.events || []).find((e) => e.type === "plan");   // 带着每一步是谁做的
   const stages = [];
   const rounds = {};
   let open = null;
@@ -1165,12 +1166,13 @@ function buildStages(r) {
     // 节点本身没抛错，但 agent 没干成：修复出错标红，审阅不可用（不影响后续，修复 agent 直接按失败项改）标黄
     if (s.label === "修复" && s.status === "done" && s.logs.some((l) => /stop_reason=(?!end_turn)/.test(l.text))) s.status = "fail";
     if (s.label === "审阅" && s.status === "done" && s.logs.some((l) => /结论 (unavailable|violation)/.test(l.text) && !/经 skip/.test(l.text))) s.status = "warn";
-    s.agent = stageAgent(s, r.input || {});
+    s.agent = stageAgent(s, r.input || {}, plan?.agents);
   }
   if (pre.logs.length) stages.unshift(pre);
   return stages;
 }
-function stageAgent(s, input) {
+function stageAgent(s, input, agents) {
+  if (agents && s.node in agents) return agents[s.node]; // 服务端按本次运行的配置算好的
   if (s.label === "Spec") return "Claude Code";
   if (s.label === "写代码") return agentLabel(input.coding_agent || AGENTS.default);
   if (s.label === "修复") return agentLabel(input.fix_agent || AGENTS.fix_default) || "fix 段配置";
@@ -1203,9 +1205,11 @@ function renderDetail() {
   });
   if (r.status === "running") {
     const seen = new Set(real.map((s) => s.label));
-    const planned = (r.events || []).find((e) => e.type === "plan")?.nodes?.map((n) => STEP_LABEL[n] || n);
-    const ghosts = (planned || TEMPLATE[r.graph] || []).filter((l) => !seen.has(l) && !(l === "设计稿" && seen.has("Spec")));
-    for (const l of ghosts) flow += (flow ? `<span class="arrow">${icon("arrow")}</span>` : "") + `<div class="step ghost"><div class="n">${esc(l)}</div><div class="s">等待</div></div>`;
+    const plan = (r.events || []).find((e) => e.type === "plan");
+    // [显示名, 将由谁做]；老记录没有计划事件时按模板，不显示 agent
+    const planned = plan?.nodes?.map((n) => [STEP_LABEL[n] || n, plan.agents?.[n] || ""]) || (TEMPLATE[r.graph] || []).map((l) => [l, ""]);
+    const ghosts = planned.filter(([l]) => !seen.has(l) && !(l === "设计稿" && seen.has("Spec")));
+    for (const [l, who] of ghosts) flow += (flow ? `<span class="arrow">${icon("arrow")}</span>` : "") + `<div class="step ghost"><div class="n">${esc(l)}</div><div class="s">${esc([who, "等待"].filter(Boolean).join(" · "))}</div></div>`;
   }
 
   // 最近一次门禁的检查项
