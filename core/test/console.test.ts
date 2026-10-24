@@ -358,11 +358,11 @@ describe("控制台服务", () => {
   })
 
   it("预览接口：开始、看状态拿地址、停止", async () => {
-    // 服务代码写进文件：Windows 上 npm 用 cmd 跑脚本，node -e 里的转义引号 cmd 不认
-    const server = join(tempDir(), "server.mjs")
-    writeFileSync(server, "console.log('Local: http://localhost:5311/'); setInterval(() => {}, 1000)")
-    const dev = `"${process.execPath}" "${server}"`
-    const root = gitRepo({ "package.json": JSON.stringify({ name: "p", scripts: { dev } }) })
+    // 服务代码在仓库里、dev 脚本不带引号：Windows 上 npm 用 cmd 跑脚本，带多段引号的命令它解析不了
+    const root = gitRepo({
+      "package.json": JSON.stringify({ name: "p", scripts: { dev: "node server.mjs" } }),
+      "server.mjs": "console.log('Local: http://localhost:5311/'); setInterval(() => {}, 1000)",
+    })
     await request("POST", "/api/workspaces/add", { path: root })
     const q = `/api/preview?project=${encodeURIComponent(root)}`
     assert.equal((await request("GET", q)).body.preview, null)

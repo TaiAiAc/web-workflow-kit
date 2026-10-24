@@ -15,6 +15,8 @@ after(stopAllPreviews)
 // 假开发服务器：打印一行本机地址后一直挂着；FAIL 时什么都不打印就退出
 const SERVER = (port: number) => `console.log("  ➜  Local:   http://localhost:${port}/"); setInterval(() => {}, 1000)`
 const pkg = (scripts: Record<string, string>) => JSON.stringify({ name: "demo", private: true, scripts })
+// 和真实项目一样：服务代码在仓库里，dev 脚本不带引号。Windows 上 npm 用 cmd 跑脚本，开头带引号又有多段引号的命令它解析不了
+const DEV = pkg({ dev: "node server.mjs" })
 // 代码写进文件再用 node 跑：Windows 上 npm 用 cmd 执行脚本，`node -e "...\"..."` 这种转义 cmd 不认
 function nodeCmd(code: string): string {
   const file = join(tempDir(), "server.mjs")
@@ -51,7 +53,7 @@ async function until(project: string, ok: (p: Preview) => boolean, ms = 20000): 
 
 describe("预览", () => {
   it("项目目录里跑 package.json 的 dev 脚本：拿到地址就是运行中，停止后进程结束", async () => {
-    const root = repo({ "package.json": pkg({ dev: nodeCmd(SERVER(5301)) }) })
+    const root = repo({ "package.json": DEV, "server.mjs": SERVER(5301) })
     const cfg = loadConfig(root)
     const first = startPreview(cfg, null)
     assert.ok(["preparing", "starting"].includes(first.status)) // 不用装依赖时同步就走到了启动
@@ -66,11 +68,11 @@ describe("预览", () => {
   })
 
   it("待合并的运行：在项目外的临时目录检出作业分支来跑，停止后临时目录清掉", async () => {
-    const root = repo({ "package.json": pkg({ dev: nodeCmd(SERVER(5302)) }) })
+    const root = repo({ "package.json": DEV, "server.mjs": SERVER(5302) })
     const cfg = loadConfig(root)
     const ctx = { root, stateDir: cfg.stateDir, git: { branch_prefix: "wwk/", keep_failed_branches: 3 }, repoDir: "docs/wwk" }
     const flow = startRun(ctx, "r1", "改端口")
-    writeFileSync(join(root, "package.json"), pkg({ dev: nodeCmd(SERVER(5303)) })) // 作业分支上的版本
+    writeFileSync(join(root, "server.mjs"), SERVER(5303)) // 作业分支上的版本
     flow.commit("implement", 1, "改端口")
     flow.finish(true)
     startPreview(cfg, "r1")
@@ -100,7 +102,7 @@ describe("预览", () => {
     // 外层进程把真正的服务放进新的进程组（detached），服务打印自己的 pid 和地址
     const inner = `console.log("pid=" + process.pid); console.log("Local: http://localhost:5306/"); setInterval(() => {}, 1000)`
     const outer = `import { spawn } from "node:child_process"; spawn(process.execPath, ["-e", ${JSON.stringify(inner)}], { detached: true, stdio: "inherit" }); setInterval(() => {}, 1000)`
-    const root = repo({ "package.json": pkg({ dev: nodeCmd(outer) }) })
+    const root = repo({ "package.json": DEV, "server.mjs": outer })
     startPreview(loadConfig(root), null)
     const p = await until(root, x => x.status === "running")
     const pid = Number(p.log.find(l => l.startsWith("pid="))!.slice(4))
@@ -122,7 +124,7 @@ describe("预览", () => {
   })
 
   it("配置里的 preview.command 优先；进程没打印地址就退出算启动失败", async () => {
-    const root = repo({ "package.json": pkg({ dev: nodeCmd(SERVER(5305)) }) })
+    const root = repo({ "package.json": DEV, "server.mjs": SERVER(5305) })
     const cfg = loadConfig(root)
     cfg.raw.preview = { command: nodeCmd("process.exit(3)") }
     startPreview(cfg, null)
