@@ -229,7 +229,7 @@ Claude Code 没登录。终端运行 `claude` 登录后重试。
 ## 已知限制
 
 - 同一个项目同一时间只能有一次运行。
-- 真实项目上跑通过完整流程的：Claude Code（编程）、Codex（编程、修复）。OpenCode 在本机因自身的 Key 失效没能完成修复（流水线按出错熔断并给出原因）；WorkBuddy、dsh 还没在真实项目上跑过。
+- 真实项目上跑通过完整流程的：Claude Code（编程）、Codex（编程、修复）、WorkBuddy（编程）、DeepSeek Harness（审阅、修复）。OpenCode 在本机因自身的 Key 失效没能完成修复（流水线按出错熔断并给出原因）。
 - Electron 视觉验收只在 Windows 上用 Electron 45 实测过；应用若在生产包里禁用了远程调试，会报 `VISUAL_UNAVAILABLE`。
 
 ## 文档
