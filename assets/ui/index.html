@@ -688,13 +688,17 @@ function drawSettings() {
   };
   box.querySelectorAll("[data-save]").forEach((b) => b.onclick = () => saveGroup(b.dataset.save));
   box.querySelectorAll("[data-clear]").forEach((b) => b.onclick = () => saveValues({ [b.dataset.clear]: "" }, "已清除"));
+  // 一键用系统代理：直接保存（只填不存时，用户常以为已经生效）
   box.querySelectorAll("[data-sys]").forEach((b) => b.onclick = () => {
-    for (const k of ["HTTPS_PROXY", "HTTP_PROXY"]) { const el = box.querySelector(`input[data-k="${k}"]`); if (el) el.value = b.dataset.sys; }
-    const np = box.querySelector('input[data-k="NO_PROXY"]'); if (np && !np.value) np.value = "127.0.0.1,localhost";
-    toast("已填入系统代理，点「保存」生效");
+    const np = box.querySelector('input[data-k="NO_PROXY"]')?.value.trim();
+    saveValues({ HTTPS_PROXY: b.dataset.sys, HTTP_PROXY: b.dataset.sys, NO_PROXY: np || "127.0.0.1,localhost" },
+      `已保存系统代理 ${b.dataset.sys}`);
   });
   box.querySelectorAll("[data-test]").forEach((b) => b.onclick = async () => {
     b.disabled = true;
+    // 框里填了还没保存的 Key：先保存再测，否则测的是旧值（或提示“还没有填”）
+    const typed = b.closest(".field")?.querySelector("input[data-k]");
+    if (typed && typed.value.trim()) await saveValues({ [typed.dataset.k]: typed.value.trim() }, "已保存");
     try { const r = await post("/api/settings/test", { kind: b.dataset.test, project: projectOf() }); toast(r.detail, !r.ok); }
     catch (err) { toast(err.message, true); } finally { b.disabled = false; }
   });
@@ -707,6 +711,10 @@ function drawSettings() {
   box.querySelectorAll("[data-copy]").forEach((b) => b.onclick = async () => {
     try { if (desktop) await desktop.copy(b.dataset.copy); else await navigator.clipboard.writeText(b.dataset.copy); toast("已复制：" + b.dataset.copy); }
     catch { toast(b.dataset.copy); }
+  });
+  // 输入框里回车 = 保存所在分组
+  box.querySelectorAll("input[data-k]").forEach((el) => el.onkeydown = (e) => {
+    if (e.key === "Enter") { e.preventDefault(); saveGroup(el.closest(".set-sec").dataset.g); }
   });
   box.querySelectorAll("[data-goto]").forEach((b) => b.onclick = () => box.querySelector(`input[data-k="${b.dataset.goto}"]`)?.focus());
 }

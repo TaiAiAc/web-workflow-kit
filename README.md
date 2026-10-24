@@ -101,7 +101,7 @@ wwk ui
 
 **设置**（侧栏左下）
 - 各 agent 是否安装、是否已登录、版本；没装的给安装命令，可登录的点「登录」在系统终端里打开登录命令（带上配置的代理）；
-- 代理（可一键填入系统代理，并检测到 Anthropic / OpenAI / DeepSeek / npm 的连通性）、API Key（只写不读，DeepSeek Key 可一键测试）、熔断邮件；
+- 代理（「用系统代理」一键填入并保存，并检测到 Anthropic / OpenAI / DeepSeek / npm 的连通性）、API Key（只写不读，DeepSeek Key 可一键测试）、熔断邮件；
 - 可以写全局，也可以只写当前项目的 `.env`（项目覆盖全局）；对下一次运行生效。
 
 运行记录在结束时写进项目的 `.agent/runs/`（每个项目保留最近 50 条），服务重启后仍可回看；交付记录另存 `.agent/delivery.json`。编码子图、审阅修复子图的单独调试在 LangGraph Studio 或 API 里用。
@@ -218,7 +218,7 @@ Codex 的 ACP 适配器默认每次经 npx 下载，网络不稳时会在开始�
 Claude Code 没登录。终端运行 `claude` 登录后重试。
 
 **Claude Code 登录时报 `403`，或 claude / codex 连不上**
-国内网络访问 Anthropic、OpenAI 需要代理；命令行程序不会自动用系统代理。在设置页里填 `HTTPS_PROXY`（可一键填入系统代理）并点「检测连通性」，再用设置页的「登录」按钮重新登录。
+国内网络访问 Anthropic、OpenAI 需要代理；命令行程序不会自动用系统代理。在设置页里填 `HTTPS_PROXY`（「用系统代理」一键保存）并点「检测连通性」，再用设置页的「登录」按钮重新登录。
 
 **OpenCode / dsh 一轮下来什么都没改就熔断了：`agent 本轮没有任何输出`**
 多半是该 agent 自己的 Key 失效或没登录（比如 OpenCode 里存的 DeepSeek Key 无效）。在 agent 自己的配置里换一个能用的 Key，或在 `agent.config.json` 里给它的预设设 `model`。
