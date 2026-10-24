@@ -266,7 +266,10 @@ machine: {ac_status: {AC-1: pass}, verdict: pass|fail, return_stage: null|discov
    - `ACPAgent.run` 增加可选的图片参数（与 PR #14 的会话模式改动互不依赖）；新增 `vision.cli_command`（默认 `["codex"]`）；
    - 已用本机 codex 真实验证 ACP 与 CLI 两条路径，产出的 01 都一次通过校验；
    - 遗留：B 模式的开工预检和「product 补问一次」要等 discovery 阶段实现时接进流水线；
-6. 指标与拒绝原因回流（每轮 token、耗时、打回原因，按 agent 汇总）。
+6. 指标与拒绝原因回流（每轮 token、耗时、打回原因，按 agent 汇总）——**已完成**：
+   - `core/src/metrics.ts`：每次 agent 调用记阶段、角色、agent、轮次、耗时、token、stop_reason；每次打回记阶段、轮次、来源（门禁 / 文档校验 / 复核 / 仲裁 / 验收 / 越界）、产出者和原因；每次运行一份 `.agent/runs/<id>/metrics.jsonl`；
+   - token：Claude CLI 取 `usage`（输入含缓存读写），ACP 取 `PromptResponse.usage`，命令行 agent（dsh）拿不到记空，汇总时不计入；
+   - 控制台工具栏「指标」：按 agent 汇总最近 50 次运行；接口 `/api/metrics`；命令行运行也记（run id 为 `cli-<时间>`）；
 
 ## 9. 预研/风险
 

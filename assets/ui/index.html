@@ -263,6 +263,12 @@ dialog.merge footer .grow { flex: 1; color: var(--faint); font-size: 12px; }
 .rehearsal { padding: 8px 10px; border-radius: var(--r); background: var(--panel-2); font-size: 12.5px; }
 .rehearsal.ok { background: var(--ok-soft); color: var(--ok); }
 .rehearsal.bad { background: var(--bad-soft); color: var(--bad); white-space: pre-wrap; }
+dialog.merge.wide { width: min(980px, calc(100vw - 32px)); }
+.mtable { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.mtable th, .mtable td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.mtable th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+.mtable td.num { font-family: var(--mono); white-space: nowrap; }
+.mtable .why { color: var(--muted); font-size: 12px; }
 .rehearsal pre { margin: 6px 0 0; max-height: 160px; overflow: auto; white-space: pre-wrap; color: var(--muted); font: 11.5px var(--mono); }
 </style>
 </head>
@@ -284,6 +290,7 @@ dialog.merge footer .grow { flex: 1; color: var(--faint); font-size: 12px; }
 </div>
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 <dialog class="merge" id="merge-dlg" aria-labelledby="merge-title"></dialog>
+<dialog class="merge wide" id="metrics-dlg" aria-labelledby="metrics-title"></dialog>
 
 <script>
 "use strict";
@@ -513,6 +520,7 @@ function renderMain() {
       <div class="tools">
         <button class="btn" id="t-gate" type="button" title="只跑一次门禁，不改代码">${icon("shield")}跑门禁</button>
         <button class="btn" id="t-loop" type="button" title="对当前工作区跑门禁，失败就审阅修复，直到通过或熔断">${icon("loop")}修复回环</button>
+        <button class="btn" id="t-metrics" type="button" title="按 agent 汇总最近的运行：耗时、token、被打回的次数和原因">${icon("cpu")}指标</button>
         <button class="btn" id="t-open" type="button">${icon("folder")}打开目录</button>
       </div>
     </header>
@@ -541,6 +549,7 @@ function renderMain() {
   $("t-gate").onclick = () => startRun(GATE_ONLY);
   $("t-loop").onclick = () => startRun(FIX_LOOP);
   $("t-open").onclick = () => openFolder(ws.path);
+  $("t-metrics").onclick = () => openMetrics(ws.path);
   $("b-init")?.addEventListener("click", initProject);
   $("b-remove")?.addEventListener("click", () => removeWs(ws.path));
   renderPending();
@@ -691,6 +700,28 @@ function notifyDesk(title, body) {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   if (!document.hidden && document.hasFocus()) return;
   try { new Notification(title, { body }); } catch {}
+}
+
+// ---------- 指标：按 agent 汇总 ----------
+const REJECT_BY = { gate: "门禁", lint: "文档校验", "doc-review": "文档复核", arbiter: "仲裁", acceptance: "验收", whitelist: "越界" };
+const fmtTok = (n) => n >= 10000 ? (n / 1000).toFixed(0) + "k" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
+async function openMetrics(project) {
+  let data;
+  try { data = await api("/api/metrics?project=" + encodeURIComponent(project)); } catch (err) { toast(err.message, true); return; }
+  const dlg = $("metrics-dlg");
+  const rows = data.agents.map((a) => {
+    const rej = Object.entries(a.rejected).map(([k, n]) => `${REJECT_BY[k] || k} ${n}`).join("、") || "—";
+    const tok = a.tokens.calls_with_usage ? `${fmtTok(a.tokens.input)} / ${fmtTok(a.tokens.output)}${a.tokens.calls_with_usage < a.calls ? `（${a.tokens.calls_with_usage}/${a.calls} 次有用量）` : ""}` : "拿不到";
+    return `<tr><td><b>${esc(agentLabel(a.agent))}</b><div class="why">${esc(a.roles.join("、"))}</div></td>
+      <td class="num">${a.calls}${a.errors ? ` <span class="tag bad">出错 ${a.errors}</span>` : ""}</td>
+      <td class="num">${a.calls ? dur(a.ms / a.calls / 1000) : "—"}</td><td class="num">${tok}</td><td>${esc(rej)}</td>
+      <td class="why">${a.top_reasons.map((r) => `${esc(r.reason)} ×${r.count}`).join("<br>") || "—"}</td></tr>`;
+  }).join("");
+  dlg.innerHTML = `<header><h3 id="metrics-title">指标（最近 ${data.runs} 次运行）</h3><button class="btn icon ghost" id="mt-x" type="button" aria-label="关闭">${icon("x")}</button></header>
+    <div class="body">${rows ? `<table class="mtable"><thead><tr><th>agent</th><th>调用</th><th>平均耗时</th><th>token 输入 / 输出</th><th>产出被打回</th><th>常见打回原因</th></tr></thead><tbody>${rows}</tbody></table>`
+      : `<div class="rehearsal">还没有指标：完整流水线跑过之后，这里会按 agent 汇总耗时、token 和打回原因。</div>`}</div>`;
+  $("mt-x").onclick = () => dlg.close();
+  if (!dlg.open) dlg.showModal();
 }
 
 let MERGE = null;   // { project, runId, data, target, message, timer, busy }

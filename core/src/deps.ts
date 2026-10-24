@@ -4,6 +4,7 @@ import { type Config, loadConfig, prompt, render } from "./config.ts"
 import { loadDesign } from "./design.ts"
 import { type Failure, type GateResult, runGate } from "./gate.ts"
 import { chat, LLMError } from "./llm.ts"
+import type { Metrics } from "./metrics.ts"
 import { notifyBreaker } from "./notify.ts"
 import { makeReviewer, type Plan } from "./review.ts"
 
@@ -21,6 +22,10 @@ export interface Deps {
   log: (line: string) => void
   /** 作业分支上的阶段提交（控制台的完整流水线才有）；越界抛 WhitelistError，没改动返回 null */
   commit?: (source: "implement" | "gate-fix", round: number, summary: string) => string | null
+  /** 指标：每次 agent 调用和每次打回 */
+  metrics?: Metrics
+  /** 指标里显示的 agent 名（预设 key） */
+  agentNames?: { coder: string, fixer: string }
 }
 
 function specFn(cfg: Config) {
@@ -59,6 +64,7 @@ export interface DepsOptions {
   reviewBackend?: string | null
   fixAgent?: string | null
   commit?: Deps["commit"]
+  metrics?: Metrics
 }
 
 export function defaultDeps(cfg: Config, opts: DepsOptions = {}): Deps {
@@ -74,6 +80,8 @@ export function defaultDeps(cfg: Config, opts: DepsOptions = {}): Deps {
     notifier: state => notifyBreaker(state, cfg),
     log,
     commit: opts.commit,
+    metrics: opts.metrics,
+    agentNames: { coder: opts.codingAgent || cfg.get("code").agent || "claude", fixer: opts.fixAgent || "fix" },
   }
 }
 

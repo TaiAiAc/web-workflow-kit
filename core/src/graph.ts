@@ -55,10 +55,13 @@ export function buildCodeGraph(source: Source) {
       return { spec: text }
     })
     .addNode(N.WRITE_CODE, async (state) => {
-      const { cfg, log, coder } = resolveDeps(source, state)
+      const deps = resolveDeps(source, state)
+      const { cfg, log, coder } = deps
       const baseline = snapshot(cfg.projectRoot)
       log("[写代码] 编码 agent 工作中…")
+      const t = Date.now()
       const r = await coder.run(codePrompt(state.requirement, state.spec), cfg.projectRoot)
+      deps.metrics?.agentCall("implement", "dev", deps.agentNames?.coder ?? "coder", 1, Date.now() - t, r)
       log(`[写代码] 结束，stop_reason=${r.stopReason}`)
       const out: Update = { baseline, code_stop_reason: r.stopReason }
       if (r.stopReason === ERROR)
@@ -77,7 +80,8 @@ export function buildCodeGraph(source: Source) {
 export function buildReviewGraph(source: Source) {
   return new StateGraph(PipelineState)
     .addNode(N.ADVISE, async (state) => {
-      const { cfg, log, reviewer } = resolveDeps(source, state)
+      const deps = resolveDeps(source, state)
+      const { cfg, log, reviewer } = deps
       const failures = state.failures ?? []
       const dcfg = cfg.get("diff")
       const payload = {
@@ -91,7 +95,10 @@ export function buildReviewGraph(source: Source) {
           Number(dcfg.max_chars ?? 12000), Number(dcfg.context_lines ?? 3)),
       }
       log(`[验收审阅] ${failures.length} 个失败项、${payload.diff_hunks.length} 个改动块 → 验收顾问`)
+      const t = Date.now()
       const plan = await reviewer(payload)
+      deps.metrics?.agentCall("gate", "review", plan.reviewer ?? "review", state.attempt ?? 1, Date.now() - t,
+        { stopReason: plan.verdict === "unavailable" ? "error" : "end_turn" })
       log(`[验收审阅] 结论 ${plan.verdict}（经 ${plan.reviewer ?? "?"}）：${plan.summary ?? ""}`)
       const out: Update = { plan }
       if (plan.verdict === "needs_human")
@@ -99,9 +106,12 @@ export function buildReviewGraph(source: Source) {
       return out
     })
     .addNode(N.FIX, async (state) => {
-      const { cfg, log, fixer } = resolveDeps(source, state)
+      const deps = resolveDeps(source, state)
+      const { cfg, log, fixer } = deps
       log("[执行修复] 修复 agent 工作中…")
+      const t = Date.now()
       const r = await fixer.run(fixPrompt(state.attempt ?? 1, cfg.maxRetries, state.failures ?? [], state.plan), cfg.projectRoot)
+      deps.metrics?.agentCall("gate", "fix", deps.agentNames?.fixer ?? "fixer", state.attempt ?? 1, Date.now() - t, r)
       log(`[执行修复] 结束，stop_reason=${r.stopReason}`)
       const out: Update = { fix_stop_reason: r.stopReason }
       if (r.stopReason === ERROR)
@@ -175,6 +185,12 @@ function workflowFor(source: Source, workflow?: Workflow): Workflow {
 
 const stageResult = (name: StageName, failed: boolean): Update => ({ stage_status: { [name]: failed ? "failed" : "done" } })
 
+function producerOf(deps: Deps, state: State, attempt: number): string | null {
+  if (attempt > 1)
+    return deps.agentNames?.fixer ?? null
+  return state.baseline !== undefined && state.baseline !== null ? deps.agentNames?.coder ?? null : null
+}
+
 /** 作业分支上的阶段提交；越界 / git 出错转成 break_reason，交给熔断。 */
 function stageCommit(deps: Deps, source: "implement" | "gate-fix", round: number, summary: string): Update {
   if (!deps.commit)
@@ -187,6 +203,9 @@ function stageCommit(deps: Deps, source: "implement" | "gate-fix", round: number
   catch (e) {
     const err = e as Error
     deps.log(`[提交] ${err.message}`)
+    const v = (err as { violations?: { path: string }[] }).violations
+    if (v)
+      deps.metrics?.reject(source === "implement" ? "implement" : "gate", round, "whitelist", source === "implement" ? deps.agentNames?.coder ?? null : deps.agentNames?.fixer ?? null, v.map(x => x.path))
     return { break_reason: `${err.name === "WhitelistError" ? "WHITELIST_VIOLATION" : "COMMIT_ERROR"}: ${err.message}` }
   }
 }
@@ -244,7 +263,8 @@ export function buildMainGraph(source: Source, entry: Entry = "code", opts: Main
 
 function addGate(g: MainGraph, source: Source, reviewgraph: ReturnType<typeof buildReviewGraph>): void {
   g.addNode(N.VERIFY, async (state: State) => {
-      const { cfg, log, gate } = resolveDeps(source, state)
+      const deps = resolveDeps(source, state)
+      const { cfg, log, gate } = deps
       log("[门禁] 运行 verify…")
       const r = await gate()
       const attempt = (state.attempt ?? 0) + (r.passed ? 0 : 1)
@@ -263,6 +283,8 @@ function addGate(g: MainGraph, source: Source, reviewgraph: ReturnType<typeof bu
         out.break_reason = `RETRY_LIMIT: ${cfg.maxRetries} fix round(s) exhausted`
       if (r.passed || out.break_reason)
         Object.assign(out, stageResult("gate", Boolean(out.break_reason)))
+      if (!r.passed) // 被门禁打回的是上一轮的产出：第一轮是写代码的，之后是修复的（修复回环第一轮是现有工作区）
+        deps.metrics?.reject("gate", attempt, "gate", producerOf(deps, state, attempt), codes)
       return out
     })
   g.addNode(N.REVIEW, async (state: State, config: LangGraphRunnableConfig) => {

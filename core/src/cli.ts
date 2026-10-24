@@ -17,6 +17,7 @@ import { initProject, loadConfig } from "./config.ts"
 import { startConsole } from "./console/server.ts"
 import { defaultDeps } from "./deps.ts"
 import { resume, runFixLoop, runPipeline } from "./graph.ts"
+import { Metrics, metricsFile } from "./metrics.ts"
 import { repl, summary as replSummary } from "./repl.ts"
 import type { State } from "./state.ts"
 
@@ -85,7 +86,8 @@ async function main(argv: string[]): Promise<number> {
   }
 
   const cfg = loadConfig(values.project, values.config)
-  const deps = defaultDeps(cfg, { log, codingAgent: values.agent, fixAgent: values["fix-agent"], reviewBackend: values.review })
+  const runId = `cli-${new Date().toISOString().replace(/\D/g, "").slice(0, 14)}`
+  const deps = defaultDeps(cfg, { log, codingAgent: values.agent, fixAgent: values["fix-agent"], reviewBackend: values.review, metrics: new Metrics(metricsFile(cfg.stateDir, runId)) })
 
   if (command === "verify") {
     const r = await deps.gate()

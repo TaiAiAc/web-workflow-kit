@@ -249,14 +249,15 @@ export class ACPAgent implements Agent {
           // 有的 agent 模型调用失败（Key 无效、没登录）时仍回 end_turn：什么都没做就当出错，别让门禁去背这个锅
           if (response.stopReason === "end_turn" && !text.trim() && !toolCalls && tokens === 0)
             return { stopReason: "error", text: "agent 本轮没有任何输出（0 token、无工具调用）：多半是登录失效、API Key 无效或模型不可用，请检查该 agent 的登录与模型设置" }
-          return { stopReason: response.stopReason as string, text }
+          const u = (response as { usage?: { inputTokens?: number, outputTokens?: number, totalTokens?: number } }).usage
+          return { stopReason: response.stopReason as string, text, usage: u ? { input: u.inputTokens ?? null, output: u.outputTokens ?? null, total: u.totalTokens ?? null } : undefined }
         })
       })
       const result = await Promise.race([work, died, timedOut])
       let text = result.text
       if (denied.length)
         text += `\n\n[denied permission requests]\n${denied.map(d => `- ${d}`).join("\n")}`
-      return { stopReason: mapStopReason(result.stopReason), text }
+      return { stopReason: mapStopReason(result.stopReason), text, usage: result.usage }
     }
     catch (e) { // 连接失败、握手失败、协议错误、超时
       const msg = e instanceof Error ? e.message : String(e)

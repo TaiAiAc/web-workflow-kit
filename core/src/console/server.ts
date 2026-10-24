@@ -18,6 +18,7 @@ import { ASSETS_DIR, type Config, DEFAULTS, initProject, loadConfig, writeSnapsh
 import { defaultDeps } from "../deps.ts"
 import { type Flow, FlowError, fixGitignore, NeedsRehearsal, pendingRuns, preflight, readManifest, startRun } from "../gitflow.ts"
 import { buildMainGraph } from "../graph.ts"
+import { Metrics, metricsFile, summarize } from "../metrics.ts"
 import * as N from "../names.ts"
 import { availability as reviewAvailability, BACKENDS } from "../review.ts"
 import type { State } from "../state.ts"
@@ -133,16 +134,19 @@ class Run {
 
   async execute(): Promise<void> {
     let flow: Flow | null = null
+    let metrics: Metrics | undefined
     const source = (state: Partial<State>) => defaultDeps(loadConfig(state.project_root || this.projectRoot), {
       log: this.log,
       codingAgent: state.coding_agent || this.input.coding_agent,
       reviewBackend: state.review_backend || this.input.review_backend,
       fixAgent: state.fix_agent || this.input.fix_agent,
       commit: flow ? (src, round, summary) => flow!.commit(src, round, summary) : undefined,
+      metrics,
     })
     try {
       const cfg = loadConfig(this.projectRoot)
       writeSnapshot(cfg, this.id) // 本次运行的生效配置（已脱敏）
+      metrics = new Metrics(metricsFile(cfg.stateDir, this.id))
       // 完整流水线在作业分支上跑；修复回环、仅门禁是对当前工作区的操作，不拉分支
       if (this.graph === N.PIPELINE_NAME) {
         flow = startRun(FL.flowContext(cfg), this.id, String(this.input.requirement ?? ""))
@@ -391,6 +395,8 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
       return agentStatuses(workspaceOrNull(project))
     if (url.pathname === "/api/runs")
       return project ? store.forProject(project) : [...store.runs.values()].sort((a, b) => b.started - a.started).map(r => r.brief())
+    if (url.pathname === "/api/metrics") // 按 agent 汇总最近的运行：调用、耗时、token、被打回的次数和原因
+      return summarize(flowConfig(project).stateDir, { runs: Number(url.searchParams.get("runs") ?? 50) || 50 })
     if (url.pathname === "/api/flow") {
       const cfg = flowConfig(project)
       try {
