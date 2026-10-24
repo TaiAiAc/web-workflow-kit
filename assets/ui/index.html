@@ -825,7 +825,7 @@ function notifyDesk(title, body) {
 }
 
 // ---------- 指标：按 agent 汇总 ----------
-const REJECT_BY = { gate: "门禁", lint: "文档校验", "doc-review": "文档复核", arbiter: "仲裁", acceptance: "验收", whitelist: "越界" };
+const REJECT_BY = { gate: "门禁", lint: "文档校验", "doc-review": "文档复核", arbiter: "仲裁", "impl-review": "实现核对", acceptance: "验收", whitelist: "越界" };
 const fmtTok = (n) => n >= 10000 ? (n / 1000).toFixed(0) + "k" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
 async function openMetrics(project) {
   let data;
@@ -1145,8 +1145,8 @@ setInterval(() => { if (run?.status === "running") renderDuration(); }, 1000);
 
 // ---------- 阶段：由事件推出流程进度与分组日志 ----------
 const CONTAINERS = new Set(["编码", "审阅修复"]);
-const STEP_LABEL = { "读取设计稿": "设计稿", "生成Spec": "Spec", "写代码": "写代码", "门禁": "门禁", "修复审阅": "审阅", "执行修复": "修复", "交付": "交付", "熔断": "熔断", "合并预演": "合并预演", "取材与需求": "取材与需求", "技术设计": "技术设计", "文档复核": "文档复核", "产品验收": "产品验收" };
-const TEMPLATE = { [PIPELINE]: ["取材与需求", "技术设计", "文档复核", "写代码", "门禁", "产品验收", "交付", "合并预演"], [FIX_LOOP]: ["门禁", "交付"], [GATE_ONLY]: ["门禁"] };
+const STEP_LABEL = { "读取设计稿": "设计稿", "生成Spec": "Spec", "写代码": "写代码", "门禁": "门禁", "修复审阅": "审阅", "执行修复": "修复", "交付": "交付", "熔断": "熔断", "合并预演": "合并预演", "取材与需求": "取材与需求", "技术设计": "技术设计", "文档复核": "文档复核", "实现核对": "实现核对", "产品验收": "产品验收" };
+const TEMPLATE = { [PIPELINE]: ["取材与需求", "技术设计", "文档复核", "写代码", "实现核对", "门禁", "产品验收", "交付", "合并预演"], [FIX_LOOP]: ["门禁", "交付"], [GATE_ONLY]: ["门禁"] };
 const CHECK_LINE = /^([✔✘-])\s+([\w:-]+)(?::\s*skip)?(?:\s+\((\d+)ms\))?/;
 
 function buildStages(r) {

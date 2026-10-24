@@ -278,6 +278,7 @@ export function stepAgents(cfg: Config, input: Json): Record<string, string> {
     [N.DESIGN]: input.design_ref === "mastergo" ? "MasterGo（无模型）" : "读取文件（无模型）",
     [N.SPEC]: scfg.backend === "openai_compatible" ? `GPT 兼容接口${scfg.model ? `（${scfg.model}）` : ""}` : "Claude Code",
     [N.WRITE_CODE]: coder,
+    [N.IMPL_REVIEW]: label(input.tech_agent || roles.tech?.agent),
     [N.VERIFY]: script,
     [N.ADVISE]: reviewer,
     [N.FIX]: fixKey ? label(fixKey) : "fix 段配置",

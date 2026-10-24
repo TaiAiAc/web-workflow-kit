@@ -44,7 +44,7 @@ export class FakeAgent implements Agent {
 export const FAIL = new GateResult(1, [{ code: "TYPECHECK_FAIL", check: "typecheck", message: "x", locations: ["src/a.ts:1"] } as Failure])
 export const PASS = new GateResult(0, [])
 
-export const DOC_STAGES = ["discovery", "tech-design", "doc-review", "acceptance"] as const
+export const DOC_STAGES = ["discovery", "tech-design", "doc-review", "impl-review", "acceptance"] as const
 
 /** 关掉文档阶段：测试里不调真实的 product / tech agent */
 export function disableDocStages(workflow: Record<string, any>): void {

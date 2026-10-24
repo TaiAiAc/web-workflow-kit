@@ -57,6 +57,10 @@ const ACCEPT = (pass: boolean, back: string | null = "implement") => doc("# 验�
   return_stage: pass ? null : back,
   evidence: ["src/Login.vue#submit"],
 })
+const IMPL = (verdict: "match" | "mismatch", round: number) => doc("# 实现核对", {
+  verdict, round,
+  items: verdict === "mismatch" ? [{ id: "I-1", ref: "03#D-1", issue: "没用现有表单组件", fix: "改用表单组件重写登录表单" }] : [],
+})
 const SELF_TEST = "改好了。\n\n```yaml\nmachine:\n  ac_status:\n    AC-1: pass\n    AC-2: pass\n  uncovered: []\n  deviates_from_design: false\n```"
 const RULING = (verdict: "approve" | "reject") => `仲裁理由。\n\n\`\`\`yaml\nmachine:\n  verdict: ${verdict}\n  reasons: [理由]\n  notes: [顺带补上报错测试]\n\`\`\``
 
@@ -67,8 +71,10 @@ beforeEach(() => {
 })
 
 /** 文档阶段全开的 deps；roles 是各角色的假 agent */
-function setup(gates: typeof PASS[], roles: { product: Scripted, tech?: Scripted, arbiter?: Scripted, coder?: Scripted }, vision?: (i: VisionInput) => Promise<VisionResult>) {
+function setup(gates: typeof PASS[], roles: { product: Scripted, tech?: Scripted, arbiter?: Scripted, coder?: Scripted }, vision?: (i: VisionInput) => Promise<VisionResult>, opts: { implReview?: boolean } = {}) {
   const { deps, cfg } = makeDeps(tmp, gates, { docStages: true })
+  if (!opts.implReview) // 实现核对单独测；其余用例只看文档阶段本身
+    cfg.workflow.raw.stages["impl-review"].enabled = false
   deps.coder = roles.coder ?? new Scripted(SELF_TEST, SELF_TEST, SELF_TEST)
   deps.roleAgent = role => ({ agent: (roles as Record<string, Scripted>)[role] ?? new Scripted(), name: role })
   deps.metrics = new Metrics(null)
@@ -225,6 +231,46 @@ describe("文档阶段", () => {
     r2.deps.design = async () => ({ selection: { name: "登录页" } })
     const s2 = await runPipeline(r2.deps, "按设计稿做登录页", "/Users/someone/Downloads/login.mastergo.json")
     assert.equal(parseDoc(readFileSync(s2.artifacts["01"], "utf8")).machine!.sources[0].ref, "login.mastergo.json")
+  })
+
+  it("实现核对：写完代码后技术设计的 agent 核对，对得上就进门禁", async () => {
+    const product = new Scripted(SPEC(), REVIEW("approved", 1), ACCEPT(true))
+    const tech = new Scripted(DESIGN(), IMPL("match", 1))
+    const { deps } = setup([PASS], { product, tech }, undefined, { implReview: true })
+    const s = await runPipeline(deps, "做登录页")
+    assert.equal(s.status, "delivered", s.summary)
+    assert.equal(s.stage_status["impl-review"], "done")
+    assert.match(tech.calls[1], /实现核对[\s\S]*第 1 轮核对[\s\S]*本次改动的文件/)
+    assert.ok(existsSync(join(deps.cfg.stateDir, "stages", "impl-review", "impl-review.r1.md")))
+  })
+
+  it("实现核对：对不上就把问题交回编码修改，第二轮对得上再往下走", async () => {
+    const product = new Scripted(SPEC(), REVIEW("approved", 1), ACCEPT(true))
+    const tech = new Scripted(DESIGN(), IMPL("mismatch", 1), IMPL("match", 2))
+    const coder = new Scripted(SELF_TEST, SELF_TEST)
+    const { deps } = setup([PASS], { product, tech, coder }, undefined, { implReview: true })
+    const s = await runPipeline(deps, "做登录页")
+    assert.equal(s.status, "delivered", s.summary)
+    assert.equal(coder.calls.length, 2)
+    assert.match(coder.calls[1], /实现核对没通过[\s\S]*改用表单组件重写登录表单/)
+    assert.doesNotMatch(coder.calls[0], /实现核对没通过/)
+    assert.ok(deps.metrics!.events.some(e => e.kind === "reject" && e.by === "impl-review" && e.agent === "coder"))
+  })
+
+  it("实现核对：超过轮次仍对不上算运行失败；报告格式不对先带着问题重写", async () => {
+    const product = new Scripted(SPEC(), REVIEW("approved", 1))
+    const tech = new Scripted(DESIGN(), IMPL("mismatch", 1), IMPL("mismatch", 2))
+    const { deps } = setup([], { product, tech, coder: new Scripted(SELF_TEST, SELF_TEST) }, undefined, { implReview: true })
+    const broken = await runPipeline(deps, "做登录页")
+    assert.equal(broken.status, "broken")
+    assert.match(broken.break_reason, /^IMPL_REVIEW_FAILED: 实现核对 2 轮仍和技术设计对不上/)
+
+    const p2 = new Scripted(SPEC(), REVIEW("approved", 1), ACCEPT(true))
+    const t2 = new Scripted(DESIGN(), doc("# 核对", { verdict: "ok", round: 1, items: [] }), IMPL("match", 1))
+    const r2 = setup([PASS], { product: p2, tech: t2 }, undefined, { implReview: true })
+    const s2 = await runPipeline(r2.deps, "做登录页")
+    assert.equal(s2.status, "delivered", s2.summary)
+    assert.match(t2.calls[2], /上一次的输出格式不对[\s\S]*verdict 只能是 match \/ mismatch/)
   })
 
   it("agent 回复的包装（代码块、front-matter、末尾闲话）都去掉", () => {

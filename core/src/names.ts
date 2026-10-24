@@ -14,6 +14,7 @@ export const DISCOVERY = "取材与需求"
 export const TECH_DESIGN = "技术设计"
 export const DOC_REVIEW = "文档复核"
 export const ACCEPTANCE = "产品验收"
+export const IMPL_REVIEW = "实现核对"   // 写完代码后，技术设计的 agent 核对实现和 03 对不对得上
 
 // codegraph
 export const DESIGN = "读取设计稿"

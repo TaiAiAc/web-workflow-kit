@@ -293,6 +293,8 @@ export function validateWorkflow(w: Json): void {
   need(!on("tech-design") || on("discovery"), "开着 tech-design 就不能关 discovery：技术设计要用需求规格（02）")
   need(!on("acceptance") || on("discovery"), "开着 acceptance 就不能关 discovery：验收要按需求规格（02）的 AC 判断")
   need(!on("doc-review") || on("tech-design"), "开着 doc-review 就不能关 tech-design：复核的是技术设计（03）")
+  need(!on("impl-review") || on("tech-design"), "开着 impl-review 就不能关 tech-design：核对的是实现和技术设计（03）")
+  need(!on("impl-review") || on("implement"), "开着 impl-review 就不能关 implement：对不上时要交回编码修改")
 
   const git: Json = isObject(w.git) ? w.git : {}
   need(git.merge_method === "squash", `git.merge_method 目前只支持 squash（当前 ${JSON.stringify(git.merge_method)}）`)

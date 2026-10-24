@@ -38,6 +38,9 @@ export const PipelineState = Annotation.Root({
   acceptance_verdict: value<"pass" | "fail" | null>(),
   return_stage: value<string | null>(),       // 验收打回到哪个阶段
   feedback: value<string | null>(),           // 打回 / 仲裁留给下一阶段的话
+  impl_round: value<number>(),                // 实现核对已进行的轮数
+  impl_verdict: value<"match" | "mismatch" | null>(),
+  impl_feedback: value<string | null>(),      // 实现核对指出的问题，交回编码
   // codegraph
   design: value<Record<string, unknown> | null>(),
   spec: value<string>(),

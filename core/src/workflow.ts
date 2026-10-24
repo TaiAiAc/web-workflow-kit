@@ -4,7 +4,7 @@ import type { Entry } from "./checkpoint.ts"
 import type { Workflow } from "./config.ts"
 import * as N from "./names.ts"
 
-export const STAGES = ["discovery", "tech-design", "doc-review", "implement", "gate", "acceptance"] as const
+export const STAGES = ["discovery", "tech-design", "doc-review", "implement", "impl-review", "gate", "acceptance"] as const
 export type StageName = typeof STAGES[number]
 
 /** 阶段在主图里的入口节点名；implement / gate 沿用第一阶段的节点，控制台、Studio、检查点都不受影响。 */
@@ -13,6 +13,7 @@ export const STAGE_NODE: Record<StageName, string> = {
   "tech-design": N.TECH_DESIGN,
   "doc-review": N.DOC_REVIEW,
   "implement": N.CODE,
+  "impl-review": N.IMPL_REVIEW,
   "gate": N.VERIFY,
   "acceptance": N.ACCEPTANCE,
 }
