@@ -267,10 +267,30 @@ export function lintDoc(id: DocId, text: string, ctx: LintContext = {}): LintRes
     crossCheck(id, m, doc, ctx, need)
   }
 
-  // 引用块（> 开头）是原样引用的需求原文等材料，里面出现「待定」之类不算没填
-  const hit = PLACEHOLDER.exec(text.split("\n").filter(l => !l.trimStart().startsWith(">")).join("\n"))
+  const hit = PLACEHOLDER.exec(prose(text))
   need(!hit, `有占位符没填：${hit?.[0]}`)
   return { ok: errors.length === 0, errors, doc }
+}
+
+/**
+ * 查占位符时只看行文：
+ * - 引用块（> 开头）是原样引用的需求原文等材料；
+ * - 代码块和行内代码是示例代码（Vue 模板的 {{ title }}、注释里的 TODO 都是正常内容）；
+ * machine 块（最后一个 yaml 代码块）照样检查，不让占位词藏在里面。
+ */
+function prose(text: string): string {
+  const fences = [...text.matchAll(/```[^\n]*\n[\s\S]*?\n```/g)]
+  const machine = fences.at(-1)
+  let out = ""
+  let at = 0
+  for (const f of fences) {
+    out += text.slice(at, f.index)
+    if (f === machine && /^```ya?ml/.test(f[0]))
+      out += f[0]
+    at = f.index! + f[0].length
+  }
+  out += text.slice(at)
+  return out.split("\n").filter(l => !l.trimStart().startsWith(">")).join("\n").replace(/`[^`\n]+`/g, "")
 }
 
 function acIds(ctx: LintContext): string[] | null {

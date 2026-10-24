@@ -71,6 +71,11 @@ describe("文档校验", () => {
     assert.match(lintDoc("02", doc("02", { ...SPEC, open_questions: ["颜色？"] })).errors.join(), /open_questions 必须清零/)
     assert.match(lintDoc("02", doc("02", SPEC, { body: "# 需求\n\n细节待补充\n" })).errors.join(), /占位符.*待补充/)
     assert.match(lintDoc("02", doc("02", SPEC, { body: "# 需求\n\nTODO: 写完\n" })).errors.join(), /占位符.*TODO/)
+    // 代码示例、行内代码、引用的原文不算：Vue 模板的 {{ title }} 是正常内容
+    const code = "# 方案\n\n```vue\n<h1>{{ title }}</h1>\n<!-- TODO 以后加图标 -->\n```\n\n用 `{{ count }}` 显示数量。\n\n> 原文：颜色待定\n"
+    assert.deepEqual(lintDoc("02", doc("02", SPEC, { body: code })).errors, [])
+    // machine 块里的占位词照样拦
+    assert.match(lintDoc("02", doc("02", { ...SPEC, non_goals: ["TBD"] })).errors.join(), /占位符.*TBD/)
   })
 
   it("AC 覆盖 100%：03 少覆盖、多出 02 没有的 AC 都不行", () => {
