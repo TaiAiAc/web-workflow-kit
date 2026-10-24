@@ -605,22 +605,23 @@ const whyHtml = (key, list) => {
   const o = list().find((x) => x.key === prefOf(wsOf(current), key));
   return o ? (o.available ? availText(o.detail) : esc(`本机不可用：${o.detail || ""}`)) : "";
 };
+/** 点哪个标签就只改哪一项：弹窗里只放这一项的选项 */
 function openChoices(focus) {
   const dlg = $("choice-dlg"), ws = wsOf(current);
-  if (!ws) return;
+  const role = ROLES.find((r) => r[0] === focus);
+  if (!ws || !role) return;
+  const [key, name, , list] = role;
   // 只在打开时生成一次；切换时就地改高亮和说明，不重建（重建会闪、丢焦点）
-  dlg.innerHTML = `<header><h3 id="choice-title">选择 agent</h3><button class="btn icon ghost" id="ch-x" type="button" aria-label="关闭">${icon("x")}</button></header>
-    <div class="body picker">${ROLES.map(([key, name, , list]) =>
-      segHtml(key, name, list().map((x) => [x.key, optLabel(key, x), x.available, x.detail]), prefOf(ws, key))
-        + `<div class="why" data-why="${key}">${whyHtml(key, list)}</div>`).join("")}
-      <div class="why">建议三者选不同的 agent，避免同源偏差。每个项目记住自己的选择。</div></div>
+  dlg.innerHTML = `<header><h3 id="choice-title">选择${name} agent</h3><button class="btn icon ghost" id="ch-x" type="button" aria-label="关闭">${icon("x")}</button></header>
+    <div class="body picker">${segHtml(key, name, list().map((x) => [x.key, optLabel(key, x), x.available, x.detail]), prefOf(ws, key))}
+      <div class="why" data-why="${key}">${whyHtml(key, list)}</div>
+      <div class="why">建议编程、修复、审阅选不同的 agent，避免同源偏差。每个项目记住自己的选择。</div></div>
     <footer><span class="grow"></span><button class="btn primary" id="ch-ok" type="button">完成</button></footer>`;
   $("ch-x").onclick = $("ch-ok").onclick = () => dlg.close();
-  dlg.querySelectorAll(".seg").forEach((seg) => seg.onclick = async (e) => {
+  const seg = dlg.querySelector(".seg"), group = seg.closest(".choice");
+  seg.onclick = async (e) => {
     const b = e.target.closest("button[data-v]");
-    const key = seg.dataset.k, group = seg.closest(".choice");
     if (!b || group.classList.contains("busy") || b.getAttribute("aria-pressed") === "true") return;
-    const list = ROLES.find((r) => r[0] === key)[3];
     const mark = (v) => {
       seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === v)));
       dlg.querySelector(`[data-why="${key}"]`).innerHTML = whyHtml(key, list);
@@ -636,7 +637,7 @@ function openChoices(focus) {
     clearTimeout(slow);
     group.classList.remove("busy", "loading");
     if (!ok) mark(prev);
-  });
+  };
   if (!dlg.open) dlg.showModal();
   dlg.querySelector(`.seg[data-k="${focus}"] button[aria-pressed="true"]`)?.focus();
 }
