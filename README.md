@@ -240,3 +240,4 @@ Claude Code 没登录。终端运行 `claude` 登录后重试。
 - [docs/development.md](docs/development.md)：开发、测试、打包、CI
 - [docs/desktop.md](docs/desktop.md)：桌面端（Electron）：工作方式、开发与打包
 - [core/README.md](core/README.md)：TS 核心：模块与实现要点
+- [docs/roadmap.md](docs/roadmap.md)：第一阶段交付与验证情况、遗留问题、第二阶段候选
