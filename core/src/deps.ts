@@ -19,6 +19,8 @@ export interface Deps {
   fixer: Agent
   notifier: (state: Record<string, any>) => Promise<string>
   log: (line: string) => void
+  /** 作业分支上的阶段提交（控制台的完整流水线才有）；越界抛 WhitelistError，没改动返回 null */
+  commit?: (source: "implement" | "gate-fix", round: number, summary: string) => string | null
 }
 
 function specFn(cfg: Config) {
@@ -56,6 +58,7 @@ export interface DepsOptions {
   codingAgent?: string | null
   reviewBackend?: string | null
   fixAgent?: string | null
+  commit?: Deps["commit"]
 }
 
 export function defaultDeps(cfg: Config, opts: DepsOptions = {}): Deps {
@@ -70,6 +73,7 @@ export function defaultDeps(cfg: Config, opts: DepsOptions = {}): Deps {
     fixer: buildFixAgent(cfg, opts.fixAgent),
     notifier: state => notifyBreaker(state, cfg),
     log,
+    commit: opts.commit,
   }
 }
 

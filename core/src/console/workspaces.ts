@@ -21,6 +21,8 @@ export interface Workspace {
   prefs: Record<string, string>
   /** 只写和通用配置不同的部分；没有就是完全继承 */
   workflowOverrides?: Record<string, any>
+  /** 合并弹窗上次选的目标分支，下次默认选它 */
+  lastMergeTarget?: string
 }
 
 /** 同一个目录只算一个工作空间：统一成绝对路径、正斜杠。 */
@@ -103,6 +105,15 @@ export function setWorkflowOverrides(path: string, overrides: Record<string, any
     delete ws.workflowOverrides
   save(items)
   return ws
+}
+
+export function setLastMergeTarget(path: string, target: string): void {
+  const items = load()
+  const ws = items.find(w => w.path === normalize(path))
+  if (!ws)
+    return // 不是工作空间（比如命令行跑的）就不记
+  ws.lastMergeTarget = target
+  save(items)
 }
 
 /** 项目文件夹搬了家：把原来的工作区（偏好、覆盖）挪到新路径。 */

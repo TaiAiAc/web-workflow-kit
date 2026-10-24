@@ -157,6 +157,10 @@
 - **主图按这份配置拼**：只走启用的阶段，按 `order` 排序。阶段只能是 `discovery` / `tech-design` / `doc-review` / `implement` / `gate` / `acceptance` 这六个，先后顺序固定，`order` 不能把一个阶段调到另一个前面。`gate` 不能关，门禁是唯一的放行依据。「门禁修复回环」只走 `gate`；
 - 目前只有 `implement`（读取设计稿 → Spec → 写代码）和 `gate`（门禁 ⇄ 审阅修复）有实现。其余阶段启用时，运行到会记一行「尚未实现，跳过」，`stage_status` 里记为 `skipped`，之后的步骤会逐个补上；
 - `limits.max_retries`：门禁 ⇄ 修复审阅最多几轮，第 `max_retries + 1` 次门禁仍失败即熔断，必须 ≥ 1；
+- `git.branch_prefix`（默认 `wwk/`）：作业分支名前缀，分支名为 `<前缀><yyyyMMdd-HHmm>-<slug>`；合并弹窗不列出这个前缀的分支；
+- `git.keep_failed_branches`（默认 `3`）：失败的作业分支只留最近几个；
+- `stages.gate.install_command`（默认 `"auto"`）：合并预演前在临时目录里装依赖的命令。`"auto"` 按锁文件选冻结安装（pnpm / npm ci / yarn / bun），写命令字符串则用它，`null` 跳过；
+- `documents.repo_dir`（默认 `docs/wwk`）：入库文档目录；
 - 其他字段的含义见 [phase2-work-order.md](phase2-work-order.md) 第 3 节。
 
 ## .env

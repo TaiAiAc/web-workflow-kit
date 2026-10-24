@@ -7,6 +7,7 @@ export const VERIFY = "门禁"          // verify.ts，exit code 是唯一放行
 export const REVIEW = "审阅修复"      // 包住 reviewgraph：验收顾问 → 修复
 export const DELIVER = "交付"
 export const BREAKER = "熔断"
+export const REHEARSE = "合并预演"   // 不是图里的节点：运行结束后在临时 worktree 里对合并结果跑门禁
 
 // 第二阶段新增、尚未实现的阶段（主图里先放跳过节点）
 export const DISCOVERY = "取材与需求"

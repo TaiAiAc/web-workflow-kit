@@ -134,6 +134,8 @@ const BREAK_EXPLAINED: Record<string, string> = {
   SPEC_ERROR: "Spec 生成失败",
   CODE_AGENT_ERROR: "编码 agent 出错",
   FIX_AGENT_ERROR: "修复 agent 出错",
+  WHITELIST_VIOLATION: "agent 改了这个阶段不允许改的文件（提交路径白名单），运行中止",
+  COMMIT_ERROR: "阶段提交失败",
 }
 const NOTIFY_EXPLAINED: Record<string, string> = { sent: "已发熔断邮件", deduped: "24 小时内已就同类问题发过邮件，本次不重复发送" }
 
@@ -143,7 +145,7 @@ export function explainBreak(state: State, notify: string): string {
   const key = i < 0 ? reason : reason.slice(0, i)
   const detail = i < 0 ? "" : reason.slice(i + 1).trim()
   let text = `已熔断：${BREAK_EXPLAINED[key] ?? (reason || "原因未知")}`
-  if (detail && ["NEEDS_HUMAN", "DESIGN_ERROR", "SPEC_ERROR"].includes(key))
+  if (detail && ["NEEDS_HUMAN", "DESIGN_ERROR", "SPEC_ERROR", "WHITELIST_VIOLATION", "COMMIT_ERROR"].includes(key))
     text += `（${detail.slice(0, 200)}）`
   const codes = [...new Set((state.failures ?? []).map(f => f.code ?? "?"))].sort()
   if (codes.length)
@@ -173,6 +175,22 @@ function workflowFor(source: Source, workflow?: Workflow): Workflow {
 
 const stageResult = (name: StageName, failed: boolean): Update => ({ stage_status: { [name]: failed ? "failed" : "done" } })
 
+/** 作业分支上的阶段提交；越界 / git 出错转成 break_reason，交给熔断。 */
+function stageCommit(deps: Deps, source: "implement" | "gate-fix", round: number, summary: string): Update {
+  if (!deps.commit)
+    return {}
+  try {
+    const hash = deps.commit(source, round, summary)
+    deps.log(hash ? `[提交] ${source === "implement" ? "编码" : "门禁修复"}第 ${round} 轮：${hash.slice(0, 7)}` : "[提交] 没有改动，跳过")
+    return {}
+  }
+  catch (e) {
+    const err = e as Error
+    deps.log(`[提交] ${err.message}`)
+    return { break_reason: `${err.name === "WhitelistError" ? "WHITELIST_VIOLATION" : "COMMIT_ERROR"}: ${err.message}` }
+  }
+}
+
 type MainGraph = StateGraph<typeof PipelineState.spec, State, Update, string>
 
 /** 阶段按工作流配置拼；entry="verify" 只有门禁，直接对当前工作区跑门禁闭环。 */
@@ -186,7 +204,9 @@ export function buildMainGraph(source: Source, entry: Entry = "code", opts: Main
   for (const stage of plan) {
     if (stage.name === "implement") {
       g.addNode(N.CODE, async (state: State, config: LangGraphRunnableConfig) => {
-        const out = pick(await codegraph.invoke(state, config), CODE_KEYS)
+        const out: Update = pick(await codegraph.invoke(state, config), CODE_KEYS)
+        if (!out.break_reason)
+          Object.assign(out, stageCommit(resolveDeps(source, state), "implement", 1, state.requirement ?? ""))
         return { ...out, ...stageResult("implement", Boolean(out.break_reason)) }
       })
     }
@@ -246,7 +266,11 @@ function addGate(g: MainGraph, source: Source, reviewgraph: ReturnType<typeof bu
       return out
     })
   g.addNode(N.REVIEW, async (state: State, config: LangGraphRunnableConfig) => {
-    const out = pick(await reviewgraph.invoke(state, config), REVIEW_KEYS)
+    const out: Update = pick(await reviewgraph.invoke(state, config), REVIEW_KEYS)
+    if (!out.break_reason) {
+      const codes = [...new Set((state.failures ?? []).map(f => f.code ?? "?"))].sort().join("、")
+      Object.assign(out, stageCommit(resolveDeps(source, state), "gate-fix", state.attempt ?? 1, `修复 ${codes || "门禁失败项"}`))
+    }
     return out.break_reason ? { ...out, ...stageResult("gate", true) } : out
   })
 }

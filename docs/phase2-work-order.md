@@ -244,7 +244,19 @@ machine: {ac_status: {AC-1: pass}, verdict: pass|fail, return_stage: null|discov
    - `core/src/whitelist.ts`：`checkCommitPaths` / `assertCommitAllowed`（读暂存区，改名拆成删除 + 新增两边都查，越界抛 `WhitelistError`）；
    - core 新增依赖 `yaml`（与 `verify/` 同一个包）；
    - 遗留：「同一文档连续 `max_doc_lint_failures` 次不过 = 运行失败」的计数由流水线在接入时实现；
-4. 作业分支 / 锁 / 合并预演 / 弹窗，后端 + 前端；
+4. 作业分支 / 锁 / 合并预演 / 弹窗，后端 + 前端——**已完成**：
+   - `core/src/gitflow.ts`：开工检查（问题一次列全）、`.gitignore` 一键修复、锁、作业分支、阶段提交（过白名单）、收尾、失败分支保留、合并目标、预演、落地、删除校验、不合并 / 作废、断点恢复校验；
+   - 主图在「编码」后、每轮「审阅修复」后各提交一次；越界记为 `WHITELIST_VIOLATION` 熔断；
+   - 控制台：完整流水线走作业分支，跑完按默认目标自动预演并弹出合并弹窗；接口 `/api/flow`、`/api/flow/{rehearse,merge,hold,discard}`、`/api/workspaces/fix-gitignore`；运行列表和详情显示作业分支状态，项目页有「待处理」横幅；
+   - 通知：页面用 Web Notification（浏览器和 Electron 都支持），桌面端不用另写代码；
+   - 与上文的差异［四定］：
+     - **运行结束（无论成败）都切回原分支、释放锁**，待合并 / 待处理只记在 manifest；未提交的残留存为 `.agent/runs/<id>/leftover.patch` 后清掉；
+     - **合并落地放宽**：目标检出在项目目录本身且工作区干净时用 `git merge --ff-only S`（同样要求 head == 预演起点）；检出在别的 worktree 才拒绝；未检出时用 `update-ref` CAS。否则「合并回原分支」这个最常见的情况会总被拒绝；
+     - **改提交说明不重跑预演**：树和父提交不变，用 `commit-tree` 生成新提交，校验仍比对 tree；
+     - 预演的 S 用 `refs/wwk/rehearsal/<run>` 临时保留，合并或作废后删除；
+     - 预演用原项目的 `rules.yaml`（不一定入库）；
+     - 只有控制台的完整流水线走作业分支；修复回环、仅门禁、命令行 `wwk run` 维持第一阶段行为（命令行没有合并弹窗），留作后续；
+   - 遗留：`time_budget_sec` 尚未强制；断点恢复的分支校验（`checkResume`）已实现并有测试，但控制台运行不用检查点，等命令行接入作业分支时再接上；
 5. vision 适配；
 6. 指标与拒绝原因回流（每轮 token、耗时、打回原因，按 agent 汇总）。
 

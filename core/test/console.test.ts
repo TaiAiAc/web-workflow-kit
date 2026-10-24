@@ -1,5 +1,6 @@
 // 本地控制台（TS 版）：起一个真实的本地 HTTP 服务，按页面的方式调用。
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { createServer, request as httpRequest } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -13,6 +14,22 @@ import { tempDir } from "./helpers.ts"
 /** 门禁只有一项 typecheck，命令是一段 node 脚本。 */
 const rulesRunning = (code: string) =>
   `project_type: web\nprofiles:\n  web:\n    checks: [typecheck]\n    typecheck:\n      run: ${JSON.stringify(`"${process.execPath}" -e "${code}"`)}\n`
+
+/** 干净的 git 仓库：.agent/ 和 .env 已忽略，写好的文件都提交掉 */
+function gitRepo(files: Record<string, string>, ignore = ".agent/\n.env\n"): string {
+  const root = tempDir()
+  const g = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" }).toString().trim()
+  g("init", "-q", "-b", "main")
+  g("config", "user.email", "t@t")
+  g("config", "user.name", "t")
+  writeFileSync(join(root, ".gitignore"), ignore)
+  for (const [name, text] of Object.entries(files))
+    writeFileSync(join(root, name), text)
+  g("add", ".")
+  g("commit", "-qm", "init")
+  return root
+}
+const gitOut = (root: string, ...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "pipe" }).toString().trim()
 
 let c: ConsoleServer
 const opened: string[] = []
@@ -225,28 +242,76 @@ describe("控制台服务", () => {
       res.end(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: "# Spec" } }] }))
     })
     await new Promise<void>(r => llm.listen(0, "127.0.0.1", r))
-    const root = tempDir()
-    writeFileSync(join(root, "rules.yaml"), rulesRunning("console.log('types ok')"))
+    // 编码 agent 写一个文件；工作区是干净的 git 仓库
+    const root = gitRepo({
+      "rules.yaml": rulesRunning("console.log('types ok')"),
+      "agent.config.json": JSON.stringify({
+        spec: { backend: "openai_compatible", base_url: `http://127.0.0.1:${(llm.address() as AddressInfo).port}`, model: "m" },
+        coding_agents: { dsh: { command: [process.execPath, "-e", "require('fs').writeFileSync('login.ts', 'export {}')", "{prompt}"] } },
+        checkpoint: { enabled: false },
+      }),
+    })
     writeFileSync(join(root, ".env"), "OPENAI_API_KEY=sk-test\n")
-    writeFileSync(join(root, "agent.config.json"), JSON.stringify({
-      spec: { backend: "openai_compatible", base_url: `http://127.0.0.1:${(llm.address() as AddressInfo).port}`, model: "m" },
-      coding_agents: { dsh: { command: [process.execPath, "-e", "0", "{prompt}"] } },
-      checkpoint: { enabled: false },
-    }))
     try {
-      const { body } = await request("POST", "/api/runs", { graph: N.PIPELINE_NAME, input: { project_root: root, requirement: "x", coding_agent: "dsh" } })
+      await request("POST", "/api/workspaces/add", { path: root })
+      const { body } = await request("POST", "/api/runs", { graph: N.PIPELINE_NAME, input: { project_root: root, requirement: "做登录页", coding_agent: "dsh" } })
       const run = await waitRun(body.id)
       const steps = run.events.filter((e: any) => e.type === "node_start").map((e: any) => [e.parent, e.node])
       assert.deepEqual(steps, [
         [null, N.DISCOVERY], [null, N.TECH_DESIGN], [null, N.DOC_REVIEW],
         [null, N.CODE], [N.CODE, N.DESIGN], [N.CODE, N.SPEC], [N.CODE, N.WRITE_CODE],
-        [null, N.VERIFY], [null, N.ACCEPTANCE], [null, N.DELIVER],
+        [null, N.VERIFY], [null, N.ACCEPTANCE], [null, N.DELIVER], [null, N.REHEARSE],
       ])
       assert.equal(run.result.status, "delivered")
       assert.ok("changed_files" in run.result)
+      // 跑完已切回 main，作业分支待合并，默认目标的预演已通过
+      assert.equal(gitOut(root, "symbolic-ref", "--short", "HEAD"), "main")
+      assert.equal(run.flow.status, "ready_to_merge")
+      assert.deepEqual(run.flow.rehearsal, { target: "main", passed: true })
+      assert.equal(existsSync(join(root, "login.ts")), false)
+
+      // 有待合并的运行时不许开新运行
+      const blocked = await request("POST", "/api/runs", { graph: N.PIPELINE_NAME, input: { project_root: root, requirement: "y" } })
+      assert.equal(blocked.status, 400)
+      assert.deepEqual(blocked.body.problems.map((p: any) => p.code), ["PENDING"])
+
+      // 合并弹窗：目标列表、默认目标；合并后删作业分支，main 前进一个 squash 提交
+      const flow = (await request("GET", `/api/flow?project=${encodeURIComponent(root)}&run=${run.id}`)).body
+      assert.equal(flow.default_target, "main")
+      assert.deepEqual(flow.targets.map((t: any) => t.branch), ["main"])
+      const merged = await request("POST", "/api/flow/merge", { project: root, run: run.id, target: "main" })
+      assert.equal(merged.status, 200)
+      assert.equal(merged.body.manifest.status, "merged")
+      assert.equal(existsSync(join(root, "login.ts")), true)
+      assert.equal(gitOut(root, "log", "-1", "--format=%s"), "做登录页")
+      assert.equal(gitOut(root, "branch", "--list", run.flow.branch), "")
+      const ws = (await request("GET", "/api/workspaces")).body.find((w: any) => w.path === root.replaceAll("\\", "/"))
+      assert.equal(ws.lastMergeTarget, "main")
+      assert.deepEqual(ws.pending_runs, [])
     }
     finally {
       llm.close()
     }
+  })
+
+  it("开工检查没过：返回问题清单；.gitignore 可以一键修复", async () => {
+    const root = gitRepo({ "app.ts": "" }, "node_modules/\n")
+    await request("POST", "/api/workspaces/add", { path: root })
+    const r = await request("POST", "/api/runs", { graph: N.PIPELINE_NAME, input: { project_root: root, requirement: "x" } })
+    assert.equal(r.status, 400)
+    assert.deepEqual(r.body.problems.map((p: any) => p.code), ["GITIGNORE"])
+    const fixed = await request("POST", "/api/workspaces/fix-gitignore", { path: root })
+    assert.equal(fixed.status, 200)
+    assert.equal(gitOut(root, "log", "-1", "--format=%s"), "chore: 忽略 .agent/（web-workflow-kit 运行产物）")
+    // 修复回环、仅门禁不拉作业分支，也就不要求这些
+    assert.equal((await request("POST", "/api/runs", { graph: GATE_ONLY, input: { project_root: tempDir() } })).status, 201)
+  })
+
+  it("作业分支接口只认已加入的工作空间；没有记录的运行返回 404", async () => {
+    assert.equal((await request("GET", `/api/flow?project=${encodeURIComponent(tempDir())}&run=abc`)).status, 400)
+    const root = gitRepo({})
+    await request("POST", "/api/workspaces/add", { path: root })
+    assert.equal((await request("GET", `/api/flow?project=${encodeURIComponent(root)}&run=abc`)).status, 404)
+    assert.equal((await request("POST", "/api/flow/discard", { project: root, run: "abc" })).status, 400)
   })
 })
