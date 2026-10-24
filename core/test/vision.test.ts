@@ -29,15 +29,20 @@ function setup(opts: { backend?: string, model?: string } = {}) {
   return { cfg, docDir: join(root, "docs", "wwk", "20261024-login"), img }
 }
 
-/** 临时设环境变量（桩靠它切换行为），用完还原 */
+/** 临时设环境变量（桩靠它切换行为，也会临时改 PATH），用完恢复原值 */
 async function withEnv<T>(vars: Record<string, string>, fn: () => Promise<T>): Promise<T> {
+  const old = Object.fromEntries(Object.keys(vars).map(k => [k, process.env[k]]))
   Object.assign(process.env, vars)
   try {
     return await fn()
   }
   finally {
-    for (const k of Object.keys(vars))
-      delete process.env[k]
+    for (const [k, v] of Object.entries(old)) {
+      if (v === undefined)
+        delete process.env[k]
+      else
+        process.env[k] = v
+    }
   }
 }
 
@@ -97,11 +102,29 @@ describe("vision", () => {
       analyzeImages(other.cfg, { images: [other.img("a.png", [9])], requirement: "x", docDir: other.docDir })), /退出码 2：model not available/)
   })
 
-  it("只收图片；roles.vision.agent 不是 codex 就拒绝", async () => {
+  it("只收图片；看图只能选 codex / claude", async () => {
     const { cfg, docDir, img } = setup()
     await assert.rejects(analyzeImages(cfg, { images: [img("a.pdf", [1])], requirement: "x", docDir }), /只支持图片/)
-    cfg.workflow.raw.roles.vision.agent = "claude"
-    await assert.rejects(analyzeImages(cfg, { images: [img("b.png", [1])], requirement: "x", docDir }), /只支持 codex/)
+    cfg.workflow.raw.roles.vision.agent = "dsh"
+    await assert.rejects(analyzeImages(cfg, { images: [img("b.png", [1])], requirement: "x", docDir }), /只支持 codex \/ claude/)
+  })
+
+  it("选 Claude Code 看图：只读启动，图片文件就在它的工作目录里", async () => {
+    const { cfg, docDir, img } = setup()
+    // 假 claude：报告收到的权限模式和工作目录里的图片，按 claude -p --output-format json 的格式输出
+    const bin = tempDir()
+    const fake = join(bin, process.platform === "win32" ? "claude.cmd" : "claude")
+    const script = join(bin, "fake-claude.mjs")
+    writeFileSync(script, `import { readdirSync } from "node:fs"
+const a = process.argv.slice(2); const mode = a[a.indexOf("--permission-mode") + 1]
+const imgs = readdirSync(".").filter(f => f.startsWith("image-")).join(",")
+console.log(JSON.stringify({ result: "## 概览\\n\\n登录页。mode=" + mode + " images=" + imgs + "\\n\\n## 不确定的地方\\n\\n无", is_error: false, usage: { input_tokens: 10, output_tokens: 5 } }))`)
+    writeFileSync(fake, process.platform === "win32" ? `@"${process.execPath}" "${script}" %*\r\n` : `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`, { mode: 0o755 })
+    const r = await withEnv({ PATH: `${bin}${process.platform === "win32" ? ";" : ":"}${process.env.PATH}` }, () =>
+      analyzeImages(cfg, { images: [img("a.png", [1]), img("b.png", [2])], requirement: "x", docDir }, { agent: "claude" }))
+    assert.equal(r.backend, "claude_cli")
+    assert.match(r.text, /mode=default images=image-1\.png,image-2\.png/)
+    assert.deepEqual(r.lint.errors, [])
   })
 
   it("模型多写的代码块、front-matter、machine 块都去掉", () => {

@@ -14,10 +14,10 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net"
 import { dirname, extname, join } from "node:path"
 import { ASSET_EXTS } from "../docs.ts"
-import { visionPreflight } from "../vision.ts"
+import { VISION_AGENTS, visionPreflight } from "../vision.ts"
 import { agentAvailability, codingAgentChoices, defaultFixChoice } from "../agents.ts"
 import { ASSETS_DIR, type Config, DEFAULTS, initProject, loadConfig, writeSnapshot } from "../config.ts"
-import { defaultDeps } from "../deps.ts"
+import { defaultDeps, ROLE_INPUTS, roleOverrides } from "../deps.ts"
 import { type Flow, FlowError, fixGitignore, NeedsRehearsal, pendingRuns, preflight, readManifest, startRun } from "../gitflow.ts"
 import { buildMainGraph } from "../graph.ts"
 import { Metrics, metricsFile, summarize } from "../metrics.ts"
@@ -69,12 +69,16 @@ export function describeAgents(): Json {
     const [available, detail] = agentAvailability(p, env)
     return { key, label: p.label ?? key, available, detail, via: via[p.backend] ?? p.backend }
   })
+  const roles = cfg.workflow.raw.roles ?? {}
   return {
-    default: DEFAULTS.code?.agent ?? "claude",
+    default: roles.dev?.agent ?? DEFAULTS.code?.agent ?? "claude",
     agents,
     fix_default: defaultFixChoice(cfg),
     review_default: DEFAULTS.review?.backend ?? "auto",
     reviewers: reviewAvailability(cfg),
+    // 文档阶段各角色的默认 agent（工作流配置），看图只能选能看图的
+    role_defaults: Object.fromEntries(Object.entries(ROLE_INPUTS).map(([role, k]) => [k, roles[role]?.agent ?? ""])),
+    vision_agents: agents.filter(a => (VISION_AGENTS as readonly string[]).includes(a.key)),
   }
 }
 
@@ -87,6 +91,12 @@ export function checkChoices(values: Json): void {
   }
   if (values.review_backend && !(values.review_backend in BACKENDS) && !(values.review_backend in agents)) // 编程 agent 也能只读审阅
     throw new Error(`未知的审阅方式：${values.review_backend}`)
+  for (const [field, what] of [["product_agent", "需求"], ["tech_agent", "技术设计"], ["arbiter_agent", "仲裁"]]) {
+    if (values[field] && !(values[field] in agents))
+      throw new Error(`未知的${what} agent：${values[field]}`)
+  }
+  if (values.vision_agent && !(VISION_AGENTS as readonly string[]).includes(values.vision_agent))
+    throw new Error(`看图只支持 ${VISION_AGENTS.join(" / ")}：${values.vision_agent}`)
 }
 
 class Run {
@@ -143,6 +153,7 @@ class Run {
       codingAgent: state.coding_agent || this.input.coding_agent,
       reviewBackend: state.review_backend || this.input.review_backend,
       fixAgent: state.fix_agent || this.input.fix_agent,
+      roles: roleOverrides(state, this.input),
       commit: flow ? (src, round, summary) => flow!.commit(src, round, summary) : undefined,
       metrics,
     })
@@ -247,7 +258,7 @@ export function stepAgents(cfg: Config, input: Json): Record<string, string> {
   const presets: Json = cfg.raw.coding_agents ?? {}
   const label = (key: string | undefined) => (key ? presets[key]?.label ?? key : "")
   const roles: Json = cfg.workflow.raw.roles ?? {}
-  const product = label(roles.product?.agent)
+  const product = label(input.product_agent || roles.product?.agent)
   const coder = label(input.coding_agent || roles.dev?.agent || cfg.get("code").agent)
   const fixKey = input.fix_agent || defaultFixChoice(cfg)
   let reviewer: string
@@ -261,9 +272,9 @@ export function stepAgents(cfg: Config, input: Json): Record<string, string> {
   const scfg = cfg.get("spec")
   const script = "门禁脚本（无模型）"
   return {
-    [N.DISCOVERY]: input.images?.length ? `${product}（看图：${label(roles.vision?.agent)}）` : product,
-    [N.TECH_DESIGN]: label(roles.tech?.agent),
-    [N.DOC_REVIEW]: `${product}（仲裁：${label(roles.arbiter?.agent)}）`, // 超过复核轮次才交给仲裁
+    [N.DISCOVERY]: input.images?.length ? `${product}（看图：${label(input.vision_agent || roles.vision?.agent)}）` : product,
+    [N.TECH_DESIGN]: label(input.tech_agent || roles.tech?.agent),
+    [N.DOC_REVIEW]: `${product}（仲裁：${label(input.arbiter_agent || roles.arbiter?.agent)}）`, // 超过复核轮次才交给仲裁
     [N.DESIGN]: input.design_ref === "mastergo" ? "MasterGo（无模型）" : "读取文件（无模型）",
     [N.SPEC]: scfg.backend === "openai_compatible" ? `GPT 兼容接口${scfg.model ? `（${scfg.model}）` : ""}` : "Claude Code",
     [N.WRITE_CODE]: coder,
@@ -291,7 +302,7 @@ function checkInputs(cfg: Config, payload: Json): void {
       throw new Error(`只支持图片（${ASSET_EXTS.join(" ")}）：${p}`)
   }
   if (images.length) {
-    const [ok, why] = visionPreflight(cfg)
+    const [ok, why] = visionPreflight(cfg, typeof payload.vision_agent === "string" ? payload.vision_agent : null)
     if (!ok)
       throw new Error(`图片输入需要 Codex：${why}`)
   }

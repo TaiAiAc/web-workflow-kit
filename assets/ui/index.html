@@ -10,6 +10,7 @@
   --line: #e1e4ea; --line-2: #cdd2da; --text: #1c2330; --muted: #5d6676; --faint: #8a93a3;
   --accent: #2f6fed; --accent-soft: #e8efff; --on-accent: #fff;
   --ok: #1a8a4f; --ok-soft: #e4f5ec; --bad: #cc3340; --bad-soft: #fdebed; --warn: #b76e00; --warn-soft: #fff3df;
+  --purple: #7046d6; --teal: #0d7f86; --pink: #c0306b; --slate: #5d6676;
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
   --r: 7px;
@@ -20,7 +21,7 @@
     --bg: #15181e; --side: #1b1f27; --panel: #1d222b; --panel-2: #232934; --hover: rgba(255, 255, 255, .06); --sel: rgba(109, 155, 255, .18);
     --line: #2a303c; --line-2: #3a4252; --text: #e6e9ef; --muted: #a0a9b8; --faint: #747e8f;
     --accent: #6d9bff; --accent-soft: #1d2a45; --on-accent: #0b1220;
-    --ok: #4cc38a; --ok-soft: #14291f; --bad: #ff6b76; --bad-soft: #33181c; --warn: #f0a947; --warn-soft: #2e2311;
+    --ok: #4cc38a; --ok-soft: #14291f; --bad: #ff6b76; --bad-soft: #33181c; --warn: #f0a947; --warn-soft: #2e2311; --purple: #b49bff; --teal: #4fcfd6; --pink: #f285b0; --slate: #a0a9b8;
     color-scheme: dark;
   }
 }
@@ -28,7 +29,7 @@
   --bg: #15181e; --side: #1b1f27; --panel: #1d222b; --panel-2: #232934; --hover: rgba(255, 255, 255, .06); --sel: rgba(109, 155, 255, .18);
   --line: #2a303c; --line-2: #3a4252; --text: #e6e9ef; --muted: #a0a9b8; --faint: #747e8f;
   --accent: #6d9bff; --accent-soft: #1d2a45; --on-accent: #0b1220;
-  --ok: #4cc38a; --ok-soft: #14291f; --bad: #ff6b76; --bad-soft: #33181c; --warn: #f0a947; --warn-soft: #2e2311;
+  --ok: #4cc38a; --ok-soft: #14291f; --bad: #ff6b76; --bad-soft: #33181c; --warn: #f0a947; --warn-soft: #2e2311; --purple: #b49bff; --teal: #4fcfd6; --pink: #f285b0; --slate: #a0a9b8;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -104,9 +105,14 @@ kbd { font: 11px var(--mono); color: inherit; opacity: .75; }
 .role-tag .k { opacity: .75; }
 .role-tag b { font-weight: 600; }
 .role-tag:hover { border-color: currentColor; }
-.role-tag.code { background: var(--accent-soft); color: var(--accent); }
-.role-tag.fix { background: var(--warn-soft); color: var(--warn); }
-.role-tag.review { background: var(--ok-soft); color: var(--ok); }
+.role-tag { --role: var(--accent); background: color-mix(in srgb, var(--role) 13%, transparent); color: var(--role); }
+.role-tag.product { --role: var(--purple); }
+.role-tag.tech { --role: var(--teal); }
+.role-tag.code { --role: var(--accent); }
+.role-tag.fix { --role: var(--warn); }
+.role-tag.review { --role: var(--ok); }
+.role-tag.vision { --role: var(--pink); }
+.role-tag.arbiter { --role: var(--slate); }
 .role-tag.na b { text-decoration: line-through; }
 dialog.merge.picker-dlg { width: min(720px, calc(100vw - 32px)); }
 .picker { display: flex; flex-direction: column; gap: 14px; }
@@ -429,7 +435,7 @@ const reviewerLabel = (k) => (AGENTS.reviewers.find((r) => r.key === k)?.label |
 function prefOf(ws, k) {
   const p = ws?.prefs || {};
   if (p[k]) return p[k];
-  return { coding_agent: AGENTS.default, fix_agent: AGENTS.fix_default, review_backend: AGENTS.review_default }[k] || "";
+  return { coding_agent: AGENTS.default, fix_agent: AGENTS.fix_default, review_backend: AGENTS.review_default, ...(AGENTS.role_defaults || {}) }[k] || "";
 }
 
 const RSTATUS = {
@@ -582,11 +588,22 @@ function renderMain() {
 }
 
 // ---------- 编程 / 修复 / 审阅：一行彩色标签 + 选择弹窗 ----------
+// [字段, 名称, 颜色, 可选项]；按流程顺序排。需求、复核、验收必须是同一个 agent（product），技术设计和实现核对也是同一个（tech）
 const ROLES = [
+  ["product_agent", "需求·复核·验收", "product", () => AGENTS.agents],
+  ["tech_agent", "技术设计·核对", "tech", () => AGENTS.agents],
   ["coding_agent", "编程", "code", () => AGENTS.agents],
   ["fix_agent", "修复", "fix", () => AGENTS.agents],
-  ["review_backend", "审阅", "review", () => AGENTS.reviewers],
+  ["review_backend", "修复审阅", "review", () => AGENTS.reviewers],
+  ["vision_agent", "看图", "vision", () => AGENTS.vision_agents || []],
+  ["arbiter_agent", "仲裁", "arbiter", () => AGENTS.agents],
 ];
+const ROLE_HINT = {
+  product_agent: "同一个 agent 负责写需求（02）、复核技术设计（04）和最后的产品验收（06）。",
+  tech_agent: "同一个 agent 负责写技术设计（03），并在写完代码后核对实现是否和设计对得上。",
+  vision_agent: "只在带图片的需求里用：看图写设计分析（01）。",
+  arbiter_agent: "文档复核超过轮次仍没通过时，由它判定技术设计能否继续。",
+};
 const optLabel = (key, o) => (key === "review_backend" ? reviewerLabel(o.key) : o.label);
 const isPath = (d) => /[\\/]/.test(d || "");
 // 可用时的说明：编程 agent 给的是可执行文件路径，显示「已安装」，路径放进悬停提示
@@ -615,7 +632,7 @@ function openChoices(focus) {
   dlg.innerHTML = `<header><h3 id="choice-title">选择${name} agent</h3><button class="btn icon ghost" id="ch-x" type="button" aria-label="关闭">${icon("x")}</button></header>
     <div class="body picker">${segHtml(key, name, list().map((x) => [x.key, optLabel(key, x), x.available, x.detail]), prefOf(ws, key))}
       <div class="why" data-why="${key}">${whyHtml(key, list)}</div>
-      <div class="why">建议编程、修复、审阅选不同的 agent，避免同源偏差。每个项目记住自己的选择。</div></div>
+      <div class="why">${esc(ROLE_HINT[key] || "")}建议各环节选不同的 agent，避免同源偏差。每个项目记住自己的选择。</div></div>
     <footer><span class="grow"></span><button class="btn primary" id="ch-ok" type="button">完成</button></footer>`;
   $("ch-x").onclick = $("ch-ok").onclick = () => dlg.close();
   const seg = dlg.querySelector(".seg"), group = seg.closest(".choice");
@@ -649,7 +666,7 @@ function segHtml(key, label, opts, chosen) {
 /** 保存一项选择（工作空间偏好）；先在本地改好，失败再改回去。返回是否保存成功。 */
 async function choose(key, value) {
   const ws = wsOf(current);
-  const opt = key === "review_backend" ? AGENTS.reviewers.find((r) => r.key === value) : AGENTS.agents.find((a) => a.key === value);
+  const opt = (ROLES.find((r) => r[0] === key)?.[3]() || AGENTS.agents).find((a) => a.key === value);
   if (opt && !opt.available) toast(`${opt.label || value}：${opt.detail || "本机不可用"}。仍可选择，运行时会失败。`, true);
   const before = { ...(ws.prefs || {}) };
   ws.prefs = { ...before, [key]: value };
@@ -727,6 +744,7 @@ async function startRun(graph) {
     const requirement = $("req").value.trim();
     if (!requirement) { $("compose-err").textContent = "先写下这次要做的需求"; $("req").focus(); return; }
     Object.assign(input, { requirement, coding_agent: prefOf(ws, "coding_agent") });
+    for (const k of ["product_agent", "tech_agent", "vision_agent", "arbiter_agent"]) input[k] = prefOf(ws, k);   // 文档阶段各角色
     if (design) input.design_ref = design;
     if (images.length) input.images = images;
     // 跑完要合并时发通知；趁这次点击要权限（桌面端不需要）

@@ -11,7 +11,7 @@ import {
   userHome, WORKFLOW_DEFAULTS, workspaceEntries, workspaceKey, workspacesFile, writeJsonAtomic,
 } from "../config.ts"
 
-export const PREF_KEYS = ["coding_agent", "fix_agent", "review_backend"] as const
+export const PREF_KEYS = ["coding_agent", "fix_agent", "review_backend", "product_agent", "tech_agent", "vision_agent", "arbiter_agent"] as const
 const MAX_SAVED_RUNS = 50 // 每个项目只留最近这么多条运行记录
 
 export interface Workspace {

@@ -21,6 +21,11 @@ export const PipelineState = Annotation.Root({
   coding_agent: value<string | null>(),
   review_backend: value<string | null>(),
   fix_agent: value<string | null>(),
+  // 文档阶段各角色本次用的 agent；不填用工作流配置的 roles
+  product_agent: value<string | null>(),     // 需求 / 复核 / 验收（同一个 agent）
+  tech_agent: value<string | null>(),        // 技术设计 / 实现核对
+  vision_agent: value<string | null>(),      // 看图
+  arbiter_agent: value<string | null>(),     // 仲裁
   design_ref: value<string | null>(),
   // 第二阶段的输入与文档
   input_mode: value<"text" | "image" | "mastergo" | null>(),

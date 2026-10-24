@@ -25,7 +25,7 @@ import type { State } from "./state.ts"
 declare const __WWK_VERSION__: string | undefined
 export const VERSION = typeof __WWK_VERSION__ === "string" ? __WWK_VERSION__ : "dev"
 
-const USAGE = `用法：wwk [fix|verify|run|resume|init|ui|repl] [需求] [--project <dir>] [--agent <名称>] [--fix-agent <名称>] [--review auto|api|dsh|skip|<编程 agent>] [--design <ref>] [--config <文件>] [--json] [--version]
+const USAGE = `用法：wwk [fix|verify|run|resume|init|ui|repl] [需求] [--project <dir>] [--agent <名称>] [--fix-agent <名称>] [--product-agent|--tech-agent|--vision-agent|--arbiter-agent <名称>] [--review auto|api|dsh|skip|<编程 agent>] [--design <ref>] [--config <文件>] [--json] [--version]
 不带命令进交互模式（REPL）。`
 
 function summary(state: State) {
@@ -48,6 +48,10 @@ async function main(argv: string[]): Promise<number> {
       "config": { type: "string" },
       "agent": { type: "string" },
       "fix-agent": { type: "string" },
+      "product-agent": { type: "string" },
+      "tech-agent": { type: "string" },
+      "vision-agent": { type: "string" },
+      "arbiter-agent": { type: "string" },
       "review": { type: "string" },
       "json": { type: "boolean", default: false },
       "port": { type: "string", default: "8765" },
@@ -87,7 +91,8 @@ async function main(argv: string[]): Promise<number> {
 
   const cfg = loadConfig(values.project, values.config)
   const runId = `cli-${new Date().toISOString().replace(/\D/g, "").slice(0, 14)}`
-  const deps = defaultDeps(cfg, { log, codingAgent: values.agent, fixAgent: values["fix-agent"], reviewBackend: values.review, metrics: new Metrics(metricsFile(cfg.stateDir, runId)) })
+  const roles = { product: values["product-agent"], tech: values["tech-agent"], vision: values["vision-agent"], arbiter: values["arbiter-agent"] }
+  const deps = defaultDeps(cfg, { log, codingAgent: values.agent, fixAgent: values["fix-agent"], reviewBackend: values.review, roles, metrics: new Metrics(metricsFile(cfg.stateDir, runId)) })
 
   if (command === "verify") {
     const r = await deps.gate()

@@ -115,6 +115,13 @@ describe("控制台服务", () => {
     assert.deepEqual([r.status, r.body.error], [400, "未知的修复 agent：cursor"])
     r = await request("POST", "/api/runs", { graph: N.FIX_LOOP_NAME, input: { project_root: tempDir(), review_backend: "gpt" } })
     assert.deepEqual([r.status, r.body.error], [400, "未知的审阅方式：gpt"])
+    // 文档阶段的角色也能选：需求 / 技术设计 / 仲裁任一编程预设，看图只能 codex / claude
+    assert.deepEqual(body.role_defaults, { product_agent: "claude", tech_agent: "codex", vision_agent: "codex", arbiter_agent: "dsh" })
+    assert.deepEqual(body.vision_agents.map((a: any) => a.key), ["claude", "codex"])
+    r = await request("POST", "/api/runs", { graph: N.FIX_LOOP_NAME, input: { project_root: tempDir(), product_agent: "cursor" } })
+    assert.deepEqual([r.status, r.body.error], [400, "未知的需求 agent：cursor"])
+    r = await request("POST", "/api/runs", { graph: N.FIX_LOOP_NAME, input: { project_root: tempDir(), vision_agent: "dsh" } })
+    assert.match(r.body.error, /看图只支持 codex \/ claude/)
   })
 
   it("选文件夹与目录检查", async () => {
@@ -333,6 +340,10 @@ describe("控制台服务", () => {
     assert.equal(a[N.VERIFY], "门禁脚本（无模型）")
     assert.match(stepAgents(cfg, { images: ["/a.png"] })[N.DISCOVERY], /看图：Codex/)
     assert.equal(stepAgents(cfg, { review_backend: "skip" })[N.ADVISE], "跳过审阅")
+    // 本次选的角色覆盖工作流配置
+    const o = stepAgents(cfg, { product_agent: "codex", tech_agent: "claude", arbiter_agent: "workbuddy" })
+    assert.deepEqual([o[N.DISCOVERY], o[N.TECH_DESIGN], o[N.ACCEPTANCE]], ["Codex", "Claude Code", "Codex"])
+    assert.equal(o[N.DOC_REVIEW], `Codex（仲裁：${cfg.raw.coding_agents.workbuddy.label}）`)
   })
 
   it("三种输入：图片和设计稿二选一，图片要存在且是图片；图片选择器返回多个路径", async () => {

@@ -64,6 +64,14 @@ export function validatePlan(plan: unknown): Plan {
   return p
 }
 
+/** 运行输入 / 工作空间偏好里各角色的字段名 */
+export const ROLE_INPUTS = { product: "product_agent", tech: "tech_agent", vision: "vision_agent", arbiter: "arbiter_agent" } as const
+export type RoleOverrides = Partial<Record<keyof typeof ROLE_INPUTS, string | null>>
+/** 从运行输入（或多份，前面的优先）里取各角色本次选的 agent */
+export function roleOverrides(...sources: Record<string, any>[]): RoleOverrides {
+  return Object.fromEntries(Object.entries(ROLE_INPUTS).map(([role, k]) => [role, sources.map(s => s?.[k]).find(Boolean) ?? null]))
+}
+
 export interface DepsOptions {
   log?: (line: string) => void
   codingAgent?: string | null
@@ -71,6 +79,8 @@ export interface DepsOptions {
   fixAgent?: string | null
   commit?: Deps["commit"]
   metrics?: Metrics
+  /** 文档阶段各角色本次用的 agent，覆盖工作流配置的 roles */
+  roles?: RoleOverrides
 }
 
 export function defaultDeps(cfg: Config, opts: DepsOptions = {}): Deps {
@@ -90,8 +100,8 @@ export function defaultDeps(cfg: Config, opts: DepsOptions = {}): Deps {
     commit: opts.commit,
     metrics: opts.metrics,
     agentNames: { coder, fixer: opts.fixAgent || "fix" },
-    roleAgent: role => buildRoleAgent(cfg, role),
-    vision: input => analyzeImages(cfg, input, { log }),
+    roleAgent: role => buildRoleAgent(cfg, role, opts.roles?.[role as keyof RoleOverrides]),
+    vision: input => analyzeImages(cfg, input, { log, agent: opts.roles?.vision }),
   }
 }
 
@@ -111,7 +121,7 @@ export function depsFromState(state: Record<string, any>, log?: (line: string) =
   if (!state.project_root)
     throw new Error("input.project_root is required: the absolute path of the front-end project to work on")
   return defaultDeps(loadConfig(state.project_root), {
-    log, codingAgent: state.coding_agent, reviewBackend: state.review_backend, fixAgent: state.fix_agent,
+    log, codingAgent: state.coding_agent, reviewBackend: state.review_backend, fixAgent: state.fix_agent, roles: roleOverrides(state),
   })
 }
 
