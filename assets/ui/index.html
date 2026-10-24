@@ -97,10 +97,23 @@ kbd { font: 11px var(--mono); color: inherit; opacity: .75; }
 .recent { display: flex; gap: 6px; padding: 0 14px 8px; flex-wrap: wrap; }
 .recent button { border: 1px dashed var(--line-2); background: none; color: var(--muted); border-radius: 12px; padding: 1px 9px; font-size: 12px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recent button:hover { color: var(--text); border-color: var(--muted); }
-.choices { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); }
+.choices { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); }
 .choice { display: flex; align-items: center; gap: 8px; }
-.choice.full { flex-basis: 100%; }   /* 审阅选项多（含全部编程 agent），单独占一行 */
-.choice.full .seg { flex-wrap: wrap; }
+/* 编程 / 修复 / 审阅：主界面只用三个彩色标签显示当前选择，点开弹窗再选 */
+.role-tag { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid transparent; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.role-tag .k { opacity: .75; }
+.role-tag b { font-weight: 600; }
+.role-tag:hover { border-color: currentColor; }
+.role-tag.code { background: var(--accent-soft); color: var(--accent); }
+.role-tag.fix { background: var(--warn-soft); color: var(--warn); }
+.role-tag.review { background: var(--ok-soft); color: var(--ok); }
+.role-tag.na b { text-decoration: line-through; }
+dialog.merge.picker-dlg { width: min(720px, calc(100vw - 32px)); }
+.picker { display: flex; flex-direction: column; gap: 14px; }
+.picker .choice { flex-direction: column; align-items: flex-start; gap: 6px; }
+.picker .choice > span { font-weight: 600; font-size: 12px; color: var(--muted); }
+.picker .seg { flex-wrap: wrap; }
+.picker .why { color: var(--faint); font-size: 11.5px; }
 .choice > span { color: var(--faint); font-size: 12px; }
 .seg { display: inline-flex; background: var(--panel-2); border-radius: var(--r); padding: 2px; gap: 2px; }
 .seg button { border: 0; background: none; color: var(--muted); padding: 3px 9px; border-radius: 5px; font-size: 12px; white-space: nowrap; }
@@ -293,6 +306,7 @@ dialog.merge.wide { width: min(980px, calc(100vw - 32px)); }
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 <dialog class="merge" id="merge-dlg" aria-labelledby="merge-title"></dialog>
 <dialog class="merge wide" id="metrics-dlg" aria-labelledby="metrics-title"></dialog>
+<dialog class="merge picker-dlg" id="choice-dlg" aria-labelledby="choice-title"></dialog>
 
 <script>
 "use strict";
@@ -533,11 +547,7 @@ function renderMain() {
     <section class="compose">
       <textarea id="req" placeholder="描述这次要做的需求，例如：订单列表加“导出 Excel”按钮，按当前筛选条件导出">${esc(draft)}</textarea>
       <div class="recent" id="recent"></div>
-      <div class="choices">
-        ${segHtml("coding_agent", "编程", AGENTS.agents.map((a) => [a.key, a.label, a.available, a.detail]), prefOf(ws, "coding_agent"))}
-        ${segHtml("fix_agent", "修复", AGENTS.agents.map((a) => [a.key, a.label, a.available, a.detail]), prefOf(ws, "fix_agent"))}
-        ${segHtml("review_backend", "审阅", AGENTS.reviewers.map((r) => [r.key, reviewerLabel(r.key), r.available, r.detail]), prefOf(ws, "review_backend"))}
-      </div>
+      <div class="choices" id="choices"></div>
       <div class="compose-foot">
         <span class="grow" id="compose-err"></span>
         <span id="design-slot"></span>
@@ -560,18 +570,57 @@ function renderMain() {
   const req = $("req");
   req.oninput = () => { store.set("wwk.draft." + ws.path, req.value); $("compose-err").textContent = ""; };
   req.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); startRun(PIPELINE); } };
-  document.querySelectorAll(".seg").forEach((seg) => seg.onclick = (e) => {
-    const b = e.target.closest("button[data-v]");
-    if (b) choose(seg.dataset.k, b.dataset.v);
-  });
+  renderChoices();
   renderDesign();
   renderRecent();
   renderRunList();
   renderDetail();
 }
 
+// ---------- 编程 / 修复 / 审阅：一行彩色标签 + 选择弹窗 ----------
+const ROLES = [
+  ["coding_agent", "编程", "code", () => AGENTS.agents],
+  ["fix_agent", "修复", "fix", () => AGENTS.agents],
+  ["review_backend", "审阅", "review", () => AGENTS.reviewers],
+];
+const optLabel = (key, o) => (key === "review_backend" ? reviewerLabel(o.key) : o.label);
+function renderChoices() {
+  const box = $("choices"), ws = wsOf(current);
+  if (!box || !ws) return;
+  box.innerHTML = ROLES.map(([key, name, cls, list]) => {
+    const v = prefOf(ws, key), o = list().find((x) => x.key === v);
+    const label = o ? optLabel(key, o) : v || "未选";
+    return `<button class="role-tag ${cls}${o && !o.available ? " na" : ""}" type="button" data-k="${key}" title="${esc(o && !o.available ? o.detail || "本机不可用" : `点击更改${name} agent`)}"><span class="k">${name}</span><b>${esc(label)}</b>${o && !o.available ? " ⚠" : ""}</button>`;
+  }).join("");
+  box.onclick = (e) => { const b = e.target.closest("[data-k]"); if (b) openChoices(b.dataset.k); };
+}
+function openChoices(focus) {
+  const dlg = $("choice-dlg"), ws = wsOf(current);
+  if (!ws) return;
+  const draw = () => {
+    dlg.innerHTML = `<header><h3 id="choice-title">选择 agent</h3><button class="btn icon ghost" id="ch-x" type="button" aria-label="关闭">${icon("x")}</button></header>
+      <div class="body picker">${ROLES.map(([key, name, , list]) => {
+        const v = prefOf(ws, key), o = list().find((x) => x.key === v);
+        return segHtml(key, name, list().map((x) => [x.key, optLabel(key, x), x.available, x.detail]), v)
+          + `<div class="why">${esc(o ? (o.available ? o.detail || "" : `本机不可用：${o.detail || ""}`) : "")}</div>`;
+      }).join("")}<div class="why">建议三者选不同的 agent，避免同源偏差。每个项目记住自己的选择。</div></div>
+      <footer><span class="grow"></span><button class="btn primary" id="ch-ok" type="button">完成</button></footer>`;
+    $("ch-x").onclick = $("ch-ok").onclick = () => dlg.close();
+    dlg.querySelectorAll(".seg").forEach((seg) => seg.onclick = async (e) => {
+      const b = e.target.closest("button[data-v]");
+      if (!b) return;
+      await choose(seg.dataset.k, b.dataset.v);
+      draw();
+      renderChoices();
+    });
+  };
+  draw();
+  if (!dlg.open) dlg.showModal();
+  dlg.querySelector(`.seg[data-k="${focus}"] button[aria-pressed="true"]`)?.focus();
+}
+
 function segHtml(key, label, opts, chosen) {
-  return `<div class="choice${key === "review_backend" ? " full" : ""}"><span>${label}</span><div class="seg" data-k="${key}" role="group" aria-label="${label}">${opts.map(([k, l, ok, d]) =>
+  return `<div class="choice"><span>${label}</span><div class="seg" data-k="${key}" role="group" aria-label="${label}">${opts.map(([k, l, ok, d]) =>
     `<button type="button" data-v="${esc(k)}" aria-pressed="${k === chosen}" class="${ok ? "" : "na"}" title="${esc(ok ? l : d || "本机不可用")}">${esc(l)}</button>`).join("")}</div></div>`;
 }
 async function choose(key, value) {
