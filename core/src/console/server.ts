@@ -27,6 +27,7 @@ import { availability as reviewAvailability, BACKENDS, resolveBackend } from "..
 import type { State } from "../state.ts"
 import { openFolder, pickFile, pickFolder, pickImages } from "./pickers.ts"
 import * as FL from "./flow.ts"
+import * as PV from "./preview.ts"
 import { agentStatuses, describeSettings, launchLogin, openTerminal, saveSettings, testDeepseek, testNetwork } from "./settings.ts"
 import * as W from "./workspaces.ts"
 
@@ -378,7 +379,8 @@ export interface ConsoleServer {
 const POST_ROUTES = new Set(["/api/runs", "/api/pick-folder", "/api/pick-file", "/api/pick-images", "/api/init", "/api/open",
   "/api/workspaces/add", "/api/workspaces/remove", "/api/workspaces/prefs",
   "/api/settings", "/api/settings/test", "/api/auth/login", "/api/workspaces/fix-gitignore",
-  "/api/flow/rehearse", "/api/flow/merge", "/api/flow/hold", "/api/flow/discard", "/api/flow/abandon"])
+  "/api/flow/rehearse", "/api/flow/merge", "/api/flow/hold", "/api/flow/discard", "/api/flow/abandon",
+  "/api/preview/start", "/api/preview/stop"])
 
 /** 设置页按项目读写时，只认已加入的工作空间。 */
 function workspaceOrNull(project: unknown): string | null {
@@ -473,6 +475,8 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
       return agentStatuses(workspaceOrNull(project))
     if (url.pathname === "/api/runs")
       return project ? store.forProject(project) : [...store.runs.values()].sort((a, b) => b.started - a.started).map(r => r.brief())
+    if (url.pathname === "/api/preview") // 项目当前的预览（没有就是 null）
+      return { preview: PV.getPreview(flowConfig(project).projectRoot) }
     if (url.pathname === "/api/metrics") // 按 agent 汇总最近的运行：调用、耗时、token、被打回的次数和原因
       return summarize(flowConfig(project).stateDir, { runs: Number(url.searchParams.get("runs") ?? 50) || 50 })
     if (url.pathname === "/api/flow") {
@@ -527,6 +531,13 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
       catch (e) {
         throw e instanceof HttpError ? e : new HttpError(400, (e as Error).message)
       }
+    }
+    if (path === "/api/preview/start" || path === "/api/preview/stop") {
+      const cfg = flowConfig(body.project)
+      if (path === "/api/preview/stop")
+        return [200, { preview: PV.stopPreview(cfg.projectRoot) }]
+      // 判断不了怎么启动时，问这个项目选的编程 agent
+      return [202, { preview: PV.startPreview(cfg, body.run ? String(body.run) : null, { agent: W.find(cfg.projectRoot)?.prefs?.coding_agent }) }]
     }
     if (path.startsWith("/api/flow/")) {
       const cfg = flowConfig(body.project)
@@ -661,6 +672,9 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
   return {
     server, token, store,
     url: `http://127.0.0.1:${port}/`,
-    close: () => new Promise(r => server.close(() => r())),
+    close: () => {
+      PV.stopAllPreviews() // 预览的开发服务器是控制台拉起的，一起结束
+      return new Promise(r => server.close(() => r()))
+    },
   }
 }

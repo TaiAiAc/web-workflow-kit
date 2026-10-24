@@ -114,6 +114,14 @@ kbd { font: 11px var(--mono); color: inherit; opacity: .75; }
 .role-tag.vision { --role: var(--pink); }
 .role-tag.arbiter { --role: var(--slate); }
 .role-tag.na b { text-decoration: line-through; }
+/* 预览：把交付的代码跑起来 */
+.pvcard { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); display: flex; flex-direction: column; gap: 8px; }
+.pvcard .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pvcard .grow { flex: 1; min-width: 160px; color: var(--muted); font-size: 12.5px; }
+.pvcard .cmd { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.pvcard a.url { font-family: var(--mono); font-size: 12.5px; color: var(--accent); }
+.pvcard pre { margin: 0; max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 11.5px var(--mono); color: var(--muted); background: var(--panel-2); border-radius: 6px; padding: 6px 8px; }
+.pvcard .err { color: var(--bad); font-size: 12.5px; white-space: pre-wrap; }
 dialog.merge.picker-dlg { width: min(720px, calc(100vw - 32px)); }
 .picker { display: flex; flex-direction: column; gap: 14px; }
 .picker .choice { flex-direction: column; align-items: flex-start; gap: 6px; }
@@ -582,6 +590,7 @@ function renderMain() {
   req.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); startRun(PIPELINE); } };
   renderChoices();
   renderDesign();
+  loadPreview();
   renderRecent();
   renderRunList();
   renderDetail();
@@ -1267,7 +1276,7 @@ function renderDetail() {
     <div class="detail-head"><h3 title="${esc(runTitle(r))}">${esc(runTitle(r))}</h3><span class="tag ${stTag}">${r.status === "running" ? '<span class="spin"></span>' : ""}${esc(stText)}</span></div>
     <div class="detail-sub" id="d-sub"></div>
     <div class="flow" id="flow">${flow || '<div class="step ghost"><div class="n">准备中</div></div>'}</div>
-    ${checks}${result}${flowCard(r)}${failTable}
+    ${checks}${result}${flowCard(r)}<div id="preview-slot"></div>${failTable}
     <div class="log-bar">${tabs.map(([k, l]) => `<button class="tab" type="button" data-f="${esc(k)}" aria-pressed="${k === runFilter}">${esc(l)}</button>`).join("")}
       <span class="grow"></span>${r.status === "running" ? `<button class="btn ghost" id="follow" type="button" aria-pressed="${follow}">${follow ? "跟随最新：开" : "跟随最新：关"}</button>` : ""}</div>
     <div class="log" id="log">${logs || '<div class="none" style="color:var(--faint);font-family:var(--sans)">还没有日志。</div>'}</div>`;
@@ -1277,10 +1286,58 @@ function renderDetail() {
   $("flow").onclick = (e) => { const s = e.target.closest(".step[data-key]"); if (s) { runFilter = s.dataset.key; renderDetail(); } };
   $("follow")?.addEventListener("click", () => { follow = !follow; renderDetail(); });
   $("d-merge")?.addEventListener("click", () => openMerge(r.id));
+  renderPreviewSlot();
   box.querySelectorAll("details.grp").forEach((d) => d.ontoggle = () => { d.open ? openGroups.add(d.dataset.key) : openGroups.delete(d.dataset.key); });
   if (r.status === "running" && follow) box.scrollTop = box.scrollHeight;
   else box.scrollTop = justFinished ? 0 : scroll;   // 刚结束：回到顶部看结论
 }
+// ---------- 预览：结束后把项目跑起来 ----------
+let PREVIEW = null, previewTimer = null;
+const PV_STATUS = { preparing: ["准备中", "accent"], installing: ["安装依赖", "accent"], starting: ["启动中", "accent"], running: ["运行中", "ok"], exited: ["已退出", ""], failed: ["启动失败", "bad"], stopped: ["已停止", ""] };
+const pvActive = (p) => Boolean(p) && ["preparing", "installing", "starting", "running"].includes(p.status);
+async function loadPreview() {
+  clearTimeout(previewTimer);
+  const project = current;
+  if (!project) return;
+  try { PREVIEW = (await api("/api/preview?project=" + encodeURIComponent(project))).preview; } catch { return; }
+  if (project !== current) return;
+  renderPreviewSlot();
+  if (pvActive(PREVIEW)) previewTimer = setTimeout(loadPreview, PREVIEW.status === "running" ? 3000 : 1500);
+}
+async function previewAction(action) {
+  try {
+    PREVIEW = (await post(`/api/preview/${action}`, { project: current, run: run?.id })).preview;
+  } catch (err) { toast(err.message, true); }
+  renderPreviewSlot();
+  loadPreview();
+}
+function renderPreviewSlot() {
+  const slot = $("preview-slot");
+  if (!slot || !run) return;
+  const p = PREVIEW;
+  const delivered = run.status !== "running" && run.graph === PIPELINE && statusKey(run) === "delivered";
+  const mine = p && p.runId === run.id;
+  let html = "";
+  if (p && pvActive(p) && !mine) {
+    html = `<div class="pvcard"><div class="row"><span class="tag ${PV_STATUS[p.status][1]}">${PV_STATUS[p.status][0]}</span>
+      <span class="grow">正在预览这个项目的另一次运行${p.url ? `：<a class="url" href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.url)}</a>` : ""}</span>
+      <button class="btn" type="button" data-pv="stop">停止</button></div></div>`;
+  } else if (mine) {
+    const [text, tag] = PV_STATUS[p.status] || [p.status, ""];
+    html = `<div class="pvcard"><div class="row"><span class="tag ${tag}">${pvActive(p) && p.status !== "running" ? '<span class="spin"></span>' : ""}${esc(text)}</span>
+        <span class="grow">${esc(p.source)}${p.command ? ` · <span class="cmd">${esc(p.command)}</span>${p.via ? `（${esc(p.via)}）` : ""}` : ""}</span>
+        ${p.url && p.status === "running" ? `<a class="btn primary" href="${esc(p.url)}" target="_blank" rel="noopener">${icon("arrow")}打开 ${esc(p.url)}</a>` : ""}
+        ${pvActive(p) ? `<button class="btn" type="button" data-pv="stop">停止</button>` : `<button class="btn" type="button" data-pv="start">${icon("play")}重新预览</button>`}</div>
+      ${p.error ? `<div class="err">${esc(p.error)}</div>` : ""}
+      ${p.log.length ? `<details ${pvActive(p) && p.status !== "running" ? "open" : ""}><summary>预览日志（${p.log.length} 行）</summary><pre>${esc(p.log.slice(-40).join("\n"))}</pre></details>` : ""}</div>`;
+  } else if (delivered) {
+    html = `<div class="pvcard"><div class="row"><span class="grow">把这次交付的代码跑起来看看效果（待合并的在临时目录里跑作业分支，不动项目本身）。</span>
+      <button class="btn primary" type="button" data-pv="start">${icon("play")}预览</button></div></div>`;
+  }
+  slot.innerHTML = html;
+  slot.onclick = (e) => { const b = e.target.closest("[data-pv]"); if (b) previewAction(b.dataset.pv); };
+}
+
 function flowCard(r) {
   const f = r.flow;
   if (!f || r.status === "running") return "";

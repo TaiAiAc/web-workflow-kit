@@ -357,6 +357,22 @@ describe("控制台服务", () => {
     assert.deepEqual((await request("POST", "/api/pick-images", {})).body, { paths: ["/tmp/a.png", "/tmp/b.jpg"] })
   })
 
+  it("预览接口：开始、看状态拿地址、停止", async () => {
+    const dev = `"${process.execPath}" -e ${JSON.stringify("console.log('Local: http://localhost:5311/'); setInterval(() => {}, 1000)")}`
+    const root = gitRepo({ "package.json": JSON.stringify({ name: "p", scripts: { dev } }) })
+    await request("POST", "/api/workspaces/add", { path: root })
+    const q = `/api/preview?project=${encodeURIComponent(root)}`
+    assert.equal((await request("GET", q)).body.preview, null)
+    assert.equal((await request("POST", "/api/preview/start", { project: root })).status, 202)
+    let p: any
+    for (let i = 0; i < 100 && p?.status !== "running"; i++) {
+      await new Promise(r => setTimeout(r, 100))
+      p = (await request("GET", q)).body.preview
+    }
+    assert.deepEqual([p.status, p.url], ["running", "http://localhost:5311/"])
+    assert.equal((await request("POST", "/api/preview/stop", { project: root })).body.preview.status, "stopped")
+  })
+
   it("作业分支接口只认已加入的工作空间；没有记录的运行返回 404", async () => {
     assert.equal((await request("GET", `/api/flow?project=${encodeURIComponent(tempDir())}&run=abc`)).status, 400)
     const root = gitRepo({})
