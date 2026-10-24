@@ -89,7 +89,7 @@ agent ui
 
 `agent ui` 启动后浏览器自动打开 `http://127.0.0.1:8765/`（`--port` 换端口，`--no-browser` 不自动打开）。
 
-同一个控制台也有桌面端（`desktop/`，Electron）：双击打开，自动找 Python、启动后端，用系统对话框选目录，关窗即停止。见 [docs/desktop.md](docs/desktop.md)。
+同一个控制台也有桌面端（`desktop/`，Electron）：双击打开，后端是 TS 核心、跑在 Electron 自带的 Node 上，**不需要装 Python**；用系统对话框选目录，退出即停止。见 [docs/desktop.md](docs/desktop.md)。TS 核心也能直接在浏览器里用：`core/` 里 `pnpm cli ui`，见 [core/README.md](core/README.md)。
 
 控制台按**工作空间**管理项目，尽量用按钮代替输入：
 
@@ -232,4 +232,5 @@ Claude Code 没登录。终端运行 `claude` 登录后重试。
 - [docs/rules.md](docs/rules.md)：`rules.yaml`、各项检查与失败码
 - [docs/architecture.md](docs/architecture.md)：图与节点、原则如何落地、安全模型、LangGraph Studio / API
 - [docs/development.md](docs/development.md)：开发、测试、打包、CI
-- [docs/desktop.md](docs/desktop.md)：桌面端（Electron）：启动方式、Python 查找顺序、开发与打包
+- [docs/desktop.md](docs/desktop.md)：桌面端（Electron）：工作方式、开发与打包
+- [core/README.md](core/README.md)：TS 核心：迁移进度、命令行与控制台

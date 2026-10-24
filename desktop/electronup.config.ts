@@ -8,13 +8,11 @@ export default defineConfig({
   builderConfig: {
     appId: 'com.quiteer.web-workflow-kit',
     productName: '前端交付流水线',
-    // Python 后端随包分发：运行时以 resources/python 为 PYTHONPATH 启动 `web_workflow_kit.cli ui`
+    // 后端是 TS 核心的单文件产物，用 Electron 自带的 Node 跑（不需要用户装 Python）；
+    // 默认配置、提示词、门禁脚本、控制台页面放在 resources/assets（WWK_ASSETS 指向它）
     extraResources: [
-      {
-        from: '../web_workflow_kit',
-        to: 'python/web_workflow_kit',
-        filter: ['**/*', '!**/__pycache__/**', '!**/*.pyc'],
-      },
+      { from: '../core/dist/wwk.mjs', to: 'core/wwk.mjs' },
+      { from: '../web_workflow_kit/assets', to: 'assets' },
     ],
     win: {
       target: [{ target: 'nsis', arch: ['x64'] }],

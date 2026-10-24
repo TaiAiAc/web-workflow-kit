@@ -75,7 +75,7 @@ Windows 上 `--python` 换成 `.venv/Scripts/python.exe`。只跑部分场景加
 
 ## TS 核心（迁移中）
 
-`core/` 是流水线核心的 TypeScript 版本，目标是让桌面端不再依赖 Python。流水线核心已全部移植（配置、门禁、主图、审阅、全部 agent 含 ACP、MasterGo 设计稿、断点恢复、熔断邮件），18 个场景在 TS 核心上全部通过；下一步是控制台服务与桌面端切换到 TS 核心。进度和用法见 [core/README.md](../core/README.md)。
+`core/` 是流水线核心的 TypeScript 版本，目标是让桌面端不再依赖 Python。流水线核心和本地控制台服务已全部移植（配置、门禁、主图、审阅、全部 agent 含 ACP、MasterGo 设计稿、断点恢复、熔断邮件、`wwk ui`），18 个场景在 TS 核心上全部通过；桌面端已改用 TS 核心（`core/dist/wwk.mjs`，`pnpm build` 生成），不再需要 Python。Python 版仍保留命令行、REPL 与 LangGraph Studio。进度和用法见 [core/README.md](../core/README.md)。
 
 ```bash
 cd core && pnpm install && pnpm typecheck && pnpm test

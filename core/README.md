@@ -16,7 +16,8 @@
 | agent：ACP（Codex / OpenCode / WorkBuddy）与权限策略 | ✅ 第二阶段 |
 | 设计稿：MasterGo（MCP） | ✅ 第二阶段 |
 | 断点恢复（检查点存 `node:sqlite`） | ✅ 第二阶段 |
-| 控制台服务、桌面端切换到 TS 核心 | 第三阶段 |
+| 本地控制台服务（`wwk ui`，接口与 Python 版一致，页面共用） | ✅ 第三阶段 |
+| 桌面端改用 TS 核心（Electron 自带的 Node 运行 `wwk.mjs`，不再需要 Python） | ✅ 第三阶段 |
 
 ### 第二阶段的实现要点
 
@@ -45,6 +46,7 @@ pnpm cli fix --project /path/to/app
 | `wwk run "<需求>"` | 完整流水线 |
 | `wwk resume [线程]` | 从检查点继续被中断的运行（默认最近一次） |
 | `wwk init` | 复制默认 `rules.yaml`、`agent.config.json` 到项目 |
+| `wwk ui [--port 8765] [--no-browser]` | 打开本地控制台（桌面端也是起这个） |
 
 公共参数：`--project`、`--agent`、`--fix-agent`、`--review auto|api|dsh|skip`、`--config`；`--json` 时 stdout 只输出结果 JSON，日志走 stderr。
 
@@ -52,6 +54,12 @@ pnpm cli fix --project /path/to/app
 
 ```bash
 pnpm typecheck && pnpm test
+```
+
+打成单文件（桌面端随应用分发的就是它；依赖全部内联，只需要 Node）：
+
+```bash
+pnpm build
 ```
 
 场景夹具用 TS 核心跑修复回环（在仓库根目录）：
