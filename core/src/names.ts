@@ -8,6 +8,12 @@ export const REVIEW = "审阅修复"      // 包住 reviewgraph：验收顾问 �
 export const DELIVER = "交付"
 export const BREAKER = "熔断"
 
+// 第二阶段新增、尚未实现的阶段（主图里先放跳过节点）
+export const DISCOVERY = "取材与需求"
+export const TECH_DESIGN = "技术设计"
+export const DOC_REVIEW = "文档复核"
+export const ACCEPTANCE = "产品验收"
+
 // codegraph
 export const DESIGN = "读取设计稿"
 export const SPEC = "生成Spec"

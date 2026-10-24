@@ -51,7 +51,7 @@ export function makeDeps(tmp: string, gates: GateResult[], opts: {
   maxRetries?: number
 } = {}): { deps: Deps, sent: Record<string, any>[], cfg: Config } {
   const cfg = loadConfig(tmp)
-  cfg.raw.max_retries = opts.maxRetries ?? 3
+  cfg.workflow.raw.limits.max_retries = opts.maxRetries ?? 3
   const queue = [...gates]
   const sent: Record<string, any>[] = []
   const deps: Deps = {

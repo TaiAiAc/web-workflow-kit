@@ -13,6 +13,8 @@ import { buildMainGraph, explainBreak, resume, routeAfterVerify, runFixLoop, run
 import * as N from "../src/names.ts"
 import { markSent, shouldSend } from "../src/notify.ts"
 import type { State } from "../src/state.ts"
+import { resolveWorkflow, WORKFLOW_DEFAULTS } from "../src/config.ts"
+import { stagePlan } from "../src/workflow.ts"
 import { FAIL, FakeAgent, makeDeps, PASS, tempDir } from "./helpers.ts"
 
 describe("主图", () => {
@@ -130,7 +132,7 @@ describe("主图", () => {
     const s = await runFixLoop(deps)
     const cp = (await openCheckpointer(cfg))!
     try {
-      const graph = buildMainGraph(deps, "verify", cp.saver)
+      const graph = buildMainGraph(deps, "verify", { checkpointer: cp.saver })
       const snap = await graph.getState({ configurable: { thread_id: lastThread(cfg)! } })
       assert.equal((snap.values as typeof s).status, "delivered")
       assert.deepEqual((snap.values as typeof s).history.map(h => h.exit), [1, 0])
@@ -172,9 +174,44 @@ describe("主图", () => {
         steps.push([...(ns as string[]).map(n => n.split(":")[0]), (chunk as { name: string }).name].join("/"))
     }
     assert.deepEqual(steps, [
+      N.DISCOVERY, N.TECH_DESIGN, N.DOC_REVIEW, // 尚未实现的阶段：跳过节点
       N.CODE, `${N.CODE}/${N.DESIGN}`, `${N.CODE}/${N.SPEC}`, `${N.CODE}/${N.WRITE_CODE}`,
-      N.VERIFY, N.REVIEW, `${N.REVIEW}/${N.ADVISE}`, `${N.REVIEW}/${N.FIX}`, N.VERIFY, N.DELIVER,
+      N.VERIFY, N.REVIEW, `${N.REVIEW}/${N.ADVISE}`, `${N.REVIEW}/${N.FIX}`, N.VERIFY, N.ACCEPTANCE, N.DELIVER,
     ])
+  })
+
+  it("阶段按配置拼：关掉的不出现，没实现的跳过并记 skipped", async () => {
+    const { deps } = makeDeps(tmp, [PASS])
+    deps.cfg.workflow.raw.stages.discovery.enabled = false
+    deps.cfg.workflow.raw.stages["doc-review"].enabled = false
+    const graph = buildMainGraph(deps)
+    const steps: string[] = []
+    let final: State | undefined
+    for await (const [mode, chunk] of await graph.stream({ requirement: "r", project_root: tmp, attempt: 0 },
+      { streamMode: ["tasks", "values"] })) { // 不开 subgraphs：只看主图上的阶段
+      if (mode === "tasks" && "input" in (chunk as object))
+        steps.push((chunk as { name: string }).name)
+      if (mode === "values")
+        final = chunk as State
+    }
+    assert.deepEqual(steps, [N.TECH_DESIGN, N.CODE, N.VERIFY, N.ACCEPTANCE, N.DELIVER])
+    assert.deepEqual(final?.stage_status, { "tech-design": "skipped", "implement": "done", "gate": "done", "acceptance": "skipped" })
+    assert.equal(final?.status, "delivered")
+  })
+
+  it("门禁熔断时 gate 记 failed；修复回环只走门禁", async () => {
+    const { deps } = makeDeps(tmp, [FAIL, FAIL], { maxRetries: 1 })
+    const s = await runFixLoop(deps)
+    assert.equal(s.status, "broken")
+    assert.deepEqual(s.stage_status, { gate: "failed" })
+    assert.deepEqual(stagePlan(deps.cfg.workflow, "verify").map(p => p.name), ["gate"])
+  })
+
+  it("stagePlan 按 order 排、跳过关掉的，并标出哪些已实现", () => {
+    const wf = resolveWorkflow([["default", WORKFLOW_DEFAULTS], ["workspace", { stages: { acceptance: { enabled: false } } }]])
+    const plan = stagePlan(wf)
+    assert.deepEqual(plan.map(p => p.name), ["discovery", "tech-design", "doc-review", "implement", "gate"])
+    assert.deepEqual(plan.filter(p => p.implemented).map(p => p.node), [N.CODE, N.VERIFY])
   })
 
   it("熔断说明", () => {

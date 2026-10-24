@@ -5,6 +5,7 @@ import { dirname, isAbsolute, join, resolve, sep } from "node:path"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
 import { parse as parseEnv } from "dotenv"
+import { isStage, STAGES } from "./workflow.ts"
 
 // 默认配置、提示词、门禁脚本、控制台页面在仓库的 assets/；WWK_ASSETS 可覆盖（桌面端指向 resources/assets）
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -73,8 +74,9 @@ export class Config {
     return this.raw[key] ?? {}
   }
 
+  /** 门禁 ⇄ 修复审阅最多几轮，来自工作流配置的 limits.max_retries */
   get maxRetries(): number {
-    return Number(this.raw.max_retries)
+    return Number(this.workflow.raw.limits.max_retries)
   }
 
   secret(name: string): string | undefined {
@@ -110,10 +112,9 @@ export function loadConfig(projectRoot?: string, configPath?: string): Config {
       envSources[k] = label
   }
 
-  const maxRetries = Number(raw.max_retries ?? 3)
-  if (!(maxRetries >= 1))
-    throw new Error("max_retries must be >= 1")
-  raw.max_retries = maxRetries
+  if ("max_retries" in raw)
+    throw new Error("agent.config.json 里的 max_retries 已移到工作流配置的 limits.max_retries"
+      + "（控制台的工作区设置，或 ~/.web-workflow-kit/workflow.json），请从 agent.config.json 删掉这一项")
 
   const stateDir = resolve(root, raw.state_dir ?? ".agent")
   return new Config(raw, root, stateDir, env, envSources)
@@ -257,6 +258,10 @@ export function validateWorkflow(w: Json): void {
   const orders = new Map<number, string>()
   for (const [name, s] of Object.entries(isObject(w.stages) ? w.stages : {})) {
     const p = `stages.${name}`
+    if (!isStage(name)) {
+      errors.push(`${p}：未知阶段（可选：${STAGES.join(" / ")}）`)
+      continue
+    }
     if (!isObject(s)) {
       errors.push(`${p} 必须是对象`)
       continue
@@ -275,6 +280,13 @@ export function validateWorkflow(w: Json): void {
       orders.set(s.order, name)
     }
   }
+
+  const stages: Json = isObject(w.stages) ? w.stages : {}
+  need(isObject(stages.gate) && stages.gate.enabled !== false, "stages.gate 不能关：门禁是唯一的放行依据")
+  // 阶段顺序是定死的（第二节「不可改的决策」）；order 只用来排序和合并，不能把阶段调到别的阶段前面
+  const enabled = STAGES.filter(n => isObject(stages[n]) && stages[n].enabled !== false && typeof stages[n].order === "number")
+  const sorted = [...enabled].sort((a, b) => stages[a].order - stages[b].order)
+  need(sorted.every((n, i) => n === enabled[i]), `阶段顺序不能改，应为 ${enabled.join(" → ")}（当前按 order 是 ${sorted.join(" → ")}）`)
 
   const git: Json = isObject(w.git) ? w.git : {}
   need(git.merge_method === "squash", `git.merge_method 目前只支持 squash（当前 ${JSON.stringify(git.merge_method)}）`)

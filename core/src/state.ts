@@ -10,6 +10,8 @@ export interface HistoryItem {
   codes: string[]
 }
 
+export type StageStatus = "done" | "failed" | "skipped"
+
 const value = <T>() => Annotation<T>()
 
 export const PipelineState = Annotation.Root({
@@ -38,6 +40,8 @@ export const PipelineState = Annotation.Root({
   summary: value<string>(),
   changed_files: value<string[]>(),
   history: Annotation<HistoryItem[]>({ reducer: (a, b) => a.concat(b), default: () => [] }),
+  // 每个阶段的结果（阶段名见 workflow.ts）；按键合并，后写的覆盖先写的
+  stage_status: Annotation<Record<string, StageStatus>>({ reducer: (a, b) => ({ ...a, ...b }), default: () => ({}) }),
 })
 
 export type State = typeof PipelineState.State

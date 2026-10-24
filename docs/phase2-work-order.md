@@ -219,7 +219,13 @@ machine: {ac_status: {AC-1: pass}, verdict: pass|fail, return_stage: null|discov
      - 注意：codex-acp 的 read-only 模式不是 Codex 原生的只读沙箱，真正兜底的是我们这边的权限应答；
    - CLI 作为退路：`codex exec --sandbox read-only --skip-git-repo-check --ephemeral --color never -o <文件> "<prompt>" -i <图片> </dev/null`（prompt 放在 `-i` 前面，否则会被当成图片路径；stdin 必须关掉；超时靠调用方杀进程组）。原生只读沙箱更硬，每次输入 token 约是 ACP 的 1/4（实测 3.5k 对 14.9k）；
 1. 配置层（含合并语义测试、快照脱敏测试）——**已完成**：`assets/workflow.json` 默认值；`config.ts` 的 `loadWorkflow` / `resolveWorkflow` / `validateWorkflow` / `writeSnapshot`；`workspaces.ts` 的工作区覆盖、重新绑定、导出导入；控制台每次运行写 `.agent/runs/<id>/config.snapshot.json`。工作流配置在用到时才加载，写坏了不影响控制台启动。遗留给第 2 步：`agent.config.json` 的 `max_retries` 与 `workflow.json` 的 `limits.max_retries` 重复，主图改为配置驱动时以后者为准，并删掉前者；
-2. 阶段注册表（主图改为配置驱动，未启用阶段跳过）；
+2. 阶段注册表（主图改为配置驱动，未启用阶段跳过）——**已完成**：
+   - `core/src/workflow.ts` 登记六个阶段及其节点名；主图按启用的阶段、按 `order` 串起来；implement / gate 沿用第一阶段的节点名，控制台、Studio、检查点不受影响；
+   - 尚未实现的阶段放跳过节点（日志「尚未实现，跳过」，`stage_status` 记 `skipped`），后续步骤逐个替换；
+   - 校验：只认这六个阶段；`gate` 不能关；启用阶段的先后顺序不能改；
+   - 新状态字段 `stage_status`（按键合并）；`delivery.json` 记录各阶段结果；
+   - `max_retries` 改由 `limits.max_retries` 决定，`agent.config.json` 里还写着就报错并指路；
+   - 遗留：`implement` 目前仍包含读取设计稿和生成 Spec，等 discovery / tech-design 实现后再拆出去；`limits.max_retries`「每次进入 gate 重新计数」要等验收打回能回到 gate 时再做；
 3. 文档契约 + 校验脚本 + 提交路径白名单；
 4. 作业分支 / 锁 / 合并预演 / 弹窗，后端 + 前端；
 5. vision 适配；

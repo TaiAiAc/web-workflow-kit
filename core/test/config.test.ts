@@ -19,12 +19,11 @@ type Json = Record<string, any>
 describe("配置", () => {
   it("项目 agent.config.json 深合并到默认值上", () => {
     const root = tempDir()
-    writeFileSync(join(root, "agent.config.json"), JSON.stringify({ max_retries: 2, review: { backend: "skip" } }))
+    writeFileSync(join(root, "agent.config.json"), JSON.stringify({ state_dir: ".wwk", review: { backend: "skip" } }))
     const cfg = loadConfig(root)
-    assert.equal(cfg.maxRetries, 2)
     assert.equal(cfg.get("review").backend, "skip")
     assert.equal(cfg.get("review").model, DEFAULTS.review.model) // 没写的字段保留默认
-    assert.equal(cfg.stateDir, join(root, ".agent"))
+    assert.equal(cfg.stateDir, join(root, ".wwk"))
   })
 
   it(".env：项目覆盖用户级，并注入子进程环境", () => {
@@ -39,10 +38,11 @@ describe("配置", () => {
     assert.equal(env.PATH ?? env.Path, process.env.PATH) // Windows 上复制出来的键名是 Path
   })
 
-  it("max_retries 必须 ≥ 1", () => {
+  it("max_retries 已移到工作流配置：agent.config.json 里还写着就报错并指路", () => {
     const root = tempDir()
-    writeFileSync(join(root, "agent.config.json"), JSON.stringify({ max_retries: 0 }))
-    assert.throws(() => loadConfig(root), /max_retries/)
+    writeFileSync(join(root, "agent.config.json"), JSON.stringify({ max_retries: 5 }))
+    assert.throws(() => loadConfig(root), /limits\.max_retries/)
+    assert.equal(loadConfig(tempDir()).maxRetries, WORKFLOW_DEFAULTS.limits.max_retries)
   })
 
   it("模板替换：字符串原样，对象转 JSON", () => {
@@ -89,8 +89,8 @@ describe("工作流配置", () => {
   })
 
   it("enabled:false 关掉的阶段不参与 order 查重", () => {
-    const moved = { stages: { implement: { order: 60 } } }
-    assert.throws(() => resolveWorkflow([D, ["workspace", moved]]), /stages\.\S+\.order 与 stages\.\S+ 重复：60/)
+    const moved = { stages: { acceptance: { order: 50 } } }
+    assert.throws(() => resolveWorkflow([D, ["workspace", moved]]), /stages\.\S+\.order 与 stages\.\S+ 重复：50/)
     const wf = resolveWorkflow([D, ["workspace", { stages: { ...moved.stages, acceptance: { enabled: false } } }]])
     assert.equal(wf.raw.stages.acceptance.enabled, false)
   })
@@ -127,7 +127,7 @@ describe("工作流配置", () => {
   it("通用配置写坏了不影响加载 agent.config.json，用到工作流时才报错", (t) => {
     userWorkflow({ git: { merge_method: "rebase" } }, t)
     const cfg = loadConfig(tempDir())
-    assert.equal(cfg.maxRetries, DEFAULTS.max_retries)
+    assert.equal(cfg.get("review").model, DEFAULTS.review.model)
     assert.throws(() => cfg.workflow, /merge_method/)
   })
 
@@ -145,11 +145,20 @@ describe("工作流配置", () => {
     t.after(() => rmSync(userWorkflowFile(), { force: true }))
     const root = tempDir()
     W.add(root)
-    W.setWorkflowOverrides(root, { stages: { review2: { order: 70, role: "qa" } }, roles: { qa: { agent: "claude" } } })
+    W.setWorkflowOverrides(root, { stages: { acceptance: { order: 55 } } })
     t.after(() => W.setWorkflowOverrides(root, {}))
-    // 单独看合法，和工作区的 review2 撞了 order
-    assert.throws(() => saveUserWorkflow({ stages: { lint: { order: 70, kind: "verify" } } }), /与工作区 .* 的覆盖合并后不合法：[\s\S]*重复：70/)
+    // 单独看合法，和工作区的 acceptance 撞了 order
+    assert.throws(() => saveUserWorkflow({ stages: { gate: { order: 55 } } }), /与工作区 .* 的覆盖合并后不合法：[\s\S]*重复：55/)
     assert.ok(!existsSync(userWorkflowFile()))
+  })
+
+  it("阶段只认注册表里的六个；门禁不能关；顺序不能改", () => {
+    assert.throws(() => resolveWorkflow([D, ["user", { stages: { lint: { order: 55, kind: "verify" } } }]]), /stages\.lint：未知阶段/)
+    assert.throws(() => resolveWorkflow([D, ["user", { stages: { gate: { enabled: false } } }]]), /门禁是唯一的放行依据/)
+    assert.throws(() => resolveWorkflow([D, ["user", { stages: { "tech-design": { order: 45 } } }]]),
+      /阶段顺序不能改，应为 discovery → tech-design → doc-review → implement → gate → acceptance/)
+    // 关掉的阶段不参与顺序检查
+    resolveWorkflow([D, ["user", { stages: { "tech-design": { order: 45, enabled: false } } }]])
   })
 
   it("文件夹搬家后重新绑定，偏好和覆盖跟着走", () => {

@@ -1,15 +1,16 @@
-// 主图（平铺）：codegraph → verify ⇄ reviewgraph → deliver | breaker。
+// 主图（平铺）：按工作流配置启用的阶段依次串起来——… → 编码（codegraph）→ 门禁 ⇄ 审阅修复（reviewgraph）→ … → 交付 | 熔断。
 // 放行只看 verify_exit == 0；熔断由 attempt 计数在代码里强制，与模型输出无关。
 import { relative } from "node:path"
 import type { BaseCheckpointSaver, LangGraphRunnableConfig } from "@langchain/langgraph"
 import { END, START, StateGraph } from "@langchain/langgraph"
 import { END_TURN, ERROR } from "./agents.ts"
 import { type Entry, entryOf, lastThread, newThreadId, openCheckpointer, remember } from "./checkpoint.ts"
-import { writeText } from "./config.ts"
+import { readUserWorkflow, resolveWorkflow, type Workflow, WORKFLOW_DEFAULTS, writeText } from "./config.ts"
 import { codePrompt, type Deps, fixPrompt } from "./deps.ts"
 import { changedHunks, snapshot } from "./diffs.ts"
 import * as N from "./names.ts"
 import { PipelineState, type State, type Update } from "./state.ts"
+import { type StageName, stagePlan, STAGES } from "./workflow.ts"
 
 /** 固定的 Deps（CLI / 测试），或按 state 现建 Deps 的函数（控制台 / 服务端）。 */
 export type Source = Deps | ((state: State) => Deps)
@@ -156,15 +157,72 @@ export function explainBreak(state: State, notify: string): string {
   return text + "。需要人工介入。"
 }
 
-/** entry="verify" 跳过 codegraph，直接对当前工作区跑门禁闭环。 */
-export function buildMainGraph(source: Source, entry: Entry = "code", checkpointer?: BaseCheckpointSaver) {
+export interface MainGraphOptions {
+  checkpointer?: BaseCheckpointSaver
+  /** 拼图用的工作流配置。不给时：固定 Deps 用它自己项目的；按 state 现建 Deps 的（Studio）用包内默认 + 通用配置 */
+  workflow?: Workflow
+}
+
+function workflowFor(source: Source, workflow?: Workflow): Workflow {
+  if (workflow)
+    return workflow
+  if (typeof source !== "function")
+    return source.cfg.workflow
+  return resolveWorkflow([["default", WORKFLOW_DEFAULTS], ["user", readUserWorkflow()]])
+}
+
+const stageResult = (name: StageName, failed: boolean): Update => ({ stage_status: { [name]: failed ? "failed" : "done" } })
+
+type MainGraph = StateGraph<typeof PipelineState.spec, State, Update, string>
+
+/** 阶段按工作流配置拼；entry="verify" 只有门禁，直接对当前工作区跑门禁闭环。 */
+export function buildMainGraph(source: Source, entry: Entry = "code", opts: MainGraphOptions = {}) {
+  const plan = stagePlan(workflowFor(source, opts.workflow), entry)
   const codegraph = buildCodeGraph(source)
   const reviewgraph = buildReviewGraph(source)
 
-  // 节点按入口有无（fix_loop 没有“编码”，LangGraph 不允许不可达的节点），所以不用链式写法
-  const g = new StateGraph(PipelineState) as unknown as StateGraph<typeof PipelineState.spec, State, Update, string>
-  if (entry === "code")
-    g.addNode(N.CODE, async (state: State, config: LangGraphRunnableConfig) => pick(await codegraph.invoke(state, config), CODE_KEYS))
+  // 节点随配置增减（LangGraph 不允许不可达的节点），所以不用链式写法
+  const g = new StateGraph(PipelineState) as unknown as MainGraph
+  for (const stage of plan) {
+    if (stage.name === "implement") {
+      g.addNode(N.CODE, async (state: State, config: LangGraphRunnableConfig) => {
+        const out = pick(await codegraph.invoke(state, config), CODE_KEYS)
+        return { ...out, ...stageResult("implement", Boolean(out.break_reason)) }
+      })
+    }
+    else if (stage.name === "gate") {
+      addGate(g, source, reviewgraph)
+    }
+    else { // 尚未实现：记一笔就过
+      g.addNode(stage.node, async (state: State) => {
+        resolveDeps(source, state).log(`[${stage.node}] 尚未实现，跳过`)
+        return { stage_status: { [stage.name]: "skipped" } }
+      })
+    }
+  }
+  addEnds(g, source)
+
+  const next = (i: number): string => (i + 1 < plan.length ? plan[i + 1].node : N.DELIVER)
+  g.addEdge(START, plan[0].node) // 门禁不能关（validateWorkflow），plan 不会是空的
+  plan.forEach((stage, i) => {
+    const after = next(i)
+    if (stage.name === "gate") {
+      g.addConditionalEdges(N.VERIFY, (s: State) => {
+        const route = routeAfterVerify(s, resolveDeps(source, s).cfg.maxRetries)
+        return route === N.DELIVER ? after : route
+      }, [after, N.REVIEW, N.BREAKER])
+      g.addConditionalEdges(N.REVIEW, (s: State) => (s.break_reason ? N.BREAKER : N.VERIFY), [N.VERIFY, N.BREAKER])
+    }
+    else {
+      g.addConditionalEdges(stage.node, (s: State) => (s.break_reason ? N.BREAKER : after), [after, N.BREAKER])
+    }
+  })
+  g.addEdge(N.DELIVER, END)
+  g.addEdge(N.BREAKER, END)
+  return g.compile({ checkpointer: opts.checkpointer, name: entry === "code" ? N.PIPELINE_NAME : N.FIX_LOOP_NAME })
+}
+
+function addGate(g: MainGraph, source: Source, reviewgraph: ReturnType<typeof buildReviewGraph>): void {
   g.addNode(N.VERIFY, async (state: State) => {
       const { cfg, log, gate } = resolveDeps(source, state)
       log("[门禁] 运行 verify…")
@@ -183,9 +241,17 @@ export function buildMainGraph(source: Source, entry: Entry = "code", checkpoint
         out.break_reason = "GATE_CONFIG_ERROR"
       else if (!r.passed && attempt > cfg.maxRetries)
         out.break_reason = `RETRY_LIMIT: ${cfg.maxRetries} fix round(s) exhausted`
+      if (r.passed || out.break_reason)
+        Object.assign(out, stageResult("gate", Boolean(out.break_reason)))
       return out
     })
-  g.addNode(N.REVIEW, async (state: State, config: LangGraphRunnableConfig) => pick(await reviewgraph.invoke(state, config), REVIEW_KEYS))
+  g.addNode(N.REVIEW, async (state: State, config: LangGraphRunnableConfig) => {
+    const out = pick(await reviewgraph.invoke(state, config), REVIEW_KEYS)
+    return out.break_reason ? { ...out, ...stageResult("gate", true) } : out
+  })
+}
+
+function addEnds(g: MainGraph, source: Source): void {
   g.addNode(N.DELIVER, async (state: State) => {
       const { cfg, log } = resolveDeps(source, state)
       // 流水线自己的产物目录（.agent/）不算改动
@@ -199,6 +265,7 @@ export function buildMainGraph(source: Source, entry: Entry = "code", checkpoint
         fix_rounds: rounds,
         changed_files: files,
         history: state.history ?? [],
+        stages: state.stage_status ?? {},
         delivered_at: new Date().toISOString(),
       }, null, 2))
       // 有编码前快照（pipeline）时是“本次改动”；fix_loop 没有快照，只能说工作区里有多少未提交改动
@@ -215,23 +282,10 @@ export function buildMainGraph(source: Source, entry: Entry = "code", checkpoint
       deps.log(`[熔断] ${summary}`)
       return { status: "broken" as const, summary }
     })
-
-  if (entry === "code") {
-    g.addEdge(START, N.CODE)
-    g.addConditionalEdges(N.CODE, (s: State) => (s.break_reason ? N.BREAKER : N.VERIFY), [N.VERIFY, N.BREAKER])
-  }
-  else {
-    g.addEdge(START, N.VERIFY)
-  }
-  g.addConditionalEdges(N.VERIFY, (s: State) => routeAfterVerify(s, resolveDeps(source, s).cfg.maxRetries), [N.DELIVER, N.REVIEW, N.BREAKER])
-  g.addConditionalEdges(N.REVIEW, (s: State) => (s.break_reason ? N.BREAKER : N.VERIFY), [N.VERIFY, N.BREAKER])
-  g.addEdge(N.DELIVER, END)
-  g.addEdge(N.BREAKER, END)
-  return g.compile({ checkpointer, name: entry === "code" ? N.PIPELINE_NAME : N.FIX_LOOP_NAME })
 }
 
-/** 每轮 verify + review 两步；留余量，但真正的上限是 attempt 计数。 */
-export const recursionLimit = (maxRetries: number): number => 10 + 3 * (maxRetries + 2)
+/** 每个阶段至少一步，门禁每轮 verify + review 两步；留余量，但真正的上限是 attempt 计数。 */
+export const recursionLimit = (maxRetries: number): number => 10 + STAGES.length + 3 * (maxRetries + 2)
 
 /** init=null 表示从 threadId 的最后一个检查点继续。 */
 async function runThread(deps: Deps, entry: Entry, init: Update | null, threadId: string): Promise<State> {
@@ -239,7 +293,7 @@ async function runThread(deps: Deps, entry: Entry, init: Update | null, threadId
   try {
     if (init === null && !cp)
       throw new Error("resume needs checkpoints; set checkpoint.enabled=true in agent.config.json")
-    const graph = buildMainGraph(deps, entry, cp?.saver)
+    const graph = buildMainGraph(deps, entry, { checkpointer: cp?.saver })
     const config = { recursionLimit: recursionLimit(deps.cfg.maxRetries), configurable: { thread_id: threadId } }
     if (cp) {
       remember(deps.cfg, threadId)

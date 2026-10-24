@@ -132,13 +132,14 @@ class Run {
       fixAgent: state.fix_agent || this.input.fix_agent,
     })
     try {
-      writeSnapshot(loadConfig(this.projectRoot), this.id) // 本次运行的生效配置（已脱敏）
+      const cfg = loadConfig(this.projectRoot)
+      writeSnapshot(cfg, this.id) // 本次运行的生效配置（已脱敏）
       if (this.graph === GATE_ONLY) {
         this.result = await this.gateOnly(source({ project_root: this.projectRoot }).gate)
         this.status = "done"
         return
       }
-      const graph = buildMainGraph(source as never, GRAPHS[this.graph])
+      const graph = buildMainGraph(source as never, GRAPHS[this.graph], { workflow: cfg.workflow })
       let final: Json = {}
       // subgraphs：编码、审阅修复里的子节点（Spec / 写代码 / 审阅 / 修复）也上报，页面按阶段展示
       const stream = await graph.stream(this.input as never, { streamMode: ["tasks", "values"], subgraphs: true, recursionLimit: 200 })

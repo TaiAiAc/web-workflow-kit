@@ -237,7 +237,11 @@ describe("控制台服务", () => {
       const { body } = await request("POST", "/api/runs", { graph: N.PIPELINE_NAME, input: { project_root: root, requirement: "x", coding_agent: "dsh" } })
       const run = await waitRun(body.id)
       const steps = run.events.filter((e: any) => e.type === "node_start").map((e: any) => [e.parent, e.node])
-      assert.deepEqual(steps, [[null, N.CODE], [N.CODE, N.DESIGN], [N.CODE, N.SPEC], [N.CODE, N.WRITE_CODE], [null, N.VERIFY], [null, N.DELIVER]])
+      assert.deepEqual(steps, [
+        [null, N.DISCOVERY], [null, N.TECH_DESIGN], [null, N.DOC_REVIEW],
+        [null, N.CODE], [N.CODE, N.DESIGN], [N.CODE, N.SPEC], [N.CODE, N.WRITE_CODE],
+        [null, N.VERIFY], [null, N.ACCEPTANCE], [null, N.DELIVER],
+      ])
       assert.equal(run.result.status, "delivered")
       assert.ok("changed_files" in run.result)
     }

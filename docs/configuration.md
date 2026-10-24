@@ -12,10 +12,10 @@
 
 ## 合并规则
 
-- **`agent.config.json`**：项目里的文件只需写要改的字段，按层级与包内默认值深度合并。例如只想把重试上限改成 5：
+- **`agent.config.json`**：项目里的文件只需写要改的字段，按层级与包内默认值深度合并。例如只想把审阅关掉：
 
   ```json
-  { "max_retries": 5 }
+  { "review": { "backend": "skip" } }
   ```
 
   `wwk --config <文件>` 可以额外指定一份配置，代替项目里的那份。
@@ -29,9 +29,10 @@
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
 | `version` | `"0.2.0"` | 配置版本，仅用于显示 |
-| `max_retries` | `3` | 最多自动修复几轮；第 `max_retries + 1` 次门禁仍失败即熔断。必须 ≥ 1 |
 | `state_dir` | `".agent"` | 运行产物目录（相对项目根目录） |
 | `project_root` | `"."` | 不指定 `--project` 时，相对当前目录的项目位置 |
+
+> 原来的 `max_retries` 已移到工作流配置的 `limits.max_retries`（见下方 workflow.json）。`agent.config.json` 里还写着它时会直接报错，并提示改到哪里。
 
 ### verify
 
@@ -139,7 +140,7 @@
 | `notify.dedup_hours` | `24` | 同一项目、同一组失败码在这么多小时内只发一封熔断邮件 |
 | `checkpoint.enabled` | `true` | 命令行运行时把每个节点后的状态写进 `.agent/checkpoints.sqlite`，供 `:resume`；需安装 `[checkpoint]` |
 
-## workflow.json（第二阶段，建设中）
+## workflow.json
 
 第二阶段的工作流配置不放在项目里，而是存在软件里，分三层，后面的覆盖前面的：
 
@@ -153,7 +154,10 @@
 - 保存通用配置或工作区覆盖前，会把合并后的结果整体校验一遍，所有问题一次列出；不合法就不保存；
 - 每次在控制台运行时，生效配置写入 `.agent/runs/<id>/config.snapshot.json`，里面记录每个字段来自哪一层。快照里没有任何密钥值：字段名像密钥的，或者值里含 `.env` 中密钥的，一律替换成 `[redacted]`；`.env` 只记录「哪个键来自哪个文件」；
 - 导出和导入使用同一套脱敏规则；导入时只覆盖本机已经添加过的工作区，其他路径会跳过；
-- 主流程还没有读取这份配置（第二阶段第 2 步才改为配置驱动），字段含义见 [phase2-work-order.md](phase2-work-order.md) 第 3 节。
+- **主图按这份配置拼**：只走启用的阶段，按 `order` 排序。阶段只能是 `discovery` / `tech-design` / `doc-review` / `implement` / `gate` / `acceptance` 这六个，先后顺序固定，`order` 不能把一个阶段调到另一个前面。`gate` 不能关，门禁是唯一的放行依据。「门禁修复回环」只走 `gate`；
+- 目前只有 `implement`（读取设计稿 → Spec → 写代码）和 `gate`（门禁 ⇄ 审阅修复）有实现。其余阶段启用时，运行到会记一行「尚未实现，跳过」，`stage_status` 里记为 `skipped`，之后的步骤会逐个补上；
+- `limits.max_retries`：门禁 ⇄ 修复审阅最多几轮，第 `max_retries + 1` 次门禁仍失败即熔断，必须 ≥ 1；
+- 其他字段的含义见 [phase2-work-order.md](phase2-work-order.md) 第 3 节。
 
 ## .env
 
