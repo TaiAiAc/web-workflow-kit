@@ -21,6 +21,7 @@ function repo(opts: { ignoreAgent?: boolean } = {}): FlowContext {
   g("init", "-q", "-b", "main")
   g("config", "user.email", "t@t")
   g("config", "user.name", "t")
+  g("config", "core.autocrlf", "false") // Windows runner 默认开着，会把检出的换行变成 \r\n
   writeFileSync(join(root, ".gitignore"), opts.ignoreAgent === false ? "node_modules/\n" : ".agent/\n")
   writeFileSync(join(root, "app.ts"), "export const a = 1\n")
   g("add", ".")

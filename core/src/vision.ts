@@ -167,7 +167,10 @@ async function look(s: VisionSettings, input: VisionInput, images: string[], log
     return { body: cleanBody(answer), backend: "codex_cli" }
   }
   finally {
-    rmSync(work, { recursive: true, force: true })
+    try { // Windows 上刚结束的 agent 进程可能还占着目录：多试几次，删不掉就留给系统清临时目录，不影响结果
+      rmSync(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
+    }
+    catch {}
   }
 }
 

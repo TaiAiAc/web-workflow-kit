@@ -607,7 +607,8 @@ async function installDeps(wt: string, opts: RehearseOptions, log: (line: string
     ;[cmd, args] = [exe, auto.slice(1)]
   }
   else {
-    ;[cmd, args] = process.platform === "win32" ? ["cmd", ["/d", "/s", "/c", setting]] : ["sh", ["-c", setting]]
+    // Windows：cmd /s /c "<命令>" 会剥掉最外层引号再原样执行，所以参数不能再经 Node 转义
+    ;[cmd, args] = process.platform === "win32" ? ["cmd", ["/d", "/s", "/c", `"${setting}"`]] : ["sh", ["-c", setting]]
   }
   log(`[合并预演] 安装依赖：${setting === "auto" ? installCommandFor(wt)!.join(" ") : setting}`)
   const tail: string[] = []
@@ -615,6 +616,7 @@ async function installDeps(wt: string, opts: RehearseOptions, log: (line: string
     cwd: wt,
     env: opts.env,
     timeoutMs: opts.timeoutMs,
+    windowsVerbatimArguments: setting !== "auto" && process.platform === "win32",
     onLine: (line) => {
       tail.push(line)
       if (tail.length > 20)

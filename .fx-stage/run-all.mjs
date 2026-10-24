@@ -64,7 +64,10 @@ function gate(dir) {
 }
 
 function fixloop(dir) {
-  const r = spawnSync(process.execPath, [core.tsx, core.cli, "fix", "--project", dir, "--json"], { encoding: "utf8", cwd: here })
+  // 用户级配置（修复轮数上限在 workflow.json 里）用场景自带的 wwk-home/，不读跑测试那台机器上的
+  const home = join(dir, "wwk-home")
+  const env = existsSync(home) ? { ...process.env, WWK_HOME: home } : process.env
+  const r = spawnSync(process.execPath, [core.tsx, core.cli, "fix", "--project", dir, "--json"], { encoding: "utf8", cwd: here, env })
   let state = null
   try { state = JSON.parse((r.stdout || "").trim()) } catch { state = null }
   return { exit: r.status ?? -1, state, raw: `${r.stdout || ""}${r.stderr || ""}` }
