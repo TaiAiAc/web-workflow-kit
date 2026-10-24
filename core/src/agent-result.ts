@@ -3,9 +3,17 @@ export const END_TURN = "end_turn"
 export const MAX_TOKENS = "max_tokens"
 export const ERROR = "error"
 
+/** token 用量；拿不到的字段为 null（如命令行 agent） */
+export interface Usage {
+  input: number | null
+  output: number | null
+  total: number | null
+}
+
 export interface AgentResult {
   stopReason: string
   text: string
+  usage?: Usage
 }
 
 export interface Agent {

@@ -1,7 +1,7 @@
 // 外部编程 agent 的统一接口：只关心 stop_reason，不解析自然语言。
 import { join } from "node:path"
 import { ACPAgent } from "./acp.ts"
-import { type Agent, type AgentResult, END_TURN, ERROR, MAX_TOKENS } from "./agent-result.ts"
+import { type Agent, type AgentResult, END_TURN, ERROR, MAX_TOKENS, type Usage } from "./agent-result.ts"
 import { type Config, relativeTo, writeText } from "./config.ts"
 import { run, which } from "./proc.ts"
 
@@ -46,8 +46,17 @@ export class ClaudeCodeCLI implements Agent {
     }
     const failed = data.is_error || r.code !== 0
     const stopReason = !failed ? END_TURN : data.subtype === "error_max_turns" ? MAX_TOKENS : ERROR
-    return { stopReason, text: String(data.result ?? "") }
+    return { stopReason, text: String(data.result ?? ""), usage: claudeUsage(data.usage) }
   }
+}
+
+/** claude -p 的 usage：输入含缓存读写 */
+function claudeUsage(u: Record<string, any> | undefined): Usage | undefined {
+  if (!u || typeof u !== "object")
+    return undefined
+  const input = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"].reduce((n, k) => n + (Number(u[k]) || 0), 0)
+  const output = Number(u.output_tokens) || 0
+  return { input, output, total: input + output }
 }
 
 /**

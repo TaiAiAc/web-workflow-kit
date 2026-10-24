@@ -1,7 +1,6 @@
 {
   "version": "0.2.0",
   "project_root": ".",
-  "max_retries": 2,
   "state_dir": ".agent",
   "verify": {
     "timeout_sec": 300

@@ -51,10 +51,37 @@ function dialog(kind: "folder" | "file", initial?: string | null): string | null
   return r.status === 0 && path ? posix(path) : null // 取消：非 0 退出或空输出
 }
 
+/** 选择界面图片（可多选）；取消返回空数组。 */
+function imagesDialog(initial?: string | null): string[] {
+  const dir = start(initial)
+  let cmd: string
+  let args: string[]
+  if (process.platform === "darwin") {
+    cmd = "osascript"
+    args = ["-e", `set fs to (choose file with prompt "选择界面图片（可多选）" of type {"png", "jpg", "jpeg", "webp", "gif", "public.image"} with multiple selections allowed default location POSIX file ${as(dir)})`,
+      "-e", "set out to \"\"", "-e", "repeat with f in fs", "-e", "set out to out & POSIX path of f & linefeed", "-e", "end repeat", "-e", "return out"]
+  }
+  else if (process.platform === "win32") {
+    const body = `$d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = '选择界面图片（可多选）'; $d.Multiselect = $true; $d.Filter = '图片|*.png;*.jpg;*.jpeg;*.webp;*.gif'; $d.InitialDirectory = ${ps(dir)}; if ($d.ShowDialog() -eq 'OK') { $d.FileNames -join [char]10 }`
+    cmd = "powershell"
+    args = ["-NoProfile", "-STA", "-Command", `[Console]::OutputEncoding = [Text.Encoding]::UTF8; Add-Type -AssemblyName System.Windows.Forms; ${body}`]
+  }
+  else {
+    cmd = "zenity"
+    args = ["--file-selection", "--multiple", "--separator=\n", "--title=选择界面图片（可多选）", "--file-filter=*.png *.jpg *.jpeg *.webp *.gif", `--filename=${dir}/`]
+  }
+  const r = spawnSync(cmd, args, { encoding: "utf8", windowsHide: true })
+  if (r.error)
+    throw new Error(`本机没有可用的系统对话框（${cmd}），请手动输入路径`)
+  return r.status === 0 ? (r.stdout || "").split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(posix) : []
+}
+
 /** 选择文件夹，返回正斜杠路径；取消返回 null。 */
 export const pickFolder = (initial?: string | null) => serial(() => dialog("folder", initial))
 /** 选择设计稿 .json；取消返回 null。 */
 export const pickFile = (initial?: string | null) => serial(() => dialog("file", initial))
+/** 选择界面图片（可多选）；取消返回空数组。 */
+export const pickImages = (initial?: string | null) => serial(() => imagesDialog(initial))
 
 /** 用系统的文件管理器打开目录。 */
 export function openFolder(path: string): void {

@@ -44,14 +44,26 @@ export class FakeAgent implements Agent {
 export const FAIL = new GateResult(1, [{ code: "TYPECHECK_FAIL", check: "typecheck", message: "x", locations: ["src/a.ts:1"] } as Failure])
 export const PASS = new GateResult(0, [])
 
+export const DOC_STAGES = ["discovery", "tech-design", "doc-review", "acceptance"] as const
+
+/** 关掉文档阶段：测试里不调真实的 product / tech agent */
+export function disableDocStages(workflow: Record<string, any>): void {
+  for (const n of DOC_STAGES)
+    workflow.stages[n].enabled = false
+}
+
 export function makeDeps(tmp: string, gates: GateResult[], opts: {
   plan?: Plan
   coder?: FakeAgent
   fixer?: FakeAgent
   maxRetries?: number
+  /** 默认关掉文档阶段（取材、技术设计、复核、验收），只测编码 ⇄ 门禁；文档阶段的测试传 true */
+  docStages?: boolean
 } = {}): { deps: Deps, sent: Record<string, any>[], cfg: Config } {
   const cfg = loadConfig(tmp)
-  cfg.raw.max_retries = opts.maxRetries ?? 3
+  cfg.workflow.raw.limits.max_retries = opts.maxRetries ?? 3
+  if (!opts.docStages)
+    disableDocStages(cfg.workflow.raw)
   const queue = [...gates]
   const sent: Record<string, any>[] = []
   const deps: Deps = {

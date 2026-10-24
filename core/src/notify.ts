@@ -46,7 +46,7 @@ export function formatBody(state: Record<string, any>, cfg: Config): string {
   }
   const plan = state.plan ?? {}
   if (plan.summary)
-    lines.push("", `验收顾问结论：${plan.verdict} — ${plan.summary}`)
+    lines.push("", `修复审阅结论：${plan.verdict} — ${plan.summary}`)
   lines.push("", `完整报告：${join(cfg.stateDir, "verify-report.json")}`, "需要人工介入：修复后在 REPL 里 :verify 重新过门禁。")
   return lines.join("\n")
 }

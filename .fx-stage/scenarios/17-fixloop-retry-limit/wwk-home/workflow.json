@@ -1,0 +1,5 @@
+{
+  "limits": {
+    "max_retries": 1
+  }
+}

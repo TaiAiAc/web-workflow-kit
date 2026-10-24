@@ -11,12 +11,19 @@
 | `studio.ts` | 给 LangGraph Studio 导出四张图（见仓库根目录的 `langgraph.json`） |
 | `deps.ts` | 依赖注入；编码 / 修复提示词拼装；顾问计划校验 |
 | `agents.ts` / `acp.ts` | Claude Code CLI、命令行 agent（dsh 等）、ACP agent（Codex / OpenCode / WorkBuddy）与权限策略 |
-| `review.ts` | 验收审阅：DeepSeek API / dsh（只读校验）/ 跳过 / 自动 |
+| `review.ts` | 修复审阅：DeepSeek API / dsh（只读校验）/ 跳过 / 自动 |
 | `gate.ts` | 调 `verify.mjs`，逐行日志，超时整树结束；本机没有 `node` 时用 Electron 自带的 Node |
 | `design.ts` | 设计稿：本地 `.json`、MasterGo（MCP） |
 | `checkpoint.ts` | 断点：`node:sqlite` |
 | `notify.ts` | 熔断邮件（nodemailer，去重窗口） |
-| `config.ts` / `llm.ts` | 配置深合并、用户级 / 项目 `.env`；OpenAI 兼容接口客户端 |
+| `config.ts` / `llm.ts` | 配置深合并、用户级 / 项目 `.env`、工作流配置三层合并与校验、脱敏快照；OpenAI 兼容接口客户端 |
+| `workflow.ts` | 阶段注册表：六个阶段、节点名、按配置排出本次要走的阶段 |
+| `stages.ts` | 文档阶段：取材与需求、技术设计、文档复核（含仲裁）、产品验收；角色 agent、校验重写、05 自测 |
+| `docs.ts` | 文档契约：解析、逐份 schema 与跨文档校验、素材、版本历史 |
+| `whitelist.ts` | 阶段提交的路径白名单 |
+| `gitflow.ts` | 作业分支：开工检查、锁、阶段提交、合并预演（临时 worktree）、落地、删除校验 |
+| `vision.ts` | 看图写 01：codex ACP 图片块，CLI 退路，结果缓存 |
+| `metrics.ts` | 指标：agent 调用的耗时与 token、打回原因，按 agent 汇总 |
 | `console/` | 本地控制台服务、工作空间、设置页后端、系统文件选择窗口 |
 
 ## 实现要点

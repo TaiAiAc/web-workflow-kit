@@ -39,6 +39,8 @@ export interface RunOptions {
   env?: NodeJS.ProcessEnv
   /** 逐行回调 stdout+stderr（门禁靠它实时显示每项检查）；给了就不再缓存输出 */
   onLine?: (line: string) => void
+  /** Windows 上参数原样传（cmd /s /c 要自己处理引号，Node 的转义它不认） */
+  windowsVerbatimArguments?: boolean
 }
 
 /** 运行命令；Windows 的 .cmd / .bat 要经 shell 才能跑。 */
@@ -52,6 +54,7 @@ export function run(cmd: string, args: string[], opts: RunOptions): Promise<RunR
       windowsHide: true,
       detached: !isWin, // 独立进程组：超时时连同它拉起的子进程一起结束
       stdio: ["pipe", "pipe", "pipe"],
+      windowsVerbatimArguments: opts.windowsVerbatimArguments,
     })
     let stdout = ""
     let stderr = ""

@@ -236,6 +236,40 @@ kbd { font: 11px var(--mono); color: inherit; opacity: .75; }
 .toasts { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 30; }
 .toast { background: var(--text); color: var(--bg); padding: 9px 14px; border-radius: 8px; max-width: 420px; box-shadow: 0 6px 20px rgba(0, 0, 0, .2); }
 .toast.bad { background: var(--bad); color: #fff; }
+/* 作业分支：运行详情里的卡片、开工检查的问题、合并弹窗 */
+.btn.danger { color: var(--bad); }
+.flowcard { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.flowcard .grow { flex: 1; min-width: 200px; }
+.flowcard .b, .target .n { font-family: var(--mono); font-size: 12px; }
+.flowcard .note { color: var(--muted); font-size: 12px; white-space: pre-wrap; }
+.problems { display: flex; flex-direction: column; gap: 4px; color: var(--bad); }
+.problems .p { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+dialog.merge { border: 1px solid var(--line-2); border-radius: 12px; background: var(--panel); color: var(--text); padding: 0; width: min(640px, calc(100vw - 32px)); box-shadow: 0 20px 60px rgba(0, 0, 0, .25); }
+dialog.merge::backdrop { background: rgba(10, 14, 22, .45); }
+dialog.merge header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+dialog.merge header h3 { margin: 0; font-size: 14px; flex: 1; }
+dialog.merge .body { padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; max-height: 68vh; overflow-y: auto; }
+dialog.merge .lbl { font-weight: 600; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+dialog.merge textarea { width: 100%; min-height: 72px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--panel); color: var(--text); padding: 8px 10px; font: 12.5px var(--mono); resize: vertical; }
+dialog.merge footer { display: flex; gap: 8px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--line); }
+dialog.merge footer .grow { flex: 1; color: var(--faint); font-size: 12px; }
+.targets { display: flex; flex-direction: column; gap: 4px; }
+.target { display: block; width: 100%; text-align: left; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r); background: none; }
+.target:hover { background: var(--hover); }
+.target[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.target .n { font-weight: 600; }
+.target .m { color: var(--muted); font-size: 12px; }
+.target .m .x { color: var(--bad); }
+.rehearsal { padding: 8px 10px; border-radius: var(--r); background: var(--panel-2); font-size: 12.5px; }
+.rehearsal.ok { background: var(--ok-soft); color: var(--ok); }
+.rehearsal.bad { background: var(--bad-soft); color: var(--bad); white-space: pre-wrap; }
+dialog.merge.wide { width: min(980px, calc(100vw - 32px)); }
+.mtable { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.mtable th, .mtable td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.mtable th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+.mtable td.num { font-family: var(--mono); white-space: nowrap; }
+.mtable .why { color: var(--muted); font-size: 12px; }
+.rehearsal pre { margin: 6px 0 0; max-height: 160px; overflow: auto; white-space: pre-wrap; color: var(--muted); font: 11.5px var(--mono); }
 </style>
 </head>
 <body>
@@ -255,6 +289,8 @@ kbd { font: 11px var(--mono); color: inherit; opacity: .75; }
   <main class="main" id="main"></main>
 </div>
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+<dialog class="merge" id="merge-dlg" aria-labelledby="merge-title"></dialog>
+<dialog class="merge wide" id="metrics-dlg" aria-labelledby="metrics-title"></dialog>
 
 <script>
 "use strict";
@@ -271,7 +307,12 @@ const desktop = window.wwkDesktop || null;
 async function api(path, opts = {}) {
   const res = await fetch(path, { ...opts, headers: { "X-WWK-Token": TOKEN, "Content-Type": "application/json", ...(opts.headers || {}) } });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `请求失败（${res.status}）`);
+  if (!res.ok) {
+    const err = new Error(data.error || `请求失败（${res.status}）`);
+    err.status = res.status;
+    err.problems = data.problems || null;   // 开工检查没过时的问题清单
+    throw err;
+  }
   return data;
 }
 const post = (path, body) => api(path, { method: "POST", body: JSON.stringify(body) });
@@ -358,6 +399,7 @@ let run = null;              // 正在看的运行（含事件）
 let runFilter = "all";       // 日志按阶段筛选
 let follow = true;           // 运行中自动滚到最新日志
 let design = null;           // 本次附带的设计稿
+let images = [];             // 本次附带的界面图片（图片 + 文字输入），和设计稿二选一
 let pollTimer = null;
 const openGroups = new Set();
 
@@ -439,6 +481,7 @@ $("add-ws").onclick = addWs;
 async function loadWs() {
   WS = await api("/api/workspaces");
   renderSide();
+  renderPending();
 }
 
 // ---------- Agent 状态 ----------
@@ -478,9 +521,11 @@ function renderMain() {
       <div class="tools">
         <button class="btn" id="t-gate" type="button" title="只跑一次门禁，不改代码">${icon("shield")}跑门禁</button>
         <button class="btn" id="t-loop" type="button" title="对当前工作区跑门禁，失败就审阅修复，直到通过或熔断">${icon("loop")}修复回环</button>
+        <button class="btn" id="t-metrics" type="button" title="按 agent 汇总最近的运行：耗时、token、被打回的次数和原因">${icon("cpu")}指标</button>
         <button class="btn" id="t-open" type="button">${icon("folder")}打开目录</button>
       </div>
     </header>
+    <div id="pending-slot"></div>
     ${ins.exists === false ? `<div class="banner"><span class="grow">这个目录已经不存在了。</span><button class="btn" id="b-remove" type="button">从工作空间移除</button></div>`
       : !ins.rules_yaml ? `<div class="banner"><span class="grow">项目里还没有 rules.yaml，门禁会用默认规则（命令不一定和项目一致）。</span><button class="btn warn" id="b-init" type="button">${icon("wand")}生成配置</button></div>` : ""}
     <section class="compose">
@@ -505,8 +550,10 @@ function renderMain() {
   $("t-gate").onclick = () => startRun(GATE_ONLY);
   $("t-loop").onclick = () => startRun(FIX_LOOP);
   $("t-open").onclick = () => openFolder(ws.path);
+  $("t-metrics").onclick = () => openMetrics(ws.path);
   $("b-init")?.addEventListener("click", initProject);
   $("b-remove")?.addEventListener("click", () => removeWs(ws.path));
+  renderPending();
   $("run-btn").onclick = () => startRun(PIPELINE);
   const req = $("req");
   req.oninput = () => { store.set("wwk.draft." + ws.path, req.value); $("compose-err").textContent = ""; };
@@ -540,10 +587,19 @@ async function choose(key, value) {
 function renderDesign() {
   const slot = $("design-slot");
   if (!slot) return;
+  const chip = (label, title, id, aria) => `<span class="btn design-chip" title="${esc(title)}">${icon("clip")}<span>${esc(label)}</span><button class="btn icon ghost" id="${id}" type="button" aria-label="${aria}" style="height:20px;width:20px">${icon("x")}</button></span>`;
   slot.innerHTML = design
-    ? `<span class="btn design-chip" title="${esc(design)}">${icon("clip")}<span>${esc(design === "mastergo" ? "MasterGo 当前选中" : design.split("/").pop())}</span><button class="btn icon ghost" id="d-clear" type="button" aria-label="不带设计稿" style="height:20px;width:20px">${icon("x")}</button></span>`
-    : `<button class="btn ghost" id="d-pick" type="button">${icon("clip")}设计稿</button>`;
+    ? chip(design === "mastergo" ? "MasterGo 当前选中" : design.split("/").pop(), design, "d-clear", "不带设计稿")
+    : images.length
+      ? chip(images.length === 1 ? images[0].split("/").pop() : `${images.length} 张图片`, images.join("\n"), "i-clear", "不带图片")
+      : `<button class="btn ghost" id="i-pick" type="button" title="截图或设计稿导出图，由 Codex 看图写设计分析">${icon("clip")}图片</button><button class="btn ghost" id="d-pick" type="button">${icon("clip")}设计稿</button>`;
   $("d-clear")?.addEventListener("click", () => { design = null; renderDesign(); });
+  $("i-clear")?.addEventListener("click", () => { images = []; renderDesign(); });
+  $("i-pick")?.addEventListener("click", async () => {
+    try { images = desktop?.pickImages ? await desktop.pickImages(current) : (await post("/api/pick-images", { initial: current })).paths; }
+    catch (err) { toast(err.message, true); }
+    renderDesign();
+  });
   $("d-pick")?.addEventListener("click", (e) => openPop(e.currentTarget,
     `<button data-act="file">${icon("folder")}选择导出的 .json…</button><button data-act="mastergo">${icon("clip")}用 MasterGo 当前选中的图层</button>`,
     async (act) => {
@@ -591,18 +647,211 @@ async function startRun(graph) {
     if (!requirement) { $("compose-err").textContent = "先写下这次要做的需求"; $("req").focus(); return; }
     Object.assign(input, { requirement, coding_agent: prefOf(ws, "coding_agent") });
     if (design) input.design_ref = design;
+    if (images.length) input.images = images;
+    // 跑完要合并时发通知；趁这次点击要权限（桌面端不需要）
+    if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
   }
   if (graph === GATE_ONLY) { delete input.review_backend; delete input.fix_agent; }
   try {
     const { id } = await post("/api/runs", { graph, input });
-    if (graph === PIPELINE) { $("req").value = ""; store.set("wwk.draft." + ws.path, ""); design = null; renderDesign(); }
+    if (graph === PIPELINE) { $("req").value = ""; store.set("wwk.draft." + ws.path, ""); design = null; images = []; renderDesign(); }
     run = null; runFilter = "all"; openGroups.clear(); follow = true;
     await refreshRuns(false);
     openRun(id);
     loadWs();
   } catch (err) {
-    toast(err.message, true);
+    if (err.problems && graph === PIPELINE) showProblems(err.problems);
+    else toast(err.message, true);
   }
+}
+
+// ---------- 作业分支：开工检查、合并弹窗 ----------
+const FLOW_STATUS = { running: ["作业分支", ""], ready_to_merge: ["待合并", "accent"], held: ["待处理", "warn"], merged: ["已合并", "ok"], failed: ["未合并", ""] };
+const isPending = (f) => f && (f.status === "ready_to_merge" || f.status === "held");
+
+function showProblems(problems) {
+  const el = $("compose-err");
+  if (!el) return;
+  el.innerHTML = `<div class="problems">${problems.map((p, i) => `<div class="p"><span>${esc(p.message)}</span>${
+    p.code === "GITIGNORE" ? `<button class="btn" type="button" data-fix="${i}">一键修复</button>`
+    : p.code === "PENDING" ? `<button class="btn" type="button" data-fix="${i}">去处理</button>`
+    : p.code === "INTERRUPTED" ? `<button class="btn" type="button" data-fix="${i}">收尾</button>`
+    : p.code === "DIRTY" && p.detail ? `<span class="tag" title="${esc(p.detail.join("\n"))}">${esc(p.detail.slice(0, 3).join("、"))}${p.detail.length > 3 ? " …" : ""}</span>` : ""}</div>`).join("")}</div>`;
+  el.onclick = async (e) => {
+    const b = e.target.closest("[data-fix]");
+    if (!b) return;
+    const p = problems[Number(b.dataset.fix)];
+    if (p.code === "PENDING") return handlePending(p.detail[0]);
+    if (p.code === "INTERRUPTED") {
+      if (!confirm("会把中断运行留下的未提交改动存成 patch 后清掉，切回原分支，并把这次运行标为失败（作业分支按保留策略处理）。继续？")) return;
+      try {
+        for (const id of p.detail) await post("/api/flow/abandon", { project: current, run: id });
+        toast("已收尾，可以重新运行");
+        el.innerHTML = "";
+        await loadWs();
+        refreshRuns(false);
+      } catch (err) { toast(err.message, true); }
+      return;
+    }
+    if (!confirm("会把 .agent/ 追加到 .gitignore，并在当前分支上单独提交一次（只含 .gitignore）。继续？")) return;
+    try {
+      await post("/api/workspaces/fix-gitignore", { path: current });
+      toast("已忽略 .agent/ 并提交");
+      el.innerHTML = "";
+      await loadWs();
+    } catch (err) { toast(err.message, true); }
+  };
+}
+
+/** 待合并 / 待处理的运行：横幅单独刷新，不重绘整个主区（免得打断正在写的需求） */
+function renderPending() {
+  const slot = $("pending-slot"), ws = wsOf(current);
+  if (!slot || !ws) return;
+  const ids = ws.pending_runs || [];
+  slot.innerHTML = ids.length ? `<div class="banner"><span class="grow">有 ${ids.length} 次运行在等你处理（合并 / 不合并 / 作废），处理完才能开新运行。</span><button class="btn" id="b-pending" type="button">处理</button></div>` : "";
+  $("b-pending")?.addEventListener("click", () => handlePending(ids[0]));
+}
+
+async function handlePending(id) {
+  if (!id) return;
+  follow = false; runFilter = "all"; openGroups.clear();
+  await openRun(id);
+  openMerge(id);
+}
+
+function notifyDesk(title, body) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  if (!document.hidden && document.hasFocus()) return;
+  try { new Notification(title, { body }); } catch {}
+}
+
+// ---------- 指标：按 agent 汇总 ----------
+const REJECT_BY = { gate: "门禁", lint: "文档校验", "doc-review": "文档复核", arbiter: "仲裁", acceptance: "验收", whitelist: "越界" };
+const fmtTok = (n) => n >= 10000 ? (n / 1000).toFixed(0) + "k" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
+async function openMetrics(project) {
+  let data;
+  try { data = await api("/api/metrics?project=" + encodeURIComponent(project)); } catch (err) { toast(err.message, true); return; }
+  const dlg = $("metrics-dlg");
+  const rows = data.agents.map((a) => {
+    const rej = Object.entries(a.rejected).map(([k, n]) => `${REJECT_BY[k] || k} ${n}`).join("、") || "—";
+    const tok = a.tokens.calls_with_usage ? `${fmtTok(a.tokens.input)} / ${fmtTok(a.tokens.output)}${a.tokens.calls_with_usage < a.calls ? `（${a.tokens.calls_with_usage}/${a.calls} 次有用量）` : ""}` : "拿不到";
+    return `<tr><td><b>${esc(agentLabel(a.agent))}</b><div class="why">${esc(a.roles.join("、"))}</div></td>
+      <td class="num">${a.calls}${a.errors ? ` <span class="tag bad">出错 ${a.errors}</span>` : ""}</td>
+      <td class="num">${a.calls ? dur(a.ms / a.calls / 1000) : "—"}</td><td class="num">${tok}</td><td>${esc(rej)}</td>
+      <td class="why">${a.top_reasons.map((r) => `${esc(r.reason)} ×${r.count}`).join("<br>") || "—"}</td></tr>`;
+  }).join("");
+  dlg.innerHTML = `<header><h3 id="metrics-title">指标（最近 ${data.runs} 次运行）</h3><button class="btn icon ghost" id="mt-x" type="button" aria-label="关闭">${icon("x")}</button></header>
+    <div class="body">${rows ? `<table class="mtable"><thead><tr><th>agent</th><th>调用</th><th>平均耗时</th><th>token 输入 / 输出</th><th>产出被打回</th><th>常见打回原因</th></tr></thead><tbody>${rows}</tbody></table>`
+      : `<div class="rehearsal">还没有指标：完整流水线跑过之后，这里会按 agent 汇总耗时、token 和打回原因。</div>`}</div>`;
+  $("mt-x").onclick = () => dlg.close();
+  if (!dlg.open) dlg.showModal();
+}
+
+let MERGE = null;   // { project, runId, data, target, message, timer, busy }
+async function openMerge(runId) {
+  const ws = wsOf(current);
+  if (!ws) return;
+  clearTimeout(MERGE?.timer);
+  MERGE = { project: ws.path, runId, data: null, target: null, message: null, timer: null, busy: false };
+  await loadMerge();
+  const dlg = $("merge-dlg");
+  if (MERGE && !dlg.open) dlg.showModal();
+}
+async function loadMerge() {
+  const m = MERGE;
+  if (!m) return;
+  try {
+    m.data = await api(`/api/flow?project=${encodeURIComponent(m.project)}&run=${encodeURIComponent(m.runId)}`);
+  } catch (err) { toast(err.message, true); closeMerge(); return; }
+  if (MERGE !== m) return;
+  const r = m.data.manifest.verify.on_merged_result;
+  m.target ||= m.data.rehearsing?.target || r?.target || m.data.default_target;
+  if (m.message === null) m.message = r?.message || m.data.suggested_message;
+  drawMerge();
+  clearTimeout(m.timer);
+  if (m.data.rehearsing) m.timer = setTimeout(loadMerge, 1500);
+}
+function closeMerge() {
+  clearTimeout(MERGE?.timer);
+  MERGE = null;
+  const dlg = $("merge-dlg");
+  if (dlg.open) dlg.close();
+}
+function drawMerge() {
+  const m = MERGE, dlg = $("merge-dlg");
+  const { manifest: mf, targets, rehearsing, error } = m.data;
+  const r = mf.verify.on_merged_result;
+  const t = targets.find((x) => x.branch === m.target);
+  const pending = isPending(mf);
+  const fresh = Boolean(r && t && r.target === m.target && r.target_head_before === t.head);
+  const canMerge = pending && fresh && r.passed && !rehearsing && t.checked_out !== "elsewhere" && !m.busy;
+  const [stText, stTag] = FLOW_STATUS[mf.status] || [mf.status, ""];
+
+  let body;
+  if (!pending) {
+    body = `<div class="rehearsal ${mf.status === "merged" ? "ok" : ""}">${mf.status === "merged"
+      ? `已合并到 <b>${esc(mf.merge.target)}</b>（${esc(mf.merge.result_hash.slice(0, 7))}），作业分支已删除。`
+      : esc(mf.note || "这次运行没有可合并的结果。")}</div>`;
+  } else {
+    const rows = targets.map((x) => {
+      const bits = [x.behind ? `比开工时多 ${x.behind} 个新提交` : "开工后没有新提交",
+        x.upstream ? `上游 ${esc(x.upstream)}：领先 ${x.upstream_ahead ?? "?"} / 落后 ${x.upstream_behind ?? "?"}` : "没有上游",
+        x.conflicts.length ? `<span class="x" title="${esc(x.conflicts.join("\n"))}">冲突 ${x.conflicts.length} 个文件</span>` : "无冲突"];
+      if (x.checked_out === "elsewhere") bits.push(`<span class="x">在别的 worktree 检出，不能合并</span>`);
+      return `<button class="target" type="button" role="radio" data-b="${esc(x.branch)}" aria-checked="${x.branch === m.target}">
+        <div class="n">${esc(x.branch)}${x.checked_out === "here" ? ' <span class="tag">当前分支</span>' : ""}${x.branch === mf.base.branch ? ' <span class="tag">开工分支</span>' : ""}</div>
+        <div class="m">${bits.join(" · ")}</div></button>`;
+    }).join("");
+    let reh;
+    if (rehearsing) reh = `<div class="rehearsal"><span class="spin"></span> 正在对 ${esc(rehearsing.target)} 预演（装依赖、跑门禁）…<pre>${esc(rehearsing.log.slice(-30).join("\n"))}</pre></div>`;
+    else if (fresh && r.passed) reh = `<div class="rehearsal ok">合并结果的门禁已通过（预演于 ${esc(new Date(r.at).toLocaleString("zh-CN", { hour12: false }))}），可以合并。</div>`;
+    else if (fresh) reh = `<div class="rehearsal bad">预演未通过：${esc(r.reason || "")}</div>`;
+    else reh = `<div class="rehearsal">还没有对 ${esc(m.target || "")} 预演${r && r.target === m.target ? "（预演后它又有了新提交）" : ""}。合并前会在临时目录里生成合并结果、装依赖并跑一遍门禁，目标分支在这之前不会动。</div>`;
+    body = `${error ? `<div class="rehearsal bad">${esc(error)}</div>` : ""}
+      <div><div class="lbl">合并到</div><div class="targets" role="radiogroup">${rows || '<div class="m">没有可选的本地分支</div>'}</div></div>
+      ${reh}
+      <div><div class="lbl">合并方式：squash（压成一个提交）· 提交说明</div><textarea id="m-msg">${esc(m.message)}</textarea></div>
+      ${mf.note && mf.status === "held" && !fresh ? `<div class="rehearsal bad">${esc(mf.note)}</div>` : ""}`;
+  }
+
+  dlg.innerHTML = `<header><h3 id="merge-title">${esc(mf.requirement.split("\n")[0] || mf.run_id)}</h3><span class="tag ${stTag}">${esc(stText)}</span>
+      <button class="btn icon ghost" id="m-x" type="button" aria-label="关闭">${icon("x")}</button></header>
+    <div class="body"><div class="m" style="color:var(--muted);font-size:12px">作业分支 <span style="font-family:var(--mono)">${esc(mf.work.branch)}</span> · 从 ${esc(mf.base.branch)} 拉出 · ${mf.work.commits.length} 次阶段提交</div>${body}</div>
+    <footer>${pending ? `<button class="btn danger" id="m-discard" type="button">作废</button>` : ""}
+      <span class="grow">${pending ? "关掉后可以在运行记录里重新打开" : ""}</span>
+      ${mf.status === "ready_to_merge" ? `<button class="btn" id="m-hold" type="button">不合并</button>` : ""}
+      ${pending && !(fresh && r.passed) ? `<button class="btn" id="m-reh" type="button" ${rehearsing || !t || m.busy ? "disabled" : ""}>${fresh ? "重新预演" : "预演"}</button>` : ""}
+      ${pending ? `<button class="btn primary" id="m-merge" type="button" ${canMerge ? "" : "disabled"}>合并</button>` : `<button class="btn" id="m-close" type="button">关闭</button>`}</footer>`;
+
+  $("m-x").onclick = closeMerge;
+  $("m-close")?.addEventListener("click", closeMerge);
+  $("m-msg")?.addEventListener("input", (e) => { m.message = e.target.value; });
+  dlg.querySelectorAll(".target").forEach((b) => b.onclick = () => { m.target = b.dataset.b; drawMerge(); });
+  $("m-reh")?.addEventListener("click", () => flowAction("rehearse"));
+  $("m-merge")?.addEventListener("click", () => flowAction("merge"));
+  $("m-hold")?.addEventListener("click", () => flowAction("hold"));
+  $("m-discard")?.addEventListener("click", () => { if (confirm("作废后不再合并，作业分支按失败分支的保留策略处理（只留最近几个）。继续？")) flowAction("discard"); });
+}
+async function flowAction(action) {
+  const m = MERGE;
+  if (!m || m.busy) return;
+  m.busy = true;
+  drawMerge();
+  try {
+    m.data = await post(`/api/flow/${action}`, { project: m.project, run: m.runId, target: m.target, message: m.message });
+    if (action === "merge") toast(`已合并到 ${m.target}`);
+    else if (action === "hold") toast("已标为待处理，作业分支保留");
+    else if (action === "discard") toast("已作废");
+    if (action !== "rehearse") closeMerge();
+  } catch (err) {
+    toast(err.message, true);
+  } finally {
+    m.busy = false;
+  }
+  if (MERGE === m) loadMerge();
+  await loadWs();
+  refreshRuns(false);
+  if (run && run.id === m.runId) openRun(m.runId);
 }
 
 // ---------- 设置页：agent 账号、代理、API Key、熔断邮件 ----------
@@ -756,7 +1005,7 @@ function renderRunList() {
   if (!RUNS.length) { ul.innerHTML = `<li class="empty">还没有运行。写下需求点「运行」，或用工具栏只跑门禁。</li>`; return; }
   ul.innerHTML = RUNS.map((r) => `<li><button class="run-item" type="button" data-id="${esc(r.id)}" aria-current="${r.id === run?.id}">
     <div class="l1"><span class="dot ${statusDot(r)}"></span><span class="t">${esc(runTitle(r))}</span></div>
-    <div class="l2">${esc(statusText(r))} · ${esc(ago(r.started))}${r.coding_agent ? " · " + esc(agentLabel(r.coding_agent)) : ""}</div></button></li>`).join("");
+    <div class="l2">${esc(statusText(r))}${r.flow && r.flow.status !== "running" ? " · " + esc((FLOW_STATUS[r.flow.status] || [r.flow.status])[0]) : ""} · ${esc(ago(r.started))}${r.coding_agent ? " · " + esc(agentLabel(r.coding_agent)) : ""}</div></button></li>`).join("");
   ul.onclick = (e) => { const b = e.target.closest("[data-id]"); if (b) { follow = true; openGroups.clear(); runFilter = "all"; openRun(b.dataset.id); } };
 }
 
@@ -781,7 +1030,15 @@ async function poll() {
     if (!run || run.id !== id || path !== current) return;
     run = { ...data, events: run.events.concat(data.events) };
     renderDetail();
-    if (run.status !== "running") { await refreshRuns(false); loadWs(); return; }
+    if (run.status !== "running") {
+      await refreshRuns(false);
+      loadWs();
+      if (isPending(run.flow)) {
+        notifyDesk(run.flow.status === "ready_to_merge" ? "可以合并了" : "合并预演没通过", runTitle(run));
+        openMerge(run.id);
+      }
+      return;
+    }
   } catch { /* 服务短暂不可用时继续轮询 */ }
   pollTimer = setTimeout(poll, 1000);
 }
@@ -789,8 +1046,8 @@ setInterval(() => { if (run?.status === "running") renderDuration(); }, 1000);
 
 // ---------- 阶段：由事件推出流程进度与分组日志 ----------
 const CONTAINERS = new Set(["编码", "审阅修复"]);
-const STEP_LABEL = { "读取设计稿": "设计稿", "生成Spec": "Spec", "写代码": "写代码", "门禁": "门禁", "验收审阅": "审阅", "执行修复": "修复", "交付": "交付", "熔断": "熔断" };
-const TEMPLATE = { [PIPELINE]: ["设计稿", "Spec", "写代码", "门禁", "交付"], [FIX_LOOP]: ["门禁", "交付"], [GATE_ONLY]: ["门禁"] };
+const STEP_LABEL = { "读取设计稿": "设计稿", "生成Spec": "Spec", "写代码": "写代码", "门禁": "门禁", "修复审阅": "审阅", "执行修复": "修复", "交付": "交付", "熔断": "熔断", "合并预演": "合并预演", "取材与需求": "取材与需求", "技术设计": "技术设计", "文档复核": "文档复核", "产品验收": "产品验收" };
+const TEMPLATE = { [PIPELINE]: ["取材与需求", "技术设计", "文档复核", "写代码", "门禁", "产品验收", "交付", "合并预演"], [FIX_LOOP]: ["门禁", "交付"], [GATE_ONLY]: ["门禁"] };
 const CHECK_LINE = /^([✔✘-])\s+([\w:-]+)(?::\s*skip)?(?:\s+\((\d+)ms\))?/;
 
 function buildStages(r) {
@@ -865,7 +1122,8 @@ function renderDetail() {
   });
   if (r.status === "running") {
     const seen = new Set(real.map((s) => s.label));
-    const ghosts = (TEMPLATE[r.graph] || []).filter((l) => !seen.has(l) && !(l === "设计稿" && seen.has("Spec")));
+    const planned = (r.events || []).find((e) => e.type === "plan")?.nodes?.map((n) => STEP_LABEL[n] || n);
+    const ghosts = (planned || TEMPLATE[r.graph] || []).filter((l) => !seen.has(l) && !(l === "设计稿" && seen.has("Spec")));
     for (const l of ghosts) flow += (flow ? `<span class="arrow">${icon("arrow")}</span>` : "") + `<div class="step ghost"><div class="n">${esc(l)}</div><div class="s">等待</div></div>`;
   }
 
@@ -906,7 +1164,7 @@ function renderDetail() {
     <div class="detail-head"><h3 title="${esc(runTitle(r))}">${esc(runTitle(r))}</h3><span class="tag ${stTag}">${r.status === "running" ? '<span class="spin"></span>' : ""}${esc(stText)}</span></div>
     <div class="detail-sub" id="d-sub"></div>
     <div class="flow" id="flow">${flow || '<div class="step ghost"><div class="n">准备中</div></div>'}</div>
-    ${checks}${result}${failTable}
+    ${checks}${result}${flowCard(r)}${failTable}
     <div class="log-bar">${tabs.map(([k, l]) => `<button class="tab" type="button" data-f="${esc(k)}" aria-pressed="${k === runFilter}">${esc(l)}</button>`).join("")}
       <span class="grow"></span>${r.status === "running" ? `<button class="btn ghost" id="follow" type="button" aria-pressed="${follow}">${follow ? "跟随最新：开" : "跟随最新：关"}</button>` : ""}</div>
     <div class="log" id="log">${logs || '<div class="none" style="color:var(--faint);font-family:var(--sans)">还没有日志。</div>'}</div>`;
@@ -915,9 +1173,20 @@ function renderDetail() {
   box.querySelectorAll(".log-bar .tab").forEach((b) => b.onclick = () => { runFilter = b.dataset.f; renderDetail(); });
   $("flow").onclick = (e) => { const s = e.target.closest(".step[data-key]"); if (s) { runFilter = s.dataset.key; renderDetail(); } };
   $("follow")?.addEventListener("click", () => { follow = !follow; renderDetail(); });
+  $("d-merge")?.addEventListener("click", () => openMerge(r.id));
   box.querySelectorAll("details.grp").forEach((d) => d.ontoggle = () => { d.open ? openGroups.add(d.dataset.key) : openGroups.delete(d.dataset.key); });
   if (r.status === "running" && follow) box.scrollTop = box.scrollHeight;
   else box.scrollTop = justFinished ? 0 : scroll;   // 刚结束：回到顶部看结论
+}
+function flowCard(r) {
+  const f = r.flow;
+  if (!f || r.status === "running") return "";
+  const [text, tag] = FLOW_STATUS[f.status] || [f.status, ""];
+  const reh = f.rehearsal ? `合并预演（${esc(f.rehearsal.target)}）${f.rehearsal.passed ? "通过" : "未通过"}` : "";
+  return `<div class="flowcard"><span class="tag ${tag}">${esc(text)}</span>
+    <span class="grow"><span class="b">${esc(f.branch)}</span> ← ${esc(f.base)}${f.merged_into ? ` · 已合并到 ${esc(f.merged_into)}` : reh ? " · " + reh : ""}
+      ${f.note ? `<div class="note">${esc(f.note)}</div>` : ""}</span>
+    ${isPending(f) ? `<button class="btn primary" type="button" id="d-merge">处理合并…</button>` : ""}</div>`;
 }
 function stepHtml(s) {
   const d = s.end != null ? dur(s.end - s.start) : "";
@@ -951,6 +1220,7 @@ function renderDuration() {
 
 // ---------- 启动 ----------
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePop(); });
+$("merge-dlg").addEventListener("close", () => { clearTimeout(MERGE?.timer); MERGE = null; });
 applyTheme();
 (async () => {
   try {

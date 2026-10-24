@@ -804,12 +804,14 @@ profiles:
       required: [index.html]
 `
 
-const loopConfig = (maxRetries) =>
+// 修复轮数上限在工作流配置里（不在项目里）：run-all 把 WWK_HOME 指向场景自带的 wwk-home/
+const loopWorkflow = (maxRetries) => JSON.stringify({ limits: { max_retries: maxRetries } }, null, 2) + "\n"
+
+const loopConfig = () =>
   JSON.stringify(
     {
       version: "0.2.0",
       project_root: ".",
-      max_retries: maxRetries,
       state_dir: ".agent",
       verify: { timeout_sec: 300 },
       diff: { max_chars: 12000, context_lines: 3 },
@@ -868,7 +870,8 @@ add(
     "package.json": pkg("wwk-fixture-fixloop-pass"),
     ".gitignore": gitignore,
     "rules.yaml": loopRules,
-    "agent.config.json": loopConfig(2),
+    "agent.config.json": loopConfig(),
+    "wwk-home/workflow.json": loopWorkflow(2),
     "scripts/build.mjs": loopBuild,
     // 修复 agent：把缺失的入口页补上
     "scripts/fix.mjs": `import { mkdirSync, writeFileSync } from "node:fs"
@@ -902,7 +905,8 @@ add(
     "package.json": pkg("wwk-fixture-fixloop-retry"),
     ".gitignore": gitignore,
     "rules.yaml": loopRules,
-    "agent.config.json": loopConfig(1),
+    "agent.config.json": loopConfig(),
+    "wwk-home/workflow.json": loopWorkflow(1),
     "scripts/build.mjs": loopBuild,
     // 修复 agent：退出码 0 但没改任何文件，下一轮门禁照样失败
     "scripts/fix.mjs": `console.log("[fix] 看过失败项了，但这次没有改动文件")
@@ -936,7 +940,8 @@ profiles:
     build:
       run: node scripts/build.mjs
 `,
-    "agent.config.json": loopConfig(2),
+    "agent.config.json": loopConfig(),
+    "wwk-home/workflow.json": loopWorkflow(2),
     "scripts/build.mjs": loopBuild,
     "scripts/fix.mjs": `console.log("[fix] 不该被调用到")
 `,

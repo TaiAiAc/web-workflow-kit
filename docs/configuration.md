@@ -12,10 +12,10 @@
 
 ## 合并规则
 
-- **`agent.config.json`**：项目里的文件只需写要改的字段，按层级与包内默认值深度合并。例如只想把重试上限改成 5：
+- **`agent.config.json`**：项目里的文件只需写要改的字段，按层级与包内默认值深度合并。例如只想把审阅关掉：
 
   ```json
-  { "max_retries": 5 }
+  { "review": { "backend": "skip" } }
   ```
 
   `wwk --config <文件>` 可以额外指定一份配置，代替项目里的那份。
@@ -29,9 +29,10 @@
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
 | `version` | `"0.2.0"` | 配置版本，仅用于显示 |
-| `max_retries` | `3` | 最多自动修复几轮；第 `max_retries + 1` 次门禁仍失败即熔断。必须 ≥ 1 |
 | `state_dir` | `".agent"` | 运行产物目录（相对项目根目录） |
 | `project_root` | `"."` | 不指定 `--project` 时，相对当前目录的项目位置 |
+
+> 原来的 `max_retries` 已移到工作流配置的 `limits.max_retries`（见下方 workflow.json）。`agent.config.json` 里还写着它时会直接报错，并提示改到哪里。
 
 ### verify
 
@@ -43,7 +44,7 @@
 
 ### diff
 
-验收审阅时只传本次改动块，这里控制大小。
+修复审阅时只传本次改动块，这里控制大小。
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
@@ -111,11 +112,11 @@
 
 ### review
 
-验收审阅（门禁失败后出修复计划）。
+修复审阅（门禁失败后出修复计划）。
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `backend` | `"auto"` | `auto` / `api` / `dsh` / `skip`，见 [README](../README.md#验收审阅) |
+| `backend` | `"auto"` | `auto` / `api` / `dsh` / `skip`，见 [README](../README.md#修复审阅) |
 | `dsh_command` | `["dsh", "headless", "{prompt}"]` | 用 dsh 审阅时的命令 |
 | `base_url` | `https://api.deepseek.com` | API 审阅的接口地址（OpenAI 兼容） |
 | `model` | `deepseek-chat` | API 审阅的模型 |
@@ -139,11 +140,35 @@
 | `notify.dedup_hours` | `24` | 同一项目、同一组失败码在这么多小时内只发一封熔断邮件 |
 | `checkpoint.enabled` | `true` | 命令行运行时把每个节点后的状态写进 `.agent/checkpoints.sqlite`，供 `:resume`；需安装 `[checkpoint]` |
 
+## workflow.json
+
+第二阶段的工作流配置不放在项目里，而是存在软件里，分三层，后面的覆盖前面的：
+
+| 层 | 位置 |
+| --- | --- |
+| 包内默认 | `assets/workflow.json` |
+| 通用配置 | `~/.web-workflow-kit/workflow.json` |
+| 工作区覆盖 | `~/.web-workflow-kit/workspaces.json` 里该工作区的 `workflowOverrides` |
+
+- 合并语义：对象深合并，数组整体替换，`null` 照写；阶段是一个 map，按 `order` 排序，`enabled: false` 关掉该阶段（关掉的阶段不参与 `order` 查重）；
+- 保存通用配置或工作区覆盖前，会把合并后的结果整体校验一遍，所有问题一次列出；不合法就不保存；
+- 每次在控制台运行时，生效配置写入 `.agent/runs/<id>/config.snapshot.json`，里面记录每个字段来自哪一层。快照里没有任何密钥值：字段名像密钥的，或者值里含 `.env` 中密钥的，一律替换成 `[redacted]`；`.env` 只记录「哪个键来自哪个文件」；
+- 导出和导入使用同一套脱敏规则；导入时只覆盖本机已经添加过的工作区，其他路径会跳过；
+- **主图按这份配置拼**：只走启用的阶段，按 `order` 排序。阶段只能是 `discovery` / `tech-design` / `doc-review` / `implement` / `gate` / `acceptance` 这六个，先后顺序固定，`order` 不能把一个阶段调到另一个前面。`gate` 不能关，门禁是唯一的放行依据。「门禁修复回环」只走 `gate`；
+- 目前只有 `implement`（读取设计稿 → Spec → 写代码）和 `gate`（门禁 ⇄ 审阅修复）有实现。其余阶段启用时，运行到会记一行「尚未实现，跳过」，`stage_status` 里记为 `skipped`，之后的步骤会逐个补上；
+- `limits.max_retries`：门禁 ⇄ 修复审阅最多几轮，第 `max_retries + 1` 次门禁仍失败即熔断，必须 ≥ 1；
+- `git.branch_prefix`（默认 `wwk/`）：作业分支名前缀，分支名为 `<前缀><yyyyMMdd-HHmm>-<slug>`；合并弹窗不列出这个前缀的分支；
+- `git.keep_failed_branches`（默认 `3`）：失败的作业分支只留最近几个；
+- `stages.gate.install_command`（默认 `"auto"`）：合并预演前在临时目录里装依赖的命令。`"auto"` 按锁文件选冻结安装（pnpm / npm ci / yarn / bun），写命令字符串则用它，`null` 跳过；
+- `documents.repo_dir`（默认 `docs/wwk`）：入库文档目录；
+- `vision`：看图（图片 + 文字输入）用的 codex。`backend` 默认 `codex_acp`（经 ACP 发图片，失败时退到 CLI），可改成 `codex_cli`；`model` 为空用 codex 的默认模型；`timeout_sec` 默认 300；`cli_command` 默认 `["codex"]`；ACP 适配器的命令取 `coding_agents.codex.command`；
+- 其他字段的含义见 [phase2-work-order.md](phase2-work-order.md) 第 3 节。
+
 ## .env
 
 | 变量 | 用途 |
 | --- | --- |
-| `DEEPSEEK_API_KEY` | API 方式的验收审阅（可选） |
+| `DEEPSEEK_API_KEY` | API 方式的修复审阅（可选） |
 | `OPENAI_API_KEY` | `spec.backend = openai_compatible` 时（可选） |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | 发熔断邮件的 SMTP；端口 465 用 SSL，其他端口用 STARTTLS |
 | `NOTIFY_EMAIL` | 熔断邮件收件人 |

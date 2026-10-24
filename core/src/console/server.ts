@@ -12,15 +12,21 @@ import { randomBytes, timingSafeEqual } from "node:crypto"
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
-import { join } from "node:path"
+import { dirname, extname, join } from "node:path"
+import { ASSET_EXTS } from "../docs.ts"
+import { visionPreflight } from "../vision.ts"
 import { agentAvailability, codingAgentChoices, defaultFixChoice } from "../agents.ts"
-import { ASSETS_DIR, DEFAULTS, initProject, loadConfig } from "../config.ts"
+import { ASSETS_DIR, type Config, DEFAULTS, initProject, loadConfig, writeSnapshot } from "../config.ts"
 import { defaultDeps } from "../deps.ts"
+import { type Flow, FlowError, fixGitignore, NeedsRehearsal, pendingRuns, preflight, readManifest, startRun } from "../gitflow.ts"
 import { buildMainGraph } from "../graph.ts"
+import { Metrics, metricsFile, summarize } from "../metrics.ts"
+import { stagePlan } from "../workflow.ts"
 import * as N from "../names.ts"
 import { availability as reviewAvailability, BACKENDS } from "../review.ts"
 import type { State } from "../state.ts"
-import { openFolder, pickFile, pickFolder } from "./pickers.ts"
+import { openFolder, pickFile, pickFolder, pickImages } from "./pickers.ts"
+import * as FL from "./flow.ts"
 import { agentStatuses, describeSettings, launchLogin, openTerminal, saveSettings, testDeepseek, testNetwork } from "./settings.ts"
 import * as W from "./workspaces.ts"
 
@@ -93,6 +99,10 @@ class Run {
   error = ""
   readonly started = Date.now() / 1000
   finished: number | null = null
+  /** 作业分支（完整流水线才有）：记下运行产物目录，brief 里读 manifest 用 */
+  private stateDir: string | null = null
+  /** 开工检查没过时的问题，页面据此给「一键修复」 */
+  preflight: Json[] | null = null
 
   constructor(graph: string, input: Json) {
     this.graph = graph
@@ -117,30 +127,48 @@ class Run {
       review_backend: this.input.review_backend ?? "", fix_agent: this.input.fix_agent ?? "",
       summary: this.result.summary ?? this.error, result_status: this.result.status ?? null,
       started: this.started, finished: this.finished,
+      flow: this.stateDir ? FL.flowBrief(this.stateDir, this.id) : null,
     }
   }
 
   record(): Json {
-    return { ...this.brief(), input: this.input, result: this.result, error: this.error, events: [...this.events] }
+    return { ...this.brief(), input: this.input, result: this.result, error: this.error, preflight: this.preflight, events: [...this.events] }
   }
 
   async execute(): Promise<void> {
+    let flow: Flow | null = null
+    let metrics: Metrics | undefined
     const source = (state: Partial<State>) => defaultDeps(loadConfig(state.project_root || this.projectRoot), {
       log: this.log,
       codingAgent: state.coding_agent || this.input.coding_agent,
       reviewBackend: state.review_backend || this.input.review_backend,
       fixAgent: state.fix_agent || this.input.fix_agent,
+      commit: flow ? (src, round, summary) => flow!.commit(src, round, summary) : undefined,
+      metrics,
     })
     try {
+      const cfg = loadConfig(this.projectRoot)
+      writeSnapshot(cfg, this.id) // 本次运行的生效配置（已脱敏）
+      metrics = new Metrics(metricsFile(cfg.stateDir, this.id))
+      // 完整流水线在作业分支上跑；修复回环、仅门禁是对当前工作区的操作，不拉分支
+      if (this.graph === N.PIPELINE_NAME) {
+        flow = startRun(FL.flowContext(cfg), this.id, String(this.input.requirement ?? ""))
+        this.stateDir = cfg.stateDir
+        this.log(`[作业分支] 从 ${flow.manifest.base.branch} 拉出 ${flow.branch}`)
+      }
       if (this.graph === GATE_ONLY) {
         this.result = await this.gateOnly(source({ project_root: this.projectRoot }).gate)
         this.status = "done"
         return
       }
-      const graph = buildMainGraph(source as never, GRAPHS[this.graph])
+      const graph = buildMainGraph(source as never, GRAPHS[this.graph], { workflow: cfg.workflow })
+      // 本次要走的步骤（按生效配置），页面据此画还没开始的步骤
+      const steps = stagePlan(cfg.workflow, GRAPHS[this.graph]).map(p => (p.name === "implement" ? N.WRITE_CODE : p.node))
+      this.emit({ type: "plan", nodes: [...steps, N.DELIVER, ...(flow ? [N.REHEARSE] : [])] })
       let final: Json = {}
       // subgraphs：编码、审阅修复里的子节点（Spec / 写代码 / 审阅 / 修复）也上报，页面按阶段展示
-      const stream = await graph.stream(this.input as never, { streamMode: ["tasks", "values"], subgraphs: true, recursionLimit: 200 })
+      const input = { ...this.input, ...(flow ? { docs_dir: flow.manifest.docs_dir } : {}) } // 文档放进作业分支对应的目录
+      const stream = await graph.stream(input as never, { streamMode: ["tasks", "values"], subgraphs: true, recursionLimit: 200 })
       for await (const [ns, mode, chunk] of stream as AsyncIterable<[string[], string, Json]>) {
         const parent = ns.length ? ns[0].split(":")[0] : null
         if (mode === "values") {
@@ -155,18 +183,51 @@ class Run {
         }
       }
       this.result = JSON.parse(JSON.stringify(Object.fromEntries(RESULT_KEYS.filter(k => final[k] !== undefined).map(k => [k, final[k]]))))
+      if (flow)
+        await this.finishFlow(flow, cfg, final.status === "delivered", final.summary ?? null)
       this.status = "done"
     }
     catch (e) { // 图本身抛错：记下来，页面上显示
-      this.error = `${(e as Error).name}: ${(e as Error).message}`
+      if (e instanceof FlowError)
+        this.preflight = e.problems
+      this.error = e instanceof FlowError ? e.message : `${(e as Error).name}: ${(e as Error).message}`
       this.log(String((e as Error).stack ?? e).split("\n").slice(0, 4).join("\n"))
       this.status = "error"
+      if (flow?.manifest.status === "running") {
+        try {
+          flow.finish(false, this.error)
+          this.log(`[作业分支] 已切回 ${flow.manifest.base.branch}，${flow.branch} 保留`)
+        }
+        catch (err) {
+          this.log(`[作业分支] 收尾失败：${(err as Error).message}`)
+        }
+      }
     }
     finally {
       this.finished = Date.now() / 1000
       this.emit({ type: "end", status: this.status })
       W.saveRun(this.projectRoot, this.record())
     }
+  }
+
+  /** 收尾：切回原分支；交付了就按默认目标先跑一次合并预演，结果在合并弹窗里看。 */
+  private async finishFlow(flow: Flow, cfg: Config, delivered: boolean, summary: string | null): Promise<void> {
+    const m = flow.finish(delivered, delivered ? null : summary)
+    this.log(`[作业分支] 已切回 ${m.base.branch}` + (delivered ? "" : `，${m.work.branch} 保留`))
+    if (!delivered)
+      return
+    this.emit({ type: "node_start", node: N.REHEARSE, parent: null })
+    let error: string | null = null
+    try {
+      const r = await FL.rehearseRun(cfg, m, FL.defaultTarget(cfg, m), this.log)
+      if (!r.passed)
+        error = r.reason
+    }
+    catch (e) {
+      error = (e as Error).message
+      this.log(`[合并预演] 出错：${error}`)
+    }
+    this.emit({ type: "node_end", node: N.REHEARSE, parent: null, error })
   }
 
   private async gateOnly(gate: () => Promise<{ exitCode: number, passed: boolean, failures: Json[] }>): Promise<Json> {
@@ -178,6 +239,28 @@ class Run {
     this.log(`[门禁] ${summary}`)
     this.emit({ type: "node_end", node: N.VERIFY, parent: null, error: null })
     return { status, verify_exit: r.exitCode, failures: r.failures, summary }
+  }
+}
+
+/** 三种输入（纯文字 / 图片 + 文字 / MasterGo）二选一地带素材；图片模式要求 codex 可用（B 模式开工预检） */
+function checkInputs(cfg: Config, payload: Json): void {
+  const images: unknown = payload.images
+  if (images === undefined)
+    return
+  if (!Array.isArray(images) || !images.every(p => typeof p === "string"))
+    throw new Error("images 必须是图片路径数组")
+  if (images.length && payload.design_ref)
+    throw new Error("一次只能带一种素材：图片和设计稿二选一")
+  for (const p of images) {
+    if (!existsSync(p) || !statSync(p).isFile())
+      throw new Error(`图片不存在：${p}`)
+    if (!ASSET_EXTS.includes(extname(p).toLowerCase()))
+      throw new Error(`只支持图片（${ASSET_EXTS.join(" ")}）：${p}`)
+  }
+  if (images.length) {
+    const [ok, why] = visionPreflight(cfg)
+    if (!ok)
+      throw new Error(`图片输入需要 Codex：${why}`)
   }
 }
 
@@ -193,6 +276,13 @@ export class RunStore {
     const key = W.normalize(root)
     if ([...this.runs.values()].some(r => r.status === "running" && W.normalize(r.projectRoot) === key))
       throw new Error("该项目已有一次运行在进行中，请等它结束（两次运行同时改同一个仓库会互相覆盖）")
+    if (graph === N.PIPELINE_NAME) { // 开工检查不过就别建运行，直接告诉页面哪里要处理
+      const cfg = loadConfig(root)
+      checkInputs(cfg, payload)
+      const problems = preflight(FL.flowContext(cfg))
+      if (problems.length)
+        throw new FlowError(problems)
+    }
     const run = new Run(graph, { ...payload, project_root: root })
     this.runs.set(run.id, run)
     for (const [id, r] of [...this.runs].slice(0, -MAX_RUNS)) {
@@ -208,13 +298,17 @@ export class RunStore {
     const key = W.normalize(project)
     const live = [...this.runs.values()].filter(r => W.normalize(r.projectRoot) === key).map(r => r.brief())
     const ids = new Set(live.map(r => r.id))
-    return [...live, ...W.savedRuns(key).filter(r => !ids.has(r.id))].sort((a, b) => (b.started ?? 0) - (a.started ?? 0))
+    const stateDir = dirname(W.runsDir(key))
+    const saved = W.savedRuns(key).filter(r => !ids.has(r.id)).map((r): Json => ({ ...r, flow: FL.flowBrief(stateDir, r.id) }))
+    return [...live, ...saved].sort((a, b) => (b.started ?? 0) - (a.started ?? 0))
   }
 }
 
 export function describeWorkspace(ws: W.Workspace, store: RunStore): Json {
   const runs = store.forProject(ws.path)
-  return { ...ws, inspect: inspectFolder(ws.path), branch: W.gitBranch(ws.path), last_run: runs[0] ?? null }
+  const inspect = inspectFolder(ws.path)
+  const pending = inspect.exists ? pendingRuns(dirname(W.runsDir(ws.path))).map(m => m.run_id) : []
+  return { ...ws, inspect, branch: W.gitBranch(ws.path), last_run: runs[0] ?? null, pending_runs: pending }
 }
 
 export interface ConsoleOptions {
@@ -222,6 +316,7 @@ export interface ConsoleOptions {
   host?: string
   picker?: (initial?: string | null) => Promise<string | null>
   filePicker?: (initial?: string | null) => Promise<string | null>
+  imagesPicker?: (initial?: string | null) => Promise<string[]>
   opener?: (path: string) => void
   /** 在系统终端里执行一行命令（设置页的「登录」）；测试里替换掉 */
   terminal?: (line: string) => void
@@ -235,9 +330,10 @@ export interface ConsoleServer {
   close: () => Promise<void>
 }
 
-const POST_ROUTES = new Set(["/api/runs", "/api/pick-folder", "/api/pick-file", "/api/init", "/api/open",
+const POST_ROUTES = new Set(["/api/runs", "/api/pick-folder", "/api/pick-file", "/api/pick-images", "/api/init", "/api/open",
   "/api/workspaces/add", "/api/workspaces/remove", "/api/workspaces/prefs",
-  "/api/settings", "/api/settings/test", "/api/auth/login"])
+  "/api/settings", "/api/settings/test", "/api/auth/login", "/api/workspaces/fix-gitignore",
+  "/api/flow/rehearse", "/api/flow/merge", "/api/flow/hold", "/api/flow/discard", "/api/flow/abandon"])
 
 /** 设置页按项目读写时，只认已加入的工作空间。 */
 function workspaceOrNull(project: unknown): string | null {
@@ -252,10 +348,20 @@ function workspaceOrNull(project: unknown): string | null {
 
 class HttpError extends Error {
   readonly status: number
-  constructor(status: number, message: string) {
+  readonly extra: Json
+  constructor(status: number, message: string, extra: Json = {}) {
     super(message)
     this.status = status
+    this.extra = extra
   }
+}
+
+/** 作业分支接口只认已加入的工作空间，按它的配置找 manifest。 */
+function flowConfig(project: unknown): Config {
+  const p = workspaceOrNull(project)
+  if (!p)
+    throw new HttpError(400, "请指定工作空间")
+  return loadConfig(p)
 }
 
 export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleServer> {
@@ -263,6 +369,7 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
   const store = new RunStore()
   const picker = opts.picker ?? pickFolder
   const filePicker = opts.filePicker ?? pickFile
+  const imagesPicker = opts.imagesPicker ?? pickImages
   const opener = opts.opener ?? openFolder
   const terminal = opts.terminal ?? openTerminal
   let allowedHosts = new Set<string>()
@@ -321,9 +428,22 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
       return agentStatuses(workspaceOrNull(project))
     if (url.pathname === "/api/runs")
       return project ? store.forProject(project) : [...store.runs.values()].sort((a, b) => b.started - a.started).map(r => r.brief())
+    if (url.pathname === "/api/metrics") // 按 agent 汇总最近的运行：调用、耗时、token、被打回的次数和原因
+      return summarize(flowConfig(project).stateDir, { runs: Number(url.searchParams.get("runs") ?? 50) || 50 })
+    if (url.pathname === "/api/flow") {
+      const cfg = flowConfig(project)
+      try {
+        return FL.describeFlow(cfg, url.searchParams.get("run") ?? "")
+      }
+      catch (e) {
+        throw new HttpError(404, (e as Error).message)
+      }
+    }
     if (parts.length === 3 && parts[0] === "api" && parts[1] === "runs") {
       const run = store.runs.get(parts[2])
-      const rec = run ? run.record() : project ? W.loadRun(project, parts[2]) : null
+      const saved = !run && project ? W.loadRun(project, parts[2]) : null
+      // 落盘的记录里作业分支状态是运行结束时的快照，之后合并 / 作废过：按 manifest 现取
+      const rec = run ? run.record() : saved ? { ...saved, flow: FL.flowBrief(dirname(W.runsDir(project)), parts[2]) ?? saved.flow ?? null } : null
       if (!rec)
         throw new HttpError(404, "运行记录不存在")
       const after = Number(url.searchParams.get("after") ?? 0) || 0
@@ -363,6 +483,33 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
         throw e instanceof HttpError ? e : new HttpError(400, (e as Error).message)
       }
     }
+    if (path.startsWith("/api/flow/")) {
+      const cfg = flowConfig(body.project)
+      const runId = String(body.run ?? "")
+      const message = body.message ? String(body.message) : undefined
+      try {
+        if (path === "/api/flow/rehearse") {
+          const m = readManifest(cfg.stateDir, runId)
+          if (!m)
+            throw new Error(`运行 ${runId} 没有作业分支记录`)
+          FL.startRehearsal(cfg, m, String(body.target ?? ""), message)
+          return [202, FL.describeFlow(cfg, runId)]
+        }
+        if (path === "/api/flow/abandon") {
+          if ([...store.runs.values()].some(r => r.id === runId && r.status === "running"))
+            throw new Error("这次运行还在进行中")
+          FL.abandonRun(cfg, runId)
+        }
+        else if (path === "/api/flow/merge")
+          FL.mergeRun(cfg, runId, String(body.target ?? ""), message)
+        else
+          FL.holdRun(cfg, runId, path === "/api/flow/hold" ? "hold" : "discard")
+        return [200, FL.describeFlow(cfg, runId)]
+      }
+      catch (e) {
+        throw new HttpError(e instanceof NeedsRehearsal ? 409 : 400, (e as Error).message, e instanceof FlowError ? { problems: e.problems } : {})
+      }
+    }
     if (path === "/api/workspaces/add")
       return [200, describeWorkspace(W.add(String(body.path ?? "").trim()), store)]
     if (path.startsWith("/api/workspaces/") || path === "/api/open") {
@@ -373,6 +520,14 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
       if (path === "/api/workspaces/remove") {
         W.remove(target)
         return [200, { removed: ws.path }]
+      }
+      if (path === "/api/workspaces/fix-gitignore") { // 一次性初始化：把 .agent/ 加进 .gitignore，单独提交在当前分支
+        try {
+          return [200, { commit: fixGitignore(FL.flowContext(loadConfig(ws.path))), workspace: describeWorkspace(ws, store) }]
+        }
+        catch (e) {
+          throw new HttpError(400, (e as Error).message)
+        }
       }
       if (path === "/api/workspaces/prefs") {
         const prefs = body.prefs ?? {}
@@ -391,6 +546,14 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
       const files = initProject(raw)
       const name = (f: string) => f.split(/[\\/]/).pop()
       return [200, { created: files.filter(([, c]) => c).map(([f]) => name(f)), skipped: files.filter(([, c]) => !c).map(([f]) => name(f)), inspect: inspectFolder(raw) }]
+    }
+    if (path === "/api/pick-images") {
+      try {
+        return [200, { paths: await imagesPicker(body.initial) }]
+      }
+      catch (e) {
+        throw new HttpError(501, (e as Error).message)
+      }
     }
     if (path === "/api/pick-folder" || path === "/api/pick-file") {
       let picked: string | null
@@ -412,7 +575,7 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
       return [201, { id: store.start(graph, payload).id }]
     }
     catch (e) {
-      throw new HttpError(400, (e as Error).message)
+      throw new HttpError(400, (e as Error).message, e instanceof FlowError ? { problems: e.problems } : {})
     }
   }
 
@@ -440,7 +603,7 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
     }
     catch (e) {
       const status = e instanceof HttpError ? e.status : 400
-      return json(res, status, { error: (e as Error).message })
+      return json(res, status, { error: (e as Error).message, ...(e instanceof HttpError ? e.extra : {}) })
     }
   })
 

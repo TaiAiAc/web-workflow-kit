@@ -24,6 +24,9 @@ export const DEFAULT_COMMANDS: Record<string, string[]> = {
   codex: ["npx", "--yes", "@agentclientprotocol/codex-acp@1.13.0"],
 }
 
+/** 适配器不支持图片时错误信息的前缀，vision 据此改走 CLI */
+export const IMAGE_UNSUPPORTED = "IMAGE_UNSUPPORTED"
+
 // 会话模式：codex-acp 默认 agent（auto_review，由它自己的审阅代为批准）；read-only 下超出沙箱的动作才交给我们审批。
 // 注意两种模式下工作区内的编辑和沙箱内的命令都不来申请权限，所以还要靠下面的 snapshotProtected / restoreProtected 兜底。
 export const DEFAULT_MODES: Record<string, string> = { codex: "read-only" }
@@ -186,6 +189,12 @@ export function localAdapter(command: string[] | undefined, env?: NodeJS.Process
   return found ? [found] : command
 }
 
+/** 随 prompt 一起发的图片（vision 用）：base64 内容 + MIME 类型 */
+export interface PromptImage {
+  data: string
+  mimeType: string
+}
+
 export class ACPAgent implements Agent {
   readonly agent: string
   readonly command: string[] | null
@@ -207,16 +216,17 @@ export class ACPAgent implements Agent {
     this.env = opts.env
   }
 
-  async run(prompt: string, cwd: string): Promise<AgentResult> {
+  /** images 不为空时按 ACP image 块一起发；agent 没声明 promptCapabilities.image 就直接报错，不悄悄丢图。 */
+  async run(prompt: string, cwd: string, images: PromptImage[] = []): Promise<AgentResult> {
     const before = snapshotProtected(cwd, this.protectedPaths)
-    const result = await this.runSession(prompt, cwd)
+    const result = await this.runSession(prompt, cwd, images)
     const restored = restoreProtected(cwd, before, this.protectedPaths)
     if (restored.length)
       result.text += `\n\n[protected files changed without a permission request, restored]\n${restored.map(r => `- ${r}`).join("\n")}`
     return result
   }
 
-  private async runSession(prompt: string, cwd: string): Promise<AgentResult> {
+  private async runSession(prompt: string, cwd: string, images: PromptImage[]): Promise<AgentResult> {
     const command = this.command ?? localAdapter(DEFAULT_COMMANDS[this.agent], this.env)
     if (!command?.length)
       return { stopReason: ERROR, text: `no ACP command for agent '${this.agent}'; set command in agent.config.json` }
@@ -265,10 +275,12 @@ export class ACPAgent implements Agent {
           return reject ? { outcome: { outcome: "selected", optionId: reject.optionId } } : { outcome: { outcome: "cancelled" } }
         })
       const work = app.connectWith(stream, async (ctx) => {
-        await ctx.request(acp.methods.agent.initialize, {
+        const init = await ctx.request(acp.methods.agent.initialize, {
           protocolVersion: acp.PROTOCOL_VERSION,
           clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
         })
+        if (images.length && init.agentCapabilities?.promptCapabilities?.image !== true)
+          throw new Error(`${IMAGE_UNSUPPORTED}: ${this.agent} 的 ACP 适配器没有声明支持图片输入`)
         return ctx.buildSession(resolve(cwd)).withSession(async (session) => {
           if (this.mode) // 设不上就报错：在默认模式下跑，保护路径可能拦不住
             await ctx.request(acp.methods.agent.session.setMode, { sessionId: session.sessionId, modeId: this.mode })
@@ -293,24 +305,32 @@ export class ACPAgent implements Agent {
               }
             }
           })()
-          const response = await session.prompt(withPolicyNote(prompt, this.allowKinds))
+          // prompt 失败（如额度用完回 JSON-RPC 错误）时这个循环也会被拒绝，而这时没人在 await 它：先接住，免得整个进程因未处理的拒绝退出
+          reading.catch(() => {})
+          const text0 = withPolicyNote(prompt, this.allowKinds)
+          const response = await session.prompt(images.length
+            ? [{ type: "text", text: text0 }, ...images.map(i => ({ type: "image" as const, data: i.data, mimeType: i.mimeType }))]
+            : text0)
           await reading
           const text = texts.join("")
           const tokens = (response as { usage?: { totalTokens?: number } }).usage?.totalTokens
           // 有的 agent 模型调用失败（Key 无效、没登录）时仍回 end_turn：什么都没做就当出错，别让门禁去背这个锅
           if (response.stopReason === "end_turn" && !text.trim() && !toolCalls && tokens === 0)
             return { stopReason: "error", text: "agent 本轮没有任何输出（0 token、无工具调用）：多半是登录失效、API Key 无效或模型不可用，请检查该 agent 的登录与模型设置" }
-          return { stopReason: response.stopReason as string, text }
+          const u = (response as { usage?: { inputTokens?: number, outputTokens?: number, totalTokens?: number } }).usage
+          return { stopReason: response.stopReason as string, text, usage: u ? { input: u.inputTokens ?? null, output: u.outputTokens ?? null, total: u.totalTokens ?? null } : undefined }
         })
       })
       const result = await Promise.race([work, died, timedOut])
       let text = result.text
       if (denied.length)
         text += `\n\n[denied permission requests]\n${denied.map(d => `- ${d}`).join("\n")}`
-      return { stopReason: mapStopReason(result.stopReason), text }
+      return { stopReason: mapStopReason(result.stopReason), text, usage: result.usage }
     }
     catch (e) { // 连接失败、握手失败、协议错误、超时
-      const msg = e instanceof Error ? e.message : String(e)
+      // JSON-RPC 错误的具体原因（如「Quota exceeded」）在 data.message 里
+      const detail = (e as { data?: { message?: unknown } }).data?.message
+      const msg = (e instanceof Error ? e.message : String(e)) + (typeof detail === "string" && detail ? `（${detail}）` : "")
       const tail = stderr.trim() ? `\n[agent stderr]\n${stderr.trim().slice(-1500)}` : ""
       return { stopReason: ERROR, text: `ACP ${this.agent}: ${msg}${tail}` }
     }

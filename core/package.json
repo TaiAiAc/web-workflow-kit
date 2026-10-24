@@ -31,7 +31,9 @@
     "dotenv": "^17.2.0",
     "esbuild": "0.28.2",
     "nodemailer": "^7.0.0",
+    "pinyin-pro": "^3.29.5",
     "tsx": "^4.19.0",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "yaml": "^2.9.1"
   }
 }

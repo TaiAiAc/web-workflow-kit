@@ -6,6 +6,7 @@ const api: WwkDesktop = {
   platform: process.platform,
   pickFolder: initial => ipcRenderer.invoke('wwk:pick-folder', initial ?? null),
   pickFile: initial => ipcRenderer.invoke('wwk:pick-file', initial ?? null),
+  pickImages: initial => ipcRenderer.invoke('wwk:pick-images', initial ?? null),
   getStatus: () => ipcRenderer.invoke('wwk:status'),
   onStatus: (listener) => {
     ipcRenderer.on('wwk:status', (_e, status: BootStatus) => listener(status))
