@@ -9,7 +9,7 @@ import process from "node:process"
 import { END_TURN } from "../agents.ts"
 import type { Config } from "../config.ts"
 import { git, installCommandFor, installDeps, readManifest, worktreeDir } from "../gitflow.ts"
-import { killTree } from "../proc.ts"
+import { terminateTree } from "../proc.ts"
 import { buildRoleAgent } from "../stages.ts"
 import * as W from "./workspaces.ts"
 
@@ -63,7 +63,7 @@ export function stopPreview(project: string): Preview | null {
     return null
   if (e.child && e.child.exitCode === null && !["exited", "failed", "stopped"].includes(e.status)) {
     e.status = "stopped"
-    killTree(e.child.pid)
+    terminateTree(e.child.pid) // 连同包管理器另起进程组的开发服务器一起结束
   }
   else if (e.status !== "exited" && e.status !== "failed") {
     e.status = "stopped" // 还在准备阶段：准备完发现已停止就不再启动

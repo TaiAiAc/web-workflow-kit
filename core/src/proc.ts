@@ -1,5 +1,5 @@
 // 子进程：按 PATH（Windows 上含 PATHEXT）找命令、带超时运行、超时整棵进程树一起结束。
-import { spawn } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import { existsSync, statSync } from "node:fs"
 import { delimiter, join } from "node:path"
 import process from "node:process"
@@ -97,19 +97,69 @@ export function run(cmd: string, args: string[], opts: RunOptions): Promise<RunR
   })
 }
 
-export function killTree(pid: number | undefined): void {
-  if (!pid)
-    return
-  try {
-    if (isWin)
-      spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true })
-    else
-      process.kill(-pid, "SIGKILL")
+/**
+ * 进程的全部子孙，按父进程号找、不管进程组：包管理器跑脚本时会把真正的服务放进新的进程组，
+ * 只按组结束会漏掉它（变成挂在 1 号进程下的孤儿）。要在发信号之前取，父进程一退出子孙就被过继走了。
+ */
+export function descendants(pid: number): number[] {
+  if (isWin)
+    return []
+  const r = spawnSync("ps", ["-A", "-o", "pid=,ppid="], { encoding: "utf8" })
+  const children = new Map<number, number[]>()
+  for (const line of (r.stdout || "").split("\n")) {
+    const [p, pp] = line.trim().split(/\s+/).map(Number)
+    if (p && pp)
+      children.set(pp, [...(children.get(pp) ?? []), p])
   }
-  catch {
+  const out: number[] = []
+  const queue = [pid]
+  while (queue.length) {
+    for (const c of children.get(queue.shift()!) ?? []) {
+      out.push(c)
+      queue.push(c)
+    }
+  }
+  return out
+}
+
+function signalAll(pids: number[], sig: NodeJS.Signals): void {
+  for (const p of pids) {
     try {
-      process.kill(pid, "SIGKILL")
+      process.kill(p, sig)
     }
     catch {} // 已经退出
   }
+}
+
+/** 立即结束整棵进程树（超时用）：进程组 + 按父子关系找到的全部子孙；Windows 用 taskkill /T。 */
+export function killTree(pid: number | undefined): void {
+  if (!pid)
+    return
+  if (isWin) {
+    spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true })
+    return
+  }
+  const tree = descendants(pid)
+  try {
+    process.kill(-pid, "SIGKILL")
+  }
+  catch {}
+  signalAll([pid, ...tree], "SIGKILL")
+}
+
+/** 体面地结束整棵进程树（停止开发服务器用）：先 SIGTERM 让它收尾，graceMs 后还在的 SIGKILL。 */
+export function terminateTree(pid: number | undefined, graceMs = 1500): void {
+  if (!pid)
+    return
+  if (isWin) {
+    spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true })
+    return
+  }
+  const tree = [pid, ...descendants(pid)]
+  try {
+    process.kill(-pid, "SIGTERM")
+  }
+  catch {}
+  signalAll(tree, "SIGTERM")
+  setTimeout(() => signalAll(tree, "SIGKILL"), graceMs).unref()
 }

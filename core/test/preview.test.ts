@@ -91,6 +91,31 @@ describe("预览", () => {
     assert.match(f.error!, /找不到启动方式/)
   })
 
+  it("停止时连同另起进程组的服务一起结束（像 pnpm 跑脚本那样），不留孤儿进程", { skip: process.platform === "win32" }, async () => {
+    // 外层进程把真正的服务放进新的进程组（detached），服务打印自己的 pid 和地址
+    const inner = `console.log("pid=" + process.pid); console.log("Local: http://localhost:5306/"); setInterval(() => {}, 1000)`
+    const outer = `require("child_process").spawn(process.execPath, ["-e", ${JSON.stringify(inner)}], { detached: true, stdio: "inherit" }); setInterval(() => {}, 1000)`
+    const root = repo({ "package.json": pkg({ dev: nodeCmd(outer) }) })
+    startPreview(loadConfig(root), null)
+    const p = await until(root, x => x.status === "running")
+    const pid = Number(p.log.find(l => l.startsWith("pid="))!.slice(4))
+    const alive = (n: number) => {
+      try {
+        process.kill(n, 0)
+        return true
+      }
+      catch {
+        return false
+      }
+    }
+    assert.ok(alive(pid))
+    stopPreview(root)
+    const end = Date.now() + 5000
+    while (alive(pid) && Date.now() < end)
+      await new Promise(r => setTimeout(r, 100))
+    assert.ok(!alive(pid), `服务进程 ${pid} 还活着`)
+  })
+
   it("配置里的 preview.command 优先；进程没打印地址就退出算启动失败", async () => {
     const root = repo({ "package.json": pkg({ dev: nodeCmd(SERVER(5305)) }) })
     const cfg = loadConfig(root)
