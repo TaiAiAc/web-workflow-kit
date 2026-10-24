@@ -15,7 +15,12 @@ after(stopAllPreviews)
 // 假开发服务器：打印一行本机地址后一直挂着；FAIL 时什么都不打印就退出
 const SERVER = (port: number) => `console.log("  ➜  Local:   http://localhost:${port}/"); setInterval(() => {}, 1000)`
 const pkg = (scripts: Record<string, string>) => JSON.stringify({ name: "demo", private: true, scripts })
-const nodeCmd = (code: string) => `"${process.execPath}" -e ${JSON.stringify(code)}`
+// 代码写进文件再用 node 跑：Windows 上 npm 用 cmd 执行脚本，`node -e "...\"..."` 这种转义 cmd 不认
+function nodeCmd(code: string): string {
+  const file = join(tempDir(), "server.mjs")
+  writeFileSync(file, code)
+  return `"${process.execPath}" "${file}"`
+}
 
 function repo(files: Record<string, string>) {
   const root = tempDir()
@@ -94,7 +99,7 @@ describe("预览", () => {
   it("停止时连同另起进程组的服务一起结束（像 pnpm 跑脚本那样），不留孤儿进程", { skip: process.platform === "win32" }, async () => {
     // 外层进程把真正的服务放进新的进程组（detached），服务打印自己的 pid 和地址
     const inner = `console.log("pid=" + process.pid); console.log("Local: http://localhost:5306/"); setInterval(() => {}, 1000)`
-    const outer = `require("child_process").spawn(process.execPath, ["-e", ${JSON.stringify(inner)}], { detached: true, stdio: "inherit" }); setInterval(() => {}, 1000)`
+    const outer = `import { spawn } from "node:child_process"; spawn(process.execPath, ["-e", ${JSON.stringify(inner)}], { detached: true, stdio: "inherit" }); setInterval(() => {}, 1000)`
     const root = repo({ "package.json": pkg({ dev: nodeCmd(outer) }) })
     startPreview(loadConfig(root), null)
     const p = await until(root, x => x.status === "running")
