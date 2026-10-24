@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="web-workflow-kit">
+  <!-- 前端交付流水线：节点连成的流程线，终点收成对勾（门禁通过） -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3b7bff"/>
+      <stop offset="1" stop-color="#7046d6"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".18"/>
+      <stop offset=".5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#bg)"/>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#shine)"/>
+  <!-- 流程线：起点 → 门禁 → 交付，组成对勾 -->
+  <polyline points="232,540 420,724 796,332" fill="none" stroke="#ffffff" stroke-width="84" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 节点：起点、门禁、交付 -->
+  <circle cx="232" cy="540" r="76" fill="#ffffff"/>
+  <circle cx="232" cy="540" r="34" fill="#3b7bff"/>
+  <circle cx="420" cy="724" r="76" fill="#ffffff"/>
+  <circle cx="420" cy="724" r="34" fill="#5a5fe8"/>
+  <circle cx="796" cy="332" r="76" fill="#ffffff"/>
+  <circle cx="796" cy="332" r="34" fill="#7046d6"/>
+</svg>

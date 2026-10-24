@@ -11,6 +11,34 @@
   </head>
   <body>
     <main class="boot">
+      <svg width="72" height="72" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+        <defs>
+          <linearGradient id="bootbg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#3b7bff" />
+            <stop offset="1" stop-color="#7046d6" />
+          </linearGradient>
+          <linearGradient id="bootshine" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#ffffff" stop-opacity=".18" />
+            <stop offset=".5" stop-color="#ffffff" stop-opacity="0" />
+          </linearGradient>
+        </defs>
+        <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#bootbg)" />
+        <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#bootshine)" />
+        <polyline
+          points="232,540 420,724 796,332"
+          fill="none"
+          stroke="#ffffff"
+          stroke-width="84"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <circle cx="232" cy="540" r="76" fill="#ffffff" />
+        <circle cx="232" cy="540" r="34" fill="#3b7bff" />
+        <circle cx="420" cy="724" r="76" fill="#ffffff" />
+        <circle cx="420" cy="724" r="34" fill="#5a5fe8" />
+        <circle cx="796" cy="332" r="76" fill="#ffffff" />
+        <circle cx="796" cy="332" r="34" fill="#7046d6" />
+      </svg>
       <h1>前端交付流水线</h1>
       <p class="sub">本地前端交付控制台</p>
 
