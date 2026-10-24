@@ -157,8 +157,16 @@ describe("工作流配置", () => {
     assert.throws(() => resolveWorkflow([D, ["user", { stages: { gate: { enabled: false } } }]]), /门禁是唯一的放行依据/)
     assert.throws(() => resolveWorkflow([D, ["user", { stages: { "tech-design": { order: 45 } } }]]),
       /阶段顺序不能改，应为 discovery → tech-design → doc-review → implement → gate → acceptance/)
-    // 关掉的阶段不参与顺序检查
-    resolveWorkflow([D, ["user", { stages: { "tech-design": { order: 45, enabled: false } } }]])
+    // 关掉的阶段不参与顺序检查（复核依赖技术设计，一起关）
+    resolveWorkflow([D, ["user", { stages: { "tech-design": { order: 45, enabled: false }, "doc-review": { enabled: false } } }]])
+  })
+
+  it("阶段间的依赖：技术设计 / 验收要 02，复核要 03", () => {
+    assert.throws(() => resolveWorkflow([D, ["user", { stages: { "tech-design": { enabled: false } } }]]), /开着 doc-review 就不能关 tech-design/)
+    assert.throws(() => resolveWorkflow([D, ["user", { stages: { discovery: { enabled: false } } }]]), (e: Error) =>
+      /开着 tech-design 就不能关 discovery/.test(e.message) && /开着 acceptance 就不能关 discovery/.test(e.message))
+    // 只留编码 ⇄ 门禁（第一阶段的流程）是合法的
+    resolveWorkflow([D, ["user", { stages: Object.fromEntries(["discovery", "tech-design", "doc-review", "acceptance"].map(n => [n, { enabled: false }])) }]])
   })
 
   it("文件夹搬家后重新绑定，偏好和覆盖跟着走", () => {

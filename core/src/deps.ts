@@ -5,6 +5,8 @@ import { loadDesign } from "./design.ts"
 import { type Failure, type GateResult, runGate } from "./gate.ts"
 import { chat, LLMError } from "./llm.ts"
 import type { Metrics } from "./metrics.ts"
+import { buildRoleAgent, type RoleAgent } from "./stages.ts"
+import { analyzeImages, type VisionInput, type VisionResult } from "./vision.ts"
 import { notifyBreaker } from "./notify.ts"
 import { makeReviewer, type Plan } from "./review.ts"
 
@@ -21,11 +23,15 @@ export interface Deps {
   notifier: (state: Record<string, any>) => Promise<string>
   log: (line: string) => void
   /** 作业分支上的阶段提交（控制台的完整流水线才有）；越界抛 WhitelistError，没改动返回 null */
-  commit?: (source: "implement" | "gate-fix", round: number, summary: string) => string | null
+  commit?: (source: "discovery" | "tech-design" | "implement" | "gate-fix", round: number, summary: string) => string | null
   /** 指标：每次 agent 调用和每次打回 */
   metrics?: Metrics
   /** 指标里显示的 agent 名（预设 key） */
   agentNames?: { coder: string, fixer: string }
+  /** 文档阶段按角色取只读 agent（product / tech / arbiter……） */
+  roleAgent?: (role: string) => RoleAgent
+  /** 看图出 01 */
+  vision?: (input: VisionInput) => Promise<VisionResult>
 }
 
 function specFn(cfg: Config) {
@@ -69,11 +75,13 @@ export interface DepsOptions {
 
 export function defaultDeps(cfg: Config, opts: DepsOptions = {}): Deps {
   const log = opts.log ?? ((line: string) => console.log(line))
+  // 写代码的 agent：本次运行选的 > 工作流配置里 dev 角色的 > agent.config.json 的 code.agent
+  const coder = opts.codingAgent || cfg.workflow.raw.roles?.dev?.agent || cfg.get("code").agent || "claude"
   return {
     cfg,
     design: ref => loadDesign(ref, cfg),
     spec: specFn(cfg),
-    coder: buildCodingAgent(cfg, opts.codingAgent),
+    coder: buildCodingAgent(cfg, coder),
     gate: () => runGate(cfg, { log }),
     reviewer: makeReviewer(cfg, opts.reviewBackend, validatePlan),
     fixer: buildFixAgent(cfg, opts.fixAgent),
@@ -81,7 +89,9 @@ export function defaultDeps(cfg: Config, opts: DepsOptions = {}): Deps {
     log,
     commit: opts.commit,
     metrics: opts.metrics,
-    agentNames: { coder: opts.codingAgent || cfg.get("code").agent || "claude", fixer: opts.fixAgent || "fix" },
+    agentNames: { coder, fixer: opts.fixAgent || "fix" },
+    roleAgent: role => buildRoleAgent(cfg, role),
+    vision: input => analyzeImages(cfg, input, { log }),
   }
 }
 
@@ -105,8 +115,8 @@ export function depsFromState(state: Record<string, any>, log?: (line: string) =
   })
 }
 
-export function codePrompt(requirement: string, spec: string): string {
-  return render(prompt("code-prompt.md"), { requirement, spec })
+export function codePrompt(requirement: string, spec: string, selfTest = ""): string {
+  return render(prompt("code-prompt.md"), { requirement, spec, self_test: selfTest })
 }
 
 export function fixPrompt(attempt: number, maxAttempts: number, failures: Failure[], plan: Plan | null | undefined): string {

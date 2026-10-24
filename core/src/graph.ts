@@ -10,14 +10,15 @@ import { codePrompt, type Deps, fixPrompt } from "./deps.ts"
 import { changedHunks, snapshot } from "./diffs.ts"
 import * as N from "./names.ts"
 import { PipelineState, type State, type Update } from "./state.ts"
-import { type StageName, stagePlan, STAGES } from "./workflow.ts"
+import { acceptanceStage, buildRoleAgent, defaultDocsDir, discoveryStage, docReviewStage, redoDone, saveSelfTest, selfTestAsk, specFromDocs, techDesignStage } from "./stages.ts"
+import { type StageName, STAGE_NODE, stagePlan, STAGES } from "./workflow.ts"
 
 /** 固定的 Deps（CLI / 测试），或按 state 现建 Deps 的函数（控制台 / 服务端）。 */
 export type Source = Deps | ((state: State) => Deps)
 const resolveDeps = (source: Source, state: State): Deps => (typeof source === "function" ? source(state) : source)
 
 // 子图输出只回传自己负责的字段，避免 history 这类累加字段被重复合并
-const CODE_KEYS = ["design", "spec", "baseline", "code_stop_reason", "break_reason"] as const
+const CODE_KEYS = ["design", "spec", "baseline", "code_stop_reason", "break_reason", "artifacts"] as const
 const REVIEW_KEYS = ["plan", "fix_stop_reason", "break_reason"] as const
 function pick(state: State, keys: readonly (keyof State)[]): Update {
   return Object.fromEntries(keys.filter(k => state[k] !== undefined).map(k => [k, state[k]])) as Update
@@ -57,20 +58,27 @@ export function buildCodeGraph(source: Source) {
     .addNode(N.WRITE_CODE, async (state) => {
       const deps = resolveDeps(source, state)
       const { cfg, log, coder } = deps
-      const baseline = snapshot(cfg.projectRoot)
+      const baseline = state.baseline ?? snapshot(cfg.projectRoot) // 验收打回重做时保留第一轮的基线：改动按整次运行算
+      const round = (state.acceptance_round ?? 0) + 1
+      const selfTest = selfTestAsk(state)
       log("[写代码] 编码 agent 工作中…")
       const t = Date.now()
-      const r = await coder.run(codePrompt(state.requirement, state.spec), cfg.projectRoot)
-      deps.metrics?.agentCall("implement", "dev", deps.agentNames?.coder ?? "coder", 1, Date.now() - t, r)
+      const r = await coder.run(codePrompt(state.requirement, state.spec, selfTest), cfg.projectRoot)
+      deps.metrics?.agentCall("implement", "dev", deps.agentNames?.coder ?? "coder", round, Date.now() - t, r)
       log(`[写代码] 结束，stop_reason=${r.stopReason}`)
       const out: Update = { baseline, code_stop_reason: r.stopReason }
+      if (selfTest && r.stopReason === END_TURN) {
+        const p05 = saveSelfTest(deps, state, r.text, deps.agentNames?.coder ?? "coder", round)
+        if (p05)
+          out.artifacts = { "05": p05 }
+      }
       if (r.stopReason === ERROR)
         out.break_reason = `CODE_AGENT_ERROR: ${r.text.slice(-500)}`
       else if (r.stopReason !== END_TURN)
         log("[写代码] agent 提前停止，交给门禁判定")
       return out
     })
-    .addEdge(START, N.DESIGN)
+    .addConditionalEdges(START, s => (s.spec ? N.WRITE_CODE : N.DESIGN), [N.DESIGN, N.WRITE_CODE]) // 有 02 / 03 时 Spec 已经给好了
     .addConditionalEdges(N.DESIGN, s => (s.break_reason ? END : N.SPEC), [N.SPEC, END])
     .addConditionalEdges(N.SPEC, s => (s.break_reason ? END : N.WRITE_CODE), [N.WRITE_CODE, END])
     .addEdge(N.WRITE_CODE, END)
@@ -145,6 +153,11 @@ const BREAK_EXPLAINED: Record<string, string> = {
   CODE_AGENT_ERROR: "编码 agent 出错",
   FIX_AGENT_ERROR: "修复 agent 出错",
   WHITELIST_VIOLATION: "agent 改了这个阶段不允许改的文件（提交路径白名单），运行中止",
+  DOC_AGENT_ERROR: "文档阶段的 agent 出错",
+  DOC_LINT_FAILED: "文档连续多次没有通过校验",
+  DOC_REVIEW_REJECTED: "文档复核超过轮次，仲裁判定技术设计不可用",
+  ACCEPTANCE_FAILED: "产品验收超过轮次仍未通过",
+  VISION_ERROR: "看图（vision）失败",
   COMMIT_ERROR: "阶段提交失败",
 }
 const NOTIFY_EXPLAINED: Record<string, string> = { sent: "已发熔断邮件", deduped: "24 小时内已就同类问题发过邮件，本次不重复发送" }
@@ -155,7 +168,7 @@ export function explainBreak(state: State, notify: string): string {
   const key = i < 0 ? reason : reason.slice(0, i)
   const detail = i < 0 ? "" : reason.slice(i + 1).trim()
   let text = `已熔断：${BREAK_EXPLAINED[key] ?? (reason || "原因未知")}`
-  if (detail && ["NEEDS_HUMAN", "DESIGN_ERROR", "SPEC_ERROR", "WHITELIST_VIOLATION", "COMMIT_ERROR"].includes(key))
+  if (detail && ["NEEDS_HUMAN", "DESIGN_ERROR", "SPEC_ERROR", "WHITELIST_VIOLATION", "COMMIT_ERROR", "DOC_AGENT_ERROR", "DOC_LINT_FAILED", "DOC_REVIEW_REJECTED", "ACCEPTANCE_FAILED", "VISION_ERROR"].includes(key))
     text += `（${detail.slice(0, 200)}）`
   const codes = [...new Set((state.failures ?? []).map(f => f.code ?? "?"))].sort()
   if (codes.length)
@@ -220,28 +233,49 @@ export function buildMainGraph(source: Source, entry: Entry = "code", opts: Main
 
   // 节点随配置增减（LangGraph 不允许不可达的节点），所以不用链式写法
   const g = new StateGraph(PipelineState) as unknown as MainGraph
+  const enabled = plan.map(p => p.name)
+  const roleAgent = (state: State) => {
+    const deps = resolveDeps(source, state)
+    return deps.roleAgent ?? ((role: string) => buildRoleAgent(deps.cfg, role))
+  }
   for (const stage of plan) {
     if (stage.name === "implement") {
       g.addNode(N.CODE, async (state: State, config: LangGraphRunnableConfig) => {
-        const out: Update = pick(await codegraph.invoke(state, config), CODE_KEYS)
+        const deps = resolveDeps(source, state)
+        const round = (state.acceptance_round ?? 0) + 1
+        // 有 02 / 03 就直接当 Spec；验收打回的重做把意见带上
+        const spec = specFromDocs(state)
+        const requirement = state.return_stage === "implement" && state.feedback
+          ? `${state.requirement}\n\n## 上一轮产品验收没通过，这次要改正\n\n${state.feedback}`
+          : state.feedback ? `${state.requirement}\n\n${state.feedback}` : state.requirement
+        const out: Update = pick(await codegraph.invoke({ ...state, requirement, ...(spec ? { spec } : {}) }, config), CODE_KEYS)
         if (!out.break_reason)
-          Object.assign(out, stageCommit(resolveDeps(source, state), "implement", 1, state.requirement ?? ""))
-        return { ...out, ...stageResult("implement", Boolean(out.break_reason)) }
+          Object.assign(out, stageCommit(deps, "implement", round, state.requirement ?? ""))
+        if ((state.acceptance_round ?? 0) > 0)
+          out.attempt = 0 // 门禁 ⇄ 修复的轮数每次进入门禁重新计数
+        return { ...out, ...redoDone(state, "implement"), ...stageResult("implement", Boolean(out.break_reason)) }
       })
     }
     else if (stage.name === "gate") {
       addGate(g, source, reviewgraph)
     }
-    else { // 尚未实现：记一笔就过
-      g.addNode(stage.node, async (state: State) => {
-        resolveDeps(source, state).log(`[${stage.node}] 尚未实现，跳过`)
-        return { stage_status: { [stage.name]: "skipped" } }
-      })
+    else {
+      const run = {
+        "discovery": (d: Deps, s: State) => discoveryStage(d, s, {
+          roleAgent: roleAgent(s),
+          vision: d.vision ?? (() => Promise.reject(new Error("没有配置 vision"))),
+        }),
+        "tech-design": (d: Deps, s: State) => techDesignStage(d, s, { roleAgent: roleAgent(s) }),
+        "doc-review": (d: Deps, s: State) => docReviewStage(d, s, { roleAgent: roleAgent(s) }),
+        "acceptance": (d: Deps, s: State) => acceptanceStage(d, s, { roleAgent: roleAgent(s), enabled }),
+      }[stage.name]
+      g.addNode(stage.node, async (state: State) => run(resolveDeps(source, state), state))
     }
   }
   addEnds(g, source)
 
   const next = (i: number): string => (i + 1 < plan.length ? plan[i + 1].node : N.DELIVER)
+  const redoTargets = (["discovery", "tech-design", "implement"] as StageName[]).filter(n => enabled.includes(n)).map(n => STAGE_NODE[n])
   g.addEdge(START, plan[0].node) // 门禁不能关（validateWorkflow），plan 不会是空的
   plan.forEach((stage, i) => {
     const after = next(i)
@@ -251,6 +285,18 @@ export function buildMainGraph(source: Source, entry: Entry = "code", opts: Main
         return route === N.DELIVER ? after : route
       }, [after, N.REVIEW, N.BREAKER])
       g.addConditionalEdges(N.REVIEW, (s: State) => (s.break_reason ? N.BREAKER : N.VERIFY), [N.VERIFY, N.BREAKER])
+    }
+    else if (stage.name === "doc-review") { // 打回 → 技术设计重写（复核依赖技术设计，validateWorkflow 保证它开着）
+      g.addConditionalEdges(stage.node, (s: State) => (s.break_reason ? N.BREAKER : s.review_verdict === "rejected" ? N.TECH_DESIGN : after), [...new Set([after, N.TECH_DESIGN, N.BREAKER])])
+    }
+    else if (stage.name === "acceptance") { // 没通过 → 回到 return_stage 重做
+      g.addConditionalEdges(stage.node, (s: State) => {
+        if (s.break_reason)
+          return N.BREAKER
+        if (s.acceptance_verdict !== "fail")
+          return after
+        return STAGE_NODE[s.return_stage as StageName] ?? N.CODE
+      }, [...new Set([after, N.BREAKER, ...redoTargets])])
     }
     else {
       g.addConditionalEdges(stage.node, (s: State) => (s.break_reason ? N.BREAKER : after), [after, N.BREAKER])
@@ -312,6 +358,7 @@ function addEnds(g: MainGraph, source: Source): void {
         changed_files: files,
         history: state.history ?? [],
         stages: state.stage_status ?? {},
+        documents: state.artifacts ?? {},
         delivered_at: new Date().toISOString(),
       }, null, 2))
       // 有编码前快照（pipeline）时是“本次改动”；fix_loop 没有快照，只能说工作区里有多少未提交改动
@@ -330,8 +377,8 @@ function addEnds(g: MainGraph, source: Source): void {
     })
 }
 
-/** 每个阶段至少一步，门禁每轮 verify + review 两步；留余量，但真正的上限是 attempt 计数。 */
-export const recursionLimit = (maxRetries: number): number => 10 + STAGES.length + 3 * (maxRetries + 2)
+/** 每个阶段至少一步，门禁每轮 verify + review 两步，复核和验收还会回退重跑；留足余量，真正的上限是各自的轮数计数。 */
+export const recursionLimit = (maxRetries: number): number => 40 + 4 * STAGES.length + 9 * (maxRetries + 2)
 
 /** init=null 表示从 threadId 的最后一个检查点继续。 */
 async function runThread(deps: Deps, entry: Entry, init: Update | null, threadId: string): Promise<State> {
@@ -361,8 +408,11 @@ async function runThread(deps: Deps, entry: Entry, init: Update | null, threadId
   }
 }
 
-export async function runPipeline(deps: Deps, requirement: string, designRef?: string | null): Promise<State> {
-  return runThread(deps, "code", { requirement, project_root: deps.cfg.projectRoot, design_ref: designRef ?? null, attempt: 0 }, newThreadId("code"))
+export async function runPipeline(deps: Deps, requirement: string, designRef?: string | null, opts: { images?: string[] } = {}): Promise<State> {
+  return runThread(deps, "code", {
+    requirement, project_root: deps.cfg.projectRoot, design_ref: designRef ?? null, images: opts.images ?? null,
+    docs_dir: defaultDocsDir(deps.cfg, requirement), attempt: 0,
+  }, newThreadId("code"))
 }
 
 /** 不写新代码，只对当前工作区跑 verify ⇄ review/fix 闭环（人修完后复验也用它）。 */

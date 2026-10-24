@@ -174,16 +174,13 @@ describe("主图", () => {
         steps.push([...(ns as string[]).map(n => n.split(":")[0]), (chunk as { name: string }).name].join("/"))
     }
     assert.deepEqual(steps, [
-      N.DISCOVERY, N.TECH_DESIGN, N.DOC_REVIEW, // 尚未实现的阶段：跳过节点
       N.CODE, `${N.CODE}/${N.DESIGN}`, `${N.CODE}/${N.SPEC}`, `${N.CODE}/${N.WRITE_CODE}`,
-      N.VERIFY, N.REVIEW, `${N.REVIEW}/${N.ADVISE}`, `${N.REVIEW}/${N.FIX}`, N.VERIFY, N.ACCEPTANCE, N.DELIVER,
+      N.VERIFY, N.REVIEW, `${N.REVIEW}/${N.ADVISE}`, `${N.REVIEW}/${N.FIX}`, N.VERIFY, N.DELIVER,
     ])
   })
 
-  it("阶段按配置拼：关掉的不出现，没实现的跳过并记 skipped", async () => {
+  it("阶段按配置拼：关掉的不出现", async () => {
     const { deps } = makeDeps(tmp, [PASS])
-    deps.cfg.workflow.raw.stages.discovery.enabled = false
-    deps.cfg.workflow.raw.stages["doc-review"].enabled = false
     const graph = buildMainGraph(deps)
     const steps: string[] = []
     let final: State | undefined
@@ -194,8 +191,8 @@ describe("主图", () => {
       if (mode === "values")
         final = chunk as State
     }
-    assert.deepEqual(steps, [N.TECH_DESIGN, N.CODE, N.VERIFY, N.ACCEPTANCE, N.DELIVER])
-    assert.deepEqual(final?.stage_status, { "tech-design": "skipped", "implement": "done", "gate": "done", "acceptance": "skipped" })
+    assert.deepEqual(steps, [N.CODE, N.VERIFY, N.DELIVER])
+    assert.deepEqual(final?.stage_status, { implement: "done", gate: "done" })
     assert.equal(final?.status, "delivered")
   })
 
@@ -207,11 +204,11 @@ describe("主图", () => {
     assert.deepEqual(stagePlan(deps.cfg.workflow, "verify").map(p => p.name), ["gate"])
   })
 
-  it("stagePlan 按 order 排、跳过关掉的，并标出哪些已实现", () => {
+  it("stagePlan 按 order 排、跳过关掉的", () => {
     const wf = resolveWorkflow([["default", WORKFLOW_DEFAULTS], ["workspace", { stages: { acceptance: { enabled: false } } }]])
     const plan = stagePlan(wf)
     assert.deepEqual(plan.map(p => p.name), ["discovery", "tech-design", "doc-review", "implement", "gate"])
-    assert.deepEqual(plan.filter(p => p.implemented).map(p => p.node), [N.CODE, N.VERIFY])
+    assert.deepEqual(plan.map(p => p.node), [N.DISCOVERY, N.TECH_DESIGN, N.DOC_REVIEW, N.CODE, N.VERIFY])
   })
 
   it("熔断说明", () => {

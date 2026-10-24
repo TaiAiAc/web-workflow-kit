@@ -22,6 +22,17 @@ export const PipelineState = Annotation.Root({
   review_backend: value<string | null>(),
   fix_agent: value<string | null>(),
   design_ref: value<string | null>(),
+  // 第二阶段的输入与文档
+  input_mode: value<"text" | "image" | "mastergo" | null>(),
+  images: value<string[] | null>(),           // 图片输入（绝对路径）
+  docs_dir: value<string | null>(),           // 入库文档目录（相对项目根目录）
+  artifacts: Annotation<Record<string, string>>({ reducer: (a, b) => ({ ...a, ...b }), default: () => ({}) }), // 文档编号 → 绝对路径
+  doc_round: value<number>(),                 // 文档复核已进行的轮数
+  review_verdict: value<"approved" | "rejected" | null>(),
+  acceptance_round: value<number>(),          // 产品验收已进行的轮数
+  acceptance_verdict: value<"pass" | "fail" | null>(),
+  return_stage: value<string | null>(),       // 验收打回到哪个阶段
+  feedback: value<string | null>(),           // 打回 / 仲裁留给下一阶段的话
   // codegraph
   design: value<Record<string, unknown> | null>(),
   spec: value<string>(),

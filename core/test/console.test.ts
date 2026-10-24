@@ -8,8 +8,9 @@ import { join } from "node:path"
 import process from "node:process"
 import { after, before, describe, it } from "node:test"
 import { type ConsoleServer, GATE_ONLY, startConsole } from "../src/console/server.ts"
+import * as W from "../src/console/workspaces.ts"
 import * as N from "../src/names.ts"
-import { tempDir } from "./helpers.ts"
+import { DOC_STAGES, tempDir } from "./helpers.ts"
 
 /** 门禁只有一项 typecheck，命令是一段 node 脚本。 */
 const rulesRunning = (code: string) =>
@@ -254,13 +255,14 @@ describe("控制台服务", () => {
     writeFileSync(join(root, ".env"), "OPENAI_API_KEY=sk-test\n")
     try {
       await request("POST", "/api/workspaces/add", { path: root })
+      // 文档阶段会调真实的 product / tech agent：这个用例只测作业分支，关掉它们
+      W.setWorkflowOverrides(root, { stages: Object.fromEntries(DOC_STAGES.map(n => [n, { enabled: false }])) })
       const { body } = await request("POST", "/api/runs", { graph: N.PIPELINE_NAME, input: { project_root: root, requirement: "做登录页", coding_agent: "dsh" } })
       const run = await waitRun(body.id)
       const steps = run.events.filter((e: any) => e.type === "node_start").map((e: any) => [e.parent, e.node])
       assert.deepEqual(steps, [
-        [null, N.DISCOVERY], [null, N.TECH_DESIGN], [null, N.DOC_REVIEW],
         [null, N.CODE], [N.CODE, N.DESIGN], [N.CODE, N.SPEC], [N.CODE, N.WRITE_CODE],
-        [null, N.VERIFY], [null, N.ACCEPTANCE], [null, N.DELIVER], [null, N.REHEARSE],
+        [null, N.VERIFY], [null, N.DELIVER], [null, N.REHEARSE],
       ])
       assert.equal(run.result.status, "delivered")
       assert.ok("changed_files" in run.result)

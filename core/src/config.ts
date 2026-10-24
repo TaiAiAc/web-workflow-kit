@@ -288,6 +288,12 @@ export function validateWorkflow(w: Json): void {
   const sorted = [...enabled].sort((a, b) => stages[a].order - stages[b].order)
   need(sorted.every((n, i) => n === enabled[i]), `阶段顺序不能改，应为 ${enabled.join(" → ")}（当前按 order 是 ${sorted.join(" → ")}）`)
 
+  // 阶段间的依赖：技术设计、验收都要用 02，复核要用 03
+  const on = (n: string): boolean => isObject(stages[n]) && stages[n].enabled !== false
+  need(!on("tech-design") || on("discovery"), "开着 tech-design 就不能关 discovery：技术设计要用需求规格（02）")
+  need(!on("acceptance") || on("discovery"), "开着 acceptance 就不能关 discovery：验收要按需求规格（02）的 AC 判断")
+  need(!on("doc-review") || on("tech-design"), "开着 doc-review 就不能关 tech-design：复核的是技术设计（03）")
+
   const git: Json = isObject(w.git) ? w.git : {}
   need(git.merge_method === "squash", `git.merge_method 目前只支持 squash（当前 ${JSON.stringify(git.merge_method)}）`)
   need(typeof git.branch_prefix === "string" && git.branch_prefix.trim() !== "", "git.branch_prefix 不能为空")

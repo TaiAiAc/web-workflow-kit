@@ -267,7 +267,8 @@ export function lintDoc(id: DocId, text: string, ctx: LintContext = {}): LintRes
     crossCheck(id, m, doc, ctx, need)
   }
 
-  const hit = PLACEHOLDER.exec(text)
+  // 引用块（> 开头）是原样引用的需求原文等材料，里面出现「待定」之类不算没填
+  const hit = PLACEHOLDER.exec(text.split("\n").filter(l => !l.trimStart().startsWith(">")).join("\n"))
   need(!hit, `有占位符没填：${hit?.[0]}`)
   return { ok: errors.length === 0, errors, doc }
 }

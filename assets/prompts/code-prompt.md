@@ -17,3 +17,4 @@
 ## Spec
 
 {spec}
+{self_test}
