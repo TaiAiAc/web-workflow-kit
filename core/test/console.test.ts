@@ -401,6 +401,32 @@ describe("控制台服务", () => {
     assert.deepEqual((await request("POST", "/api/pick-images", {})).body, { paths: ["/tmp/a.png", "/tmp/b.jpg"] })
   })
 
+  it("按运行记录重跑：复用上次的需求、素材和各角色选择", async () => {
+    const root = gitRepo({ "rules.yaml": rulesRunning("console.log('types ok')") })
+    await request("POST", "/api/workspaces/add", { path: root })
+    const first = await request("POST", "/api/runs", {
+      graph: N.FIX_LOOP_NAME,
+      input: { project_root: root, fix_agent: "claude", fix_effort: "high", review_backend: "skip" },
+    })
+    assert.equal(first.status, 201)
+    const done = await waitRun(first.body.id, root)
+    assert.equal(done.result.status, "delivered")
+
+    const again = await request("POST", "/api/runs/rerun", { project: root, run: first.body.id })
+    assert.equal(again.status, 201)
+    assert.notEqual(again.body.id, first.body.id)
+    const second = await waitRun(again.body.id, root)
+    assert.deepEqual(second.input, done.input)
+
+    // 服务重启后只剩落盘记录，也能重跑
+    c.store.runs.delete(first.body.id)
+    const saved = await request("POST", "/api/runs/rerun", { project: root, run: first.body.id })
+    assert.equal(saved.status, 201)
+    await waitRun(saved.body.id, root)
+
+    assert.equal((await request("POST", "/api/runs/rerun", { project: root, run: "nope" })).status, 404)
+  })
+
   it("预览接口：开始、看状态拿地址、停止", async () => {
     // 服务代码在仓库里、dev 脚本不带引号：Windows 上 npm 用 cmd 跑脚本，带多段引号的命令它解析不了
     const root = gitRepo({

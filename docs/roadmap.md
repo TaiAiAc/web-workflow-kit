@@ -88,7 +88,7 @@
 1. **补齐验证**：OpenCode 跑一轮；真实 SMTP 发一封熔断邮件。
 2. **发布**：macOS 签名与公证、x64 / universal 包，Windows 签名；GitHub Release 自动出包。
 3. **多端实测**：UniApp、微信 / 支付宝小程序、Electron 项目各跑一轮完整流程（目前真实验证只覆盖 Web）。
-4. **控制台体验**：运行记录的对比与重跑、门禁失败项直接跳到代码位置、多个项目并行运行。
+4. **控制台体验**：运行记录的对比、门禁失败项直接跳到代码位置、多个项目并行运行（失败 / 熔断运行的一键重跑已实现）。
 5. **命令行接入作业分支**：`wwk run` 拉作业分支并在终端里给出合并选项；接上断点恢复的分支校验（`checkResume` 已实现）。
 6. **时间与 token 预算**：`limits.time_budget_sec` / `token_budget` 目前只是配置项，尚未强制。
 7. **MasterGo 物料导出**：现在只有 `get_selection_node` / `get_variables`，设计稿模式的 01 没有素材图。

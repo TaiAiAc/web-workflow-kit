@@ -208,6 +208,8 @@ dialog.merge.picker-dlg { width: min(720px, calc(100vw - 32px)); }
 .result .sum { font-weight: 600; }
 .result details { margin-top: 6px; color: var(--muted); }
 .result summary { cursor: pointer; }
+.result .rerun { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.result .rerun .why { color: var(--faint); font-size: 12px; }
 .result ul { margin: 6px 0 0; padding-left: 18px; font-family: var(--mono); font-size: 12px; max-height: 180px; overflow-y: auto; }
 .fails { margin: 0 16px 10px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .fails table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -442,6 +444,7 @@ let current = store.get("wwk.ws", null);   // 选中的工作空间路径
 let view = "ws";             // ws：工作空间；settings：设置页
 let RUNS = [];               // 当前工作空间的运行记录
 let run = null;              // 正在看的运行（含事件）
+let rerunning = false;       // 正在按上次的输入重跑：按钮保持禁用，避免连点
 let runFilter = "all";       // 日志按阶段筛选
 let follow = true;           // 运行中自动滚到最新日志
 let design = null;           // 本次附带的设计稿
@@ -1303,6 +1306,27 @@ async function openRun(id) {
   renderDetail();
   if (run.status === "running") poll();
 }
+
+/** 按上次的输入重跑：需求、图片 / 设计稿、各角色 agent 与模型选择都由服务端从运行记录里取；开工检查照常生效。 */
+async function rerunRun(r) {
+  if (rerunning || !r?.input) return;
+  rerunning = true;
+  $("rerun")?.setAttribute("disabled", "");
+  try {
+    const { id } = await post("/api/runs/rerun", { project: r.project_root || current, run: r.id });
+    toast("已按上次的输入重新开始");
+    run = null; runFilter = "all"; openGroups.clear(); follow = true;
+    await refreshRuns(false);
+    openRun(id);
+    loadWs();
+  } catch (err) {
+    if (err.problems) showProblems(err.problems);
+    toast(err.message, true);
+  } finally {
+    rerunning = false;
+    $("rerun")?.removeAttribute("disabled");
+  }
+}
 async function poll() {
   clearTimeout(pollTimer);
   if (!run || run.status !== "running") return;
@@ -1426,9 +1450,12 @@ function renderDetail() {
   if (r.status !== "running") {
     const cls = ["delivered", "passed"].includes(sk) ? "ok" : ["broken", "failed", "config_error", "error"].includes(sk) ? "bad" : "";
     const files = res.changed_files || [];
+    // 失败 / 熔断的运行可以原样重来一次；成功的不给这个入口
+    const canRerun = Boolean(r.input) && ["broken", "failed", "config_error", "error"].includes(sk);
     result = `<div class="result ${cls}"><div class="sum">${esc(res.summary || r.error || r.summary || stText)}</div>
       ${res.break_reason ? `<div style="margin-top:4px;color:var(--muted);font-family:var(--mono);font-size:12px">${esc(res.break_reason)}</div>` : ""}
-      ${files.length ? `<details><summary>改动的文件（${files.length}）</summary><ul>${files.map((f) => `<li>${esc(f)}</li>`).join("")}</ul></details>` : ""}</div>`;
+      ${files.length ? `<details><summary>改动的文件（${files.length}）</summary><ul>${files.map((f) => `<li>${esc(f)}</li>`).join("")}</ul></details>` : ""}
+      ${canRerun ? `<div class="rerun"><button class="btn" id="rerun" type="button" ${rerunning ? "disabled" : ""}>${icon("loop")}重新运行</button><span class="why">按上次的需求、素材和各角色选择再跑一次</span></div>` : ""}</div>`;
   }
   const fails = res.failures || [];
   const failTable = fails.length && r.status !== "running" ? `<div class="fails"><table><thead><tr><th>失败码</th><th>检查</th><th>说明</th><th>位置</th></tr></thead><tbody>${
@@ -1460,6 +1487,7 @@ function renderDetail() {
   $("flow").onclick = (e) => { const s = e.target.closest(".step[data-key]"); if (s) { runFilter = s.dataset.key; renderDetail(); } };
   $("follow")?.addEventListener("click", () => { follow = !follow; renderDetail(); });
   $("d-merge")?.addEventListener("click", () => openMerge(r.id));
+  $("rerun")?.addEventListener("click", () => rerunRun(r));
   renderPreviewSlot();
   box.querySelectorAll("details.grp").forEach((d) => d.ontoggle = () => { d.open ? openGroups.add(d.dataset.key) : openGroups.delete(d.dataset.key); });
   if (r.status === "running" && follow) box.scrollTop = box.scrollHeight;
