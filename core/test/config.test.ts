@@ -264,6 +264,18 @@ describe("agent", () => {
     assert.throws(() => buildCodingAgent(cfg, "opencode", { effort: "high" }), /只提供模型列表/)
   })
 
+  it("本次没选模型时保留预设的 model / effort，选了才覆盖", () => {
+    const root = tempDir()
+    writeFileSync(join(root, "agent.config.json"), JSON.stringify({
+      coding_agents: { codex: { backend: "acp", agent: "codex", model: "deepseek-flash", effort: "high" } },
+    }))
+    const cfg = loadConfig(root)
+    const coder = defaultDeps(cfg, { codingAgent: "codex" }).coder as ACPAgent
+    assert.deepEqual([coder.model, coder.effort], ["deepseek-flash", "high"])
+    const selected = buildCodingAgent(cfg, "codex", { model: "other-model", effort: null }) as ACPAgent
+    assert.deepEqual([selected.model, selected.effort], ["other-model", "high"])
+  })
+
   it("ACP 预设：codex 用内置适配器，opencode 用自带命令", () => {
     const cfg = loadConfig(tempDir())
     const codex = buildCodingAgent(cfg, "codex") as ACPAgent

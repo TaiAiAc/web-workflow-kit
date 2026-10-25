@@ -128,7 +128,9 @@ export function buildCodingAgent(cfg: Config, choice?: string | null, options: {
   if (!(key in presets))
     throw new Error(`未知的编程 agent：${key}（可选：${Object.keys(presets).join(", ")}）`)
   const { agent: _ignored, ...common } = code
-  return buildAgent({ ...common, ...presets[key], ...options }, cfg, "code-task")
+  // 空值代表“本次没选”，不能盖掉预设里配好的 model / effort
+  const selected = Object.fromEntries(Object.entries(options).filter(([, value]) => value))
+  return buildAgent({ ...common, ...presets[key], ...selected }, cfg, "code-task")
 }
 
 export function buildAgent(section: Record<string, any>, cfg: Config, taskName: string): Agent {

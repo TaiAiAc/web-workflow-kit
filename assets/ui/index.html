@@ -716,22 +716,30 @@ function segHtml(key, label, opts, chosen) {
   return `<div class="choice"><span>${label}</span><div class="seg" data-k="${key}" role="group" aria-label="${label}">${opts.map(([k, l, ok, d]) =>
     `<button type="button" data-v="${esc(k)}" aria-pressed="${k === chosen}" class="${ok ? "" : "na"}" title="${esc(ok ? (isPath(d) ? `已安装：${d}` : d || l) : d || "本机不可用")}">${esc(l)}</button>`).join("")}</div></div>`;
 }
-/** 更新角色 agent；新 agent 不支持模型 / 强度时明确清掉旧值，避免留下“看似生效”的配置。 */
+/** 更新角色 agent；新 agent 用不了原来的模型 / 强度就明确清掉，避免留下“看似生效”的配置。 */
 async function changeRoleAgent(key, value) {
   const ws = wsOf(current);
   const opt = roleAgent(key, value);
   if (opt && !opt.available) toast(`${opt.label || value}：${opt.detail || "本机不可用"}。仍可选择，运行时会失败。`, true);
   const prefix = ROLE_OPTION_PREFIX[key], controls = controlsFor(key, opt), changes = { [key]: value };
+  const stored = ws.prefs || {}, fields = ["model", "effort"].map((kind) => [`${prefix}_${kind}`, kind]);
+  // ACP 的可选值只有建一次空会话才知道；探测失败就按“用不了”处理，不能让旧值留在配置里
+  let available = controls;
+  if (fields.some(([field, kind]) => stored[field] && controls[kind].source === "session")) {
+    try { available = await loadRoleControls(key, value, null); }
+    catch { available = null; }
+  }
   const dropped = [];
-  for (const kind of ["model", "effort"]) {
-    const field = `${prefix}_${kind}`;
-    if (optionValue(ws, prefix, kind) && !controls[kind].supported) {
+  for (const [field, kind] of fields) {
+    if (!stored[field]) continue;
+    const control = available ? available[kind] : null;
+    if (!control || !control.supported || !control.choices.some((o) => o.value === stored[field])) {
       changes[field] = "";
       dropped.push(kind === "model" ? "模型" : "思考强度");
     }
   }
   const ok = await savePreferences(changes);
-  if (ok && dropped.length) toast(`${opt?.label || value} 不支持${dropped.join("和")}，已清除这两个角色设置。`);
+  if (ok && dropped.length) toast(`已清除原${dropped.join("和")}设置（${opt?.label || value} 用不上）。`);
   return ok;
 }
 
@@ -779,6 +787,7 @@ function renderRoleOptions(focus, agentKey, controls, error = "") {
     return;
   }
   slot.innerHTML = `<div class="agent-options">
+    ${error ? `<div class="why">${esc(error)}</div>` : ""}
     ${optionSelect("模型", "model", controls.model, optionValue(ws, prefix, "model"))}
     ${optionSelect("思考强度", "effort", controls.effort, optionValue(ws, prefix, "effort"))}
   </div>`;
@@ -823,7 +832,9 @@ async function refreshRoleOptions(focus, agentKey, provided) {
     }
     if (epoch === refreshRoleOptions.epoch) renderRoleOptions(focus, agentKey, controls);
   } catch (err) {
-    if (epoch === refreshRoleOptions.epoch) renderRoleOptions(focus, agentKey, null, err.message);
+    // 读不到选项时也把下拉框画出来，否则旧值没处改、弹窗成了死路
+    if (epoch === refreshRoleOptions.epoch)
+      renderRoleOptions(focus, agentKey, controlsFor(focus, roleAgent(focus, agentKey)), err.message);
   }
 }
 
