@@ -121,7 +121,7 @@ wwk ui
 - 代理（「用系统代理」一键填入并保存，并检测到 Anthropic / OpenAI / DeepSeek / npm 的连通性）、API Key（只写不读，DeepSeek Key 可一键测试）、熔断邮件；
 - 可以写全局，也可以只写当前项目的 `.env`（项目覆盖全局）；对下一次运行生效。
 
-运行记录在结束时写进项目的 `.agent/runs/`（每个项目保留最近 50 条），服务重启后仍可回看；交付记录另存 `.agent/delivery.json`。「修复回环」「跑门禁」是对当前工作区的操作，不拉作业分支。编码子图、审阅修复子图的单独调试在 LangGraph Studio 或 API 里用。
+运行记录在结束时写进项目的 `.agent/runs/`（每个项目保留最近 50 条），服务重启后仍可回看；交付记录另存 `.agent/delivery.json`。失败或熔断的运行可以在详情里点「重新运行」，沿用上次的需求、图片 / 设计稿和各角色 agent / 模型选择（开工检查照常生效）。「修复回环」「跑门禁」是对当前工作区的操作，不拉作业分支。编码子图、审阅修复子图的单独调试在 LangGraph Studio 或 API 里用。
 
 控制台只在本机运行，页面不加载任何外部资源。安全细节见 [docs/architecture.md](docs/architecture.md#安全)。
 

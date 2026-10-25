@@ -425,7 +425,7 @@ export interface ConsoleServer {
   close: () => Promise<void>
 }
 
-const POST_ROUTES = new Set(["/api/runs", "/api/pick-folder", "/api/pick-file", "/api/pick-images", "/api/init", "/api/open",
+const POST_ROUTES = new Set(["/api/runs", "/api/runs/rerun", "/api/pick-folder", "/api/pick-file", "/api/pick-images", "/api/init", "/api/open",
   "/api/workspaces/add", "/api/workspaces/remove", "/api/workspaces/prefs",
   "/api/settings", "/api/settings/test", "/api/auth/login", "/api/workspaces/fix-gitignore",
   "/api/flow/rehearse", "/api/flow/merge", "/api/flow/hold", "/api/flow/discard", "/api/flow/abandon",
@@ -697,6 +697,24 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
         throw new HttpError(501, (e as Error).message)
       }
       return [200, { path: picked, inspect: picked ? inspectFolder(picked) : null }]
+    }
+    // 按运行记录原样重跑：需求、图片 / 设计稿、各角色 agent 与模型选择都从记录里取
+    if (path === "/api/runs/rerun") {
+      const project = String(body.project ?? "").trim()
+      const runId = String(body.run ?? "").trim()
+      const rec = store.runs.get(runId) ?? (project ? W.loadRun(project, runId) : null)
+      if (!rec)
+        throw new HttpError(404, `运行记录不存在：${runId || "（空）"}`)
+      const input: Json = { ...(rec.input ?? {}) }
+      delete input.docs_dir // 文档目录由新运行按需求重新分配
+      try {
+        const root = String(input.project_root ?? "")
+        checkChoices(input, existsSync(root) && statSync(root).isDirectory() ? loadConfig(root) : loadConfig(undefined))
+        return [201, { id: store.start(rec.graph, input).id }]
+      }
+      catch (e) {
+        throw new HttpError(400, (e as Error).message, e instanceof FlowError ? { problems: e.problems } : {})
+      }
     }
     // /api/runs
     const graph = body.graph
