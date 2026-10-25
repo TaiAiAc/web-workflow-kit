@@ -6,7 +6,7 @@ import { dirname, join } from "node:path"
 import process from "node:process"
 import { describe, it } from "node:test"
 import { fileURLToPath } from "node:url"
-import { ACPAgent, DEFAULT_ALLOW_KINDS, DEFAULT_PROTECTED, fnmatch, isAllowed, localAdapter, mapStopReason, mergeToolCall, withPolicyNote } from "../src/acp.ts"
+import { ACPAgent, DEFAULT_ALLOW_KINDS, DEFAULT_PROTECTED, fnmatch, inspectACPOptions, isAllowed, localAdapter, mapStopReason, mergeToolCall, withPolicyNote } from "../src/acp.ts"
 import { END_TURN, ERROR, MAX_TOKENS } from "../src/agents.ts"
 import { tempDir } from "./helpers.ts"
 
@@ -79,13 +79,13 @@ describe("mergeToolCall", () => {
 })
 
 describe("ACP agent（真实协议，对端是桩）", () => {
-  async function runStub(writes: string, stop = "end_turn", extra: { model?: string, agent?: string, files?: Record<string, string>, env?: Record<string, string> } = {}) {
+  async function runStub(writes: string, stop = "end_turn", extra: { model?: string, effort?: string, agent?: string, files?: Record<string, string>, env?: Record<string, string> } = {}) {
     const root = tempDir()
     for (const [rel, text] of Object.entries(extra.files ?? {})) {
       mkdirSync(dirname(join(root, rel)), { recursive: true })
       writeFileSync(join(root, rel), text)
     }
-    const agent = new ACPAgent({ agent: extra.agent ?? "stub", command: [process.execPath, STUB], timeoutSec: 60, model: extra.model,
+    const agent = new ACPAgent({ agent: extra.agent ?? "stub", command: [process.execPath, STUB], timeoutSec: 60, model: extra.model, effort: extra.effort,
       env: { ...process.env, STUB_WRITES: writes, STUB_STOP: stop, ...extra.env } })
     return { root, r: await agent.run("do it", root) }
   }
@@ -118,6 +118,33 @@ describe("ACP agent（真实协议，对端是桩）", () => {
   it("指定模型：会话开始后经 session/set_model 设上", async () => {
     assert.match((await runStub("")).r.text, /model=default/)
     assert.match((await runStub("", "end_turn", { model: "deepseek/deepseek-flash" })).r.text, /model=deepseek\/deepseek-flash/)
+  })
+
+  it("ACP session/new 的 configOptions：会话内可同时切模型和思考强度", async () => {
+    const { r } = await runStub("", "end_turn", {
+      model: "model-b",
+      effort: "high",
+      env: { STUB_CONFIG_OPTIONS: "1" },
+    })
+    assert.equal(r.stopReason, END_TURN)
+    assert.match(r.text, /model=model-b effort=high/)
+    const controls = await inspectACPOptions({
+      agent: "stub",
+      command: [process.execPath, STUB],
+      cwd: tempDir(),
+      env: { ...process.env, STUB_CONFIG_OPTIONS: "1" },
+    })
+    assert.deepEqual(controls.model.choices.map(o => o.value), ["model-a", "model-b"])
+    assert.deepEqual(controls.effort.choices.map(o => o.value), ["low", "high"])
+  })
+
+  it("配置了适配器没有声明的思考强度：直接报错，不悄悄忽略", async () => {
+    const { r } = await runStub("", "end_turn", {
+      effort: "medium",
+      env: { STUB_CONFIG_OPTIONS: "1" },
+    })
+    assert.equal(r.stopReason, ERROR)
+    assert.match(r.text, /不支持思考强度「medium」.*low \/ high/)
   })
 
   it("不经权限请求直接写（codex-acp）：保护文件跑完被还原，普通文件保留", async () => {

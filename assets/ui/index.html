@@ -107,6 +107,7 @@ kbd { font: 11px var(--mono); color: inherit; opacity: .75; }
 .role-tag { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid transparent; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .role-tag .k { opacity: .75; }
 .role-tag b { font-weight: 600; }
+.role-tag b small { font-size: 10.5px; font-weight: 500; opacity: .82; }
 .role-tag:hover { border-color: currentColor; }
 .role-tag { --role: var(--accent); background: color-mix(in srgb, var(--role) 13%, transparent); color: var(--role); }
 .role-tag.product { --role: var(--purple); }
@@ -131,6 +132,13 @@ dialog.merge.picker-dlg { width: min(720px, calc(100vw - 32px)); }
 .picker .choice > span { font-weight: 600; font-size: 12px; color: var(--muted); }
 .picker .seg { flex-wrap: wrap; }
 .picker .why { color: var(--faint); font-size: 11.5px; }
+.agent-options { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.agent-option { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; align-items: center; }
+.agent-option > span { color: var(--muted); font-size: 12px; font-weight: 600; }
+.agent-option select { width: 100%; min-height: 34px; padding: 0 34px 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; }
+.agent-option select:disabled { opacity: .55; cursor: not-allowed; }
+.agent-option .why { grid-column: 2; margin-top: -4px; }
+.agent-options .loading-line { color: var(--faint); font-size: 12px; }
 .picker .choice.busy .seg button { pointer-events: none; }
 .picker .choice.loading .seg { opacity: .6; }
 .picker .choice.loading > span::after { content: ""; display: inline-block; width: 10px; height: 10px; margin-left: 6px; vertical-align: -1px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: rot .8s linear infinite; }
@@ -617,6 +625,24 @@ const ROLE_HINT = {
   vision_agent: "只在带图片的需求里用：看图写设计分析（01）。",
   arbiter_agent: "文档复核超过轮次仍没通过时，由它判定技术设计能否继续。",
 };
+const ROLE_OPTION_PREFIX = {
+  product_agent: "product",
+  tech_agent: "tech",
+  coding_agent: "coding",
+  fix_agent: "fix",
+  review_backend: "review",
+  vision_agent: "vision",
+  arbiter_agent: "arbiter",
+};
+const RUN_ROLE_FIELDS = [
+  "product_agent", "product_model", "product_effort",
+  "tech_agent", "tech_model", "tech_effort",
+  "coding_agent", "coding_model", "coding_effort",
+  "fix_agent", "fix_model", "fix_effort",
+  "review_backend", "review_model", "review_effort",
+  "vision_agent", "vision_model", "vision_effort",
+  "arbiter_agent", "arbiter_model", "arbiter_effort",
+];
 const optLabel = (key, o) => (key === "review_backend" ? reviewerLabel(o.key) : o.label);
 const isPath = (d) => /[\\/]/.test(d || "");
 // 可用时的说明：编程 agent 给的是可执行文件路径，显示「已安装」，路径放进悬停提示
@@ -627,7 +653,9 @@ function renderChoices() {
   box.innerHTML = ROLES.map(([key, name, cls, list]) => {
     const v = prefOf(ws, key), o = list().find((x) => x.key === v);
     const label = o ? optLabel(key, o) : v || "未选";
-    return `<button class="role-tag ${cls}${o && !o.available ? " na" : ""}" type="button" data-k="${key}" title="${esc(o && !o.available ? o.detail || "本机不可用" : `点击更改${name} agent`)}"><span class="k">${name}</span><b>${esc(label)}</b>${o && !o.available ? " ⚠" : ""}</button>`;
+    const prefix = ROLE_OPTION_PREFIX[key], model = prefOf(ws, `${prefix}_model`), effort = prefOf(ws, `${prefix}_effort`);
+    const detail = [model, effort && `思考 ${effort}`].filter(Boolean).join(" · ");
+    return `<button class="role-tag ${cls}${o && !o.available ? " na" : ""}" type="button" data-k="${key}" title="${esc(o && !o.available ? o.detail || "本机不可用" : [`点击更改${name} agent`, detail].filter(Boolean).join("；"))}"><span class="k">${name}</span><b>${esc(label)}${detail ? `<small> · ${esc(detail)}</small>` : ""}</b>${o && !o.available ? " ⚠" : ""}</button>`;
   }).join("");
   box.onclick = (e) => { const b = e.target.closest("[data-k]"); if (b) openChoices(b.dataset.k); };
 }
@@ -635,16 +663,27 @@ const whyHtml = (key, list) => {
   const o = list().find((x) => x.key === prefOf(wsOf(current), key));
   return o ? (o.available ? availText(o.detail) : esc(`本机不可用：${o.detail || ""}`)) : "";
 };
-/** 点哪个标签就只改哪一项：弹窗里只放这一项的选项 */
+const optionCache = new Map();
+const roleAgent = (key, value) => (ROLES.find((r) => r[0] === key)?.[3]() || AGENTS.agents).find((a) => a.key === value);
+const unsupportedControl = (reason) => ({ supported: false, source: null, choices: [], reason });
+function controlsFor(key, agent) {
+  if (key === "review_backend" && !AGENTS.agents.some((a) => a.key === agent))
+    return { model: unsupportedControl("这个审阅后端不接受模型设置"), effort: unsupportedControl("这个审阅后端不接受思考强度") };
+  return agent?.controls || { model: unsupportedControl("这个 agent 没有报告模型能力"), effort: unsupportedControl("这个 agent 没有报告思考强度能力") };
+}
+const optionValue = (ws, prefix, kind) => prefOf(ws, `${prefix}_${kind}`);
+
+/** 点哪个标签就只改这一项；模型 / 思考强度也属于这一角色的设置。 */
 function openChoices(focus) {
   const dlg = $("choice-dlg"), ws = wsOf(current);
   const role = ROLES.find((r) => r[0] === focus);
   if (!ws || !role) return;
   const [key, name, , list] = role;
   // 只在打开时生成一次；切换时就地改高亮和说明，不重建（重建会闪、丢焦点）
-  dlg.innerHTML = `<header><h3 id="choice-title">选择${name} agent</h3><button class="btn icon ghost" id="ch-x" type="button" aria-label="关闭">${icon("x")}</button></header>
-    <div class="body picker">${segHtml(key, name, list().map((x) => [x.key, optLabel(key, x), x.available, x.detail]), prefOf(ws, key))}
+  dlg.innerHTML = `<header><h3 id="choice-title">设置${name} agent</h3><button class="btn icon ghost" id="ch-x" type="button" aria-label="关闭">${icon("x")}</button></header>
+    <div class="body picker">${segHtml(key, "Agent", list().map((x) => [x.key, optLabel(key, x), x.available, x.detail]), prefOf(ws, key))}
       <div class="why" data-why="${key}">${whyHtml(key, list)}</div>
+      <div id="agent-options-slot"></div>
       <div class="why">${esc(ROLE_HINT[key] || "")}建议各环节选不同的 agent，避免同源偏差。每个项目记住自己的选择。</div></div>
     <footer><span class="grow"></span><button class="btn primary" id="ch-ok" type="button">完成</button></footer>`;
   $("ch-x").onclick = $("ch-ok").onclick = () => dlg.close();
@@ -661,14 +700,15 @@ function openChoices(focus) {
     // 保存期间这一组不能再点；超过 150ms 才显示转圈，快的话看不到
     group.classList.add("busy");
     const slow = setTimeout(() => group.classList.add("loading"), 150);
-    const saving = choose(key, b.dataset.v);
     mark(b.dataset.v);   // 先切过去，不等保存
-    const ok = await saving;
+    const ok = await changeRoleAgent(key, b.dataset.v);
     clearTimeout(slow);
     group.classList.remove("busy", "loading");
     if (!ok) mark(prev);
+    else await refreshRoleOptions(key, b.dataset.v);
   };
   if (!dlg.open) dlg.showModal();
+  refreshRoleOptions(key, prefOf(ws, key));
   dlg.querySelector(`.seg[data-k="${focus}"] button[aria-pressed="true"]`)?.focus();
 }
 
@@ -676,21 +716,136 @@ function segHtml(key, label, opts, chosen) {
   return `<div class="choice"><span>${label}</span><div class="seg" data-k="${key}" role="group" aria-label="${label}">${opts.map(([k, l, ok, d]) =>
     `<button type="button" data-v="${esc(k)}" aria-pressed="${k === chosen}" class="${ok ? "" : "na"}" title="${esc(ok ? (isPath(d) ? `已安装：${d}` : d || l) : d || "本机不可用")}">${esc(l)}</button>`).join("")}</div></div>`;
 }
-/** 保存一项选择（工作空间偏好）；先在本地改好，失败再改回去。返回是否保存成功。 */
-async function choose(key, value) {
+/** 更新角色 agent；新 agent 不支持模型 / 强度时明确清掉旧值，避免留下“看似生效”的配置。 */
+async function changeRoleAgent(key, value) {
   const ws = wsOf(current);
-  const opt = (ROLES.find((r) => r[0] === key)?.[3]() || AGENTS.agents).find((a) => a.key === value);
+  const opt = roleAgent(key, value);
   if (opt && !opt.available) toast(`${opt.label || value}：${opt.detail || "本机不可用"}。仍可选择，运行时会失败。`, true);
+  const prefix = ROLE_OPTION_PREFIX[key], controls = controlsFor(key, opt), changes = { [key]: value };
+  const dropped = [];
+  for (const kind of ["model", "effort"]) {
+    const field = `${prefix}_${kind}`;
+    if (optionValue(ws, prefix, kind) && !controls[kind].supported) {
+      changes[field] = "";
+      dropped.push(kind === "model" ? "模型" : "思考强度");
+    }
+  }
+  const ok = await savePreferences(changes);
+  if (ok && dropped.length) toast(`${opt?.label || value} 不支持${dropped.join("和")}，已清除这两个角色设置。`);
+  return ok;
+}
+
+/** 保存一组工作空间偏好；先在本地改好，失败再改回去。 */
+async function savePreferences(values) {
+  const ws = wsOf(current);
   const before = { ...(ws.prefs || {}) };
-  ws.prefs = { ...before, [key]: value };
+  ws.prefs = { ...before, ...values };
+  for (const [key, value] of Object.entries(values)) if (!value) delete ws.prefs[key];
+  renderChoices();
   try {
-    const updated = await post("/api/workspaces/prefs", { path: ws.path, prefs: { [key]: value } });
+    const updated = await post("/api/workspaces/prefs", { path: ws.path, prefs: values });
     Object.assign(ws, { prefs: updated.prefs });
+    renderChoices();
     return true;
   } catch (err) {
     ws.prefs = before;
+    renderChoices();
     toast(err.message, true);
     return false;
+  }
+}
+
+function optionSelect(label, key, controls, current) {
+  const list = [...(controls.choices || [])];
+  if (current && !list.some((o) => o.value === current)) list.unshift({ value: current, name: `${current}（当前配置）` });
+  const disabled = !controls.supported;
+  const reason = controls.reason ? `<div class="why">${esc(controls.reason)}</div>` : "";
+  return `<label class="agent-option"><span>${label}</span><select data-opt="${key}" ${disabled ? "disabled" : ""}>
+    <option value="">${current ? "不使用角色级设置（agent 默认）" : "跟随 agent / 角色默认"}</option>
+    ${list.map((o) => `<option value="${esc(o.value)}" ${o.value === current ? "selected" : ""}>${esc(o.name)}</option>`).join("")}
+  </select>${reason}</label>`;
+}
+
+function renderRoleOptions(focus, agentKey, controls, error = "") {
+  const slot = $("agent-options-slot"), ws = wsOf(current);
+  if (!slot || !ws) return;
+  const prefix = ROLE_OPTION_PREFIX[focus];
+  if (!agentKey) {
+    slot.innerHTML = `<div class="agent-options"><div class="why">先选择一个 agent，再设置模型和思考强度。</div></div>`;
+    return;
+  }
+  if (!controls) {
+    slot.innerHTML = `<div class="agent-options"><div class="loading-line">${error ? esc(error) : `<span class="spin"></span> 正在读取 ${esc(agentLabel(agentKey))} 的可用选项…`}</div></div>`;
+    return;
+  }
+  slot.innerHTML = `<div class="agent-options">
+    ${optionSelect("模型", "model", controls.model, optionValue(ws, prefix, "model"))}
+    ${optionSelect("思考强度", "effort", controls.effort, optionValue(ws, prefix, "effort"))}
+  </div>`;
+  slot.querySelectorAll("select[data-opt]").forEach((select) => {
+    select.onchange = () => changeRoleOption(focus, agentKey, select.dataset.opt, select.value);
+  });
+}
+
+async function loadRoleControls(focus, agentKey, model) {
+  const ws = wsOf(current), agent = roleAgent(focus, agentKey);
+  const base = controlsFor(focus, agent);
+  if (base.model.source !== "session" && base.effort.source !== "session") return base;
+  const q = new URLSearchParams({ project: ws.path, agent: agentKey });
+  if (model) q.set("model", model);
+  const cacheKey = `${ws.path}|${agentKey}|${model || ""}`;
+  if (optionCache.has(cacheKey)) return optionCache.get(cacheKey);
+  const data = await api(`/api/agent-options?${q}`);
+  optionCache.set(cacheKey, data.controls);
+  return data.controls;
+}
+
+async function refreshRoleOptions(focus, agentKey, provided) {
+  const epoch = (refreshRoleOptions.epoch = (refreshRoleOptions.epoch || 0) + 1);
+  const agent = roleAgent(focus, agentKey);
+  renderRoleOptions(focus, agentKey, provided || null);
+  if (provided) return;
+  const base = controlsFor(focus, agent);
+  if (base.model.source !== "session" && base.effort.source !== "session") {
+    renderRoleOptions(focus, agentKey, base);
+    return;
+  }
+  try {
+    const ws = wsOf(current), prefix = ROLE_OPTION_PREFIX[focus];
+    const q = new URLSearchParams({ project: ws.path, agent: agentKey });
+    const currentModel = optionValue(ws, prefix, "model");
+    if (currentModel) q.set("model", currentModel);
+    const cacheKey = `${ws.path}|${agentKey}|${currentModel || ""}`;
+    let controls = optionCache.get(cacheKey);
+    if (!controls) {
+      controls = (await api(`/api/agent-options?${q}`)).controls;
+      optionCache.set(cacheKey, controls);
+    }
+    if (epoch === refreshRoleOptions.epoch) renderRoleOptions(focus, agentKey, controls);
+  } catch (err) {
+    if (epoch === refreshRoleOptions.epoch) renderRoleOptions(focus, agentKey, null, err.message);
+  }
+}
+
+async function changeRoleOption(focus, agentKey, kind, value) {
+  const prefix = ROLE_OPTION_PREFIX[focus], field = `${prefix}_${kind}`;
+  if (!await savePreferences({ [field]: value })) {
+    await refreshRoleOptions(focus, agentKey);
+    return;
+  }
+  if (kind !== "model") return;
+  try {
+    const controls = await loadRoleControls(focus, agentKey, value);
+    renderRoleOptions(focus, agentKey, controls);
+    const ws = wsOf(current), effort = optionValue(ws, prefix, "effort");
+    if (effort && controls.effort.choices.length && !controls.effort.choices.some((o) => o.value === effort)) {
+      await savePreferences({ [`${prefix}_effort`]: "" });
+      toast(`${value} 不支持原思考强度「${effort}」，已恢复为默认。`);
+      renderRoleOptions(focus, agentKey, controls);
+    }
+  } catch (err) {
+    toast(err.message, true);
+    await refreshRoleOptions(focus, agentKey);
   }
 }
 
@@ -752,18 +907,22 @@ async function initProject() {
 async function startRun(graph) {
   const ws = wsOf(current);
   if (!ws) return;
-  const input = { project_root: ws.path, review_backend: prefOf(ws, "review_backend"), fix_agent: prefOf(ws, "fix_agent") };
+  const input = {
+    project_root: ws.path,
+    review_backend: prefOf(ws, "review_backend"), review_model: prefOf(ws, "review_model"), review_effort: prefOf(ws, "review_effort"),
+    fix_agent: prefOf(ws, "fix_agent"), fix_model: prefOf(ws, "fix_model"), fix_effort: prefOf(ws, "fix_effort"),
+  };
   if (graph === PIPELINE) {
     const requirement = $("req").value.trim();
     if (!requirement) { $("compose-err").textContent = "先写下这次要做的需求"; $("req").focus(); return; }
-    Object.assign(input, { requirement, coding_agent: prefOf(ws, "coding_agent") });
-    for (const k of ["product_agent", "tech_agent", "vision_agent", "arbiter_agent"]) input[k] = prefOf(ws, k);   // 文档阶段各角色
+    Object.assign(input, { requirement });
+    for (const k of RUN_ROLE_FIELDS) input[k] = prefOf(ws, k);
     if (design) input.design_ref = design;
     if (images.length) input.images = images;
     // 跑完要合并时发通知；趁这次点击要权限（桌面端不需要）
     if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
   }
-  if (graph === GATE_ONLY) { delete input.review_backend; delete input.fix_agent; }
+  if (graph === GATE_ONLY) for (const k of ["review_backend", "review_model", "review_effort", "fix_agent", "fix_model", "fix_effort"]) delete input[k];
   try {
     const { id } = await post("/api/runs", { graph, input });
     if (graph === PIPELINE) { $("req").value = ""; store.set("wwk.draft." + ws.path, ""); design = null; images = []; renderDesign(); }

@@ -251,8 +251,13 @@ export function validateWorkflow(w: Json): void {
   need(w.version === 2, `version 必须是 2（当前 ${JSON.stringify(w.version)}）`)
   need(isObject(w.roles), "roles 必须是对象")
   const roles: Json = isObject(w.roles) ? w.roles : {}
-  for (const [name, r] of Object.entries(roles))
+  for (const [name, r] of Object.entries(roles)) {
     need(isObject(r) && typeof r.agent === "string" && r.agent.trim() !== "", `roles.${name}.agent 不能为空`)
+    need(!isObject(r) || r.model === undefined || r.model === null || (typeof r.model === "string" && r.model.trim() !== ""),
+      `roles.${name}.model 必须是非空字符串或 null`)
+    need(!isObject(r) || r.effort === undefined || r.effort === null || (typeof r.effort === "string" && r.effort.trim() !== ""),
+      `roles.${name}.effort 必须是非空字符串或 null`)
+  }
 
   need(isObject(w.stages), "stages 必须是对象")
   const orders = new Map<number, string>()

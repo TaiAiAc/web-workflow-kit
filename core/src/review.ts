@@ -9,6 +9,7 @@
 import { readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { agentAvailability, END_TURN } from "./agents.ts"
+import { assertAgentOptions } from "./agent-options.ts"
 import { type Config, prompt, relativeTo, writeText } from "./config.ts"
 import { chat, LLMError, matchBracket, parseJson } from "./llm.ts"
 import { run, which } from "./proc.ts"
@@ -131,7 +132,12 @@ export function extractPlan(text: string): Plan {
 const unavailable = (summary: string, backend: string): Plan =>
   ({ verdict: "unavailable", summary: summary.slice(0, 300), fixes: [], reviewer: backend })
 
-export function makeReviewer(cfg: Config, choice: string | null | undefined, validate: (plan: unknown) => Plan) {
+export function makeReviewer(
+  cfg: Config,
+  choice: string | null | undefined,
+  validate: (plan: unknown) => Plan,
+  options: { model?: string | null, effort?: string | null } = {},
+) {
   const rcfg = cfg.get("review")
   const system = prompt("review-prompt.md")
   const timeoutSec = Number(rcfg.timeout_sec ?? 180)
@@ -171,7 +177,11 @@ export function makeReviewer(cfg: Config, choice: string | null | undefined, val
   async function runAgent(payload: Record<string, unknown>, backend: string): Promise<Plan> {
     let agent
     try {
-      agent = buildRoleAgent(cfg, "review", backend).agent
+      const preset = cfg.raw.coding_agents?.[backend]
+      if (!preset)
+        throw new Error(`未知的审阅 agent：${backend}`)
+      assertAgentOptions(preset, options.model, options.effort)
+      agent = buildRoleAgent(cfg, "review", backend, options).agent
     }
     catch (e) {
       return unavailable((e as Error).message, backend)
@@ -198,6 +208,8 @@ export function makeReviewer(cfg: Config, choice: string | null | undefined, val
 
   return async (payload: Record<string, unknown>): Promise<Plan> => {
     const [backend, why] = resolveBackend(cfg, choice)
+    if ((options.model || options.effort) && !(backend in agentReviewers(cfg)))
+      throw new Error(`审阅方式「${BACKENDS[backend] ?? backend}」不支持模型 / 思考强度；请先选一个具体的编程 agent`)
     if (backend === "skip")
       return unavailable(`未审阅（${why}）`, backend)
     if (backend === "api") {

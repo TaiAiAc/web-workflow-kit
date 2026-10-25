@@ -72,6 +72,7 @@
 | --- | --- |
 | `project_root` / `requirement` / `design_ref` | 输入 |
 | `coding_agent` / `review_backend` | 输入：本次运行选的编程 agent、审阅方式 |
+| `*_agent` / `*_model` / `*_effort` | 输入：各角色的 agent 及可选的模型、思考强度覆盖 |
 | `spec` / `baseline` | 生成的 Spec；编码前的工作区快照（只取本次改动块用） |
 | `verify_exit` / `failures` / `attempt` | 最近一次门禁的退出码、失败项、累计失败轮数 |
 | `plan` | 修复审阅的修复计划（含 `reviewer`：经由哪个后端） |
@@ -83,7 +84,7 @@
 节点不直接创建 agent，而是从 `source` 取依赖（[deps.ts](../core/src/deps.ts)）：
 
 - 命令行、交互模式和测试传一个固定的 `Deps`；
-- 控制台和 LangGraph Studio 传 `depsFromState`传一个函数，每次运行按输入里的 `project_root`、`coding_agent`、`review_backend` 现建依赖。所以一个服务能同时服务多个项目，改了项目配置下次运行就生效。
+- 控制台和 LangGraph Studio 传 `depsFromState` 函数，每次运行按输入里的 `project_root` 和各角色选择现建依赖。`agent-options.ts` 定义每种后端的模型/思考强度能力；ACP 运行时会从 `session/new` 的 `configOptions` 找实际可选项，再用 `session/set_config_option` 应用。所以一个服务能同时服务多个项目，改了项目配置下次运行就生效。
 
 测试用假 agent、假门禁整体替换 `Deps`。
 

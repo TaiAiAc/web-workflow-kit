@@ -9,6 +9,7 @@ import { tmpdir } from "node:os"
 import { basename, extname, join } from "node:path"
 import YAML from "yaml"
 import { ACPAgent, IMAGE_UNSUPPORTED, type PromptImage } from "./acp.ts"
+import { assertAgentOptions } from "./agent-options.ts"
 import { END_TURN } from "./agent-result.ts"
 import { ClaudeCodeCLI } from "./agents.ts"
 import { type Config, prompt, render, writeText } from "./config.ts"
@@ -48,6 +49,7 @@ interface VisionSettings {
   agent: string
   backend: VisionBackend
   model: string | null
+  effort: string | null
   timeoutSec: number
   /** ACP 适配器命令：codex 预设里的 command，没有就用内置适配器 */
   acpCommand: string[] | null
@@ -55,17 +57,21 @@ interface VisionSettings {
   env: NodeJS.ProcessEnv
 }
 
-function settings(cfg: Config, override?: string | null): VisionSettings {
+function settings(cfg: Config, override?: string | null, model?: string | null, effort?: string | null): VisionSettings {
   const wf = cfg.workflow.raw
   const agent = override || wf.roles?.vision?.agent
   if (!(VISION_AGENTS as readonly string[]).includes(agent))
     throw new Error(`看图目前只支持 ${VISION_AGENTS.join(" / ")}（当前是 ${agent}）`)
   const v = wf.vision ?? {}
   const preset = cfg.raw.coding_agents?.[agent] ?? {}
+  const selectedModel = model || (agent === "claude" ? preset.model ?? null : v.model ?? null)
+  const selectedEffort = effort || preset.effort || null
+  assertAgentOptions({ backend: agent === "claude" ? "claude_cli" : "acp", agent, ...preset }, selectedModel, selectedEffort)
   return {
     agent,
     backend: agent === "claude" ? "claude_cli" : v.backend === "codex_cli" ? "codex_cli" : "codex_acp",
-    model: agent === "claude" ? preset.model ?? null : v.model ?? null,
+    model: selectedModel,
+    effort: selectedEffort,
     timeoutSec: Number(v.timeout_sec ?? 300),
     acpCommand: preset.command ?? null,
     cliCommand: Array.isArray(v.cli_command) && v.cli_command.length ? v.cli_command : ["codex"],
@@ -98,7 +104,11 @@ export function visionPreflight(cfg: Config, override?: string | null): [boolean
 const sha256 = (data: Buffer | string): string => createHash("sha256").update(data).digest("hex")
 
 /** 看图出 01：素材先存进文档目录，再跑模型（或命中缓存），最后拼成完整文档并校验。 */
-export async function analyzeImages(cfg: Config, input: VisionInput, opts: { log?: (line: string) => void, agent?: string | null } = {}): Promise<VisionResult> {
+export async function analyzeImages(
+  cfg: Config,
+  input: VisionInput,
+  opts: { log?: (line: string) => void, agent?: string | null, model?: string | null, effort?: string | null } = {},
+): Promise<VisionResult> {
   const log = opts.log ?? (() => {})
   if (!input.images.length)
     throw new Error("vision 至少需要一张图片")
@@ -108,10 +118,10 @@ export async function analyzeImages(cfg: Config, input: VisionInput, opts: { log
     if (!ASSET_EXTS.includes(extname(p).toLowerCase()))
       throw new Error(`只支持图片（${ASSET_EXTS.join(" ")}）：${p}`)
   }
-  const s = settings(cfg, opts.agent)
+  const s = settings(cfg, opts.agent, opts.model, opts.effort)
   const stored = input.images.map(p => ({ src: p, ...storeAsset(input.docDir, p) }))
 
-  const key = sha256(JSON.stringify({ v: CACHE_VERSION, images: stored.map(a => a.hash), requirement: input.requirement, question: input.question ?? "", agent: s.agent, model: s.model }))
+  const key = sha256(JSON.stringify({ v: CACHE_VERSION, images: stored.map(a => a.hash), requirement: input.requirement, question: input.question ?? "", agent: s.agent, model: s.model, effort: s.effort }))
   const cacheFile = join(cfg.stateDir, "cache", "vision", `${key.slice(0, 24)}.md`)
   let body: string
   let backend: VisionBackend = s.backend
@@ -149,7 +159,7 @@ async function look(s: VisionSettings, input: VisionInput, images: string[], log
     if (s.backend === "claude_cli") { // 图片在临时目录里，Claude Code 只读地用读取工具看
       log(`[vision] 经 Claude Code 看 ${copies.length} 张图…`)
       const files = copies.map((p, i) => `- 图${i + 1}：${basename(p)}`).join("\n")
-      const agent = new ClaudeCodeCLI({ model: s.model, permissionMode: "default", timeoutSec: s.timeoutSec, env: s.env })
+      const agent = new ClaudeCodeCLI({ model: s.model, effort: s.effort, permissionMode: "default", timeoutSec: s.timeoutSec, env: s.env })
       const r = await agent.run(`${text}\n\n## 图片文件（就在当前目录，请用读取工具逐个查看）\n\n${files}`, work)
       if (r.stopReason !== END_TURN || !r.text.trim())
         throw new Error(`vision 失败：Claude Code stop_reason=${r.stopReason}：${r.text.slice(-300)}`)
@@ -160,7 +170,7 @@ async function look(s: VisionSettings, input: VisionInput, images: string[], log
       log(`[vision] 经 codex ACP 看 ${copies.length} 张图…`)
       const images64: PromptImage[] = copies.map(p => ({ data: readFileSync(p).toString("base64"), mimeType: MIME[extname(p)] }))
       const agent = new ACPAgent({
-        agent: "codex", command: s.acpCommand, model: s.model, allowKinds: ["read", "search", "think"], protectedPaths: ["*"], timeoutSec: s.timeoutSec, env: s.env,
+        agent: "codex", command: s.acpCommand, model: s.model, effort: s.effort, allowKinds: ["read", "search", "think"], protectedPaths: ["*"], timeoutSec: s.timeoutSec, env: s.env,
       })
       const r = await agent.run(text, work, images64)
       if (r.stopReason === END_TURN && r.text.trim())
@@ -174,7 +184,8 @@ async function look(s: VisionSettings, input: VisionInput, images: string[], log
     const out = join(work, "last-message.md")
     // prompt 要放在 -i 前面：-i 能接多个文件，紧跟其后的参数会被当成图片路径
     const args = [...s.cliCommand.slice(1), "exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "--color", "never",
-      "-o", out, ...(s.model ? ["-m", s.model] : []), text, ...copies.flatMap(p => ["-i", p])]
+      "-o", out, ...(s.model ? ["-m", s.model] : []), ...(s.effort ? ["-c", `model_reasoning_effort=${JSON.stringify(s.effort)}`] : []),
+      text, ...copies.flatMap(p => ["-i", p])]
     if (s.backend === "codex_cli")
       log(`[vision] 经 codex CLI 看 ${copies.length} 张图…`)
     const r = await run(cli, args, { cwd: work, env: s.env, timeoutMs: s.timeoutSec * 1000 })

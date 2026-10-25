@@ -10,6 +10,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import process from "node:process"
 import { Readable, Writable } from "node:stream"
 import * as acp from "@agentclientprotocol/sdk"
+import { agentControls, type AgentControls } from "./agent-options.ts"
 import { type Agent, type AgentResult, END_TURN, ERROR, MAX_TOKENS } from "./agent-result.ts"
 import { killTree, which } from "./proc.ts"
 
@@ -195,20 +196,205 @@ export interface PromptImage {
   mimeType: string
 }
 
+interface SessionConfigOptionLike {
+  id?: unknown
+  category?: unknown
+  type?: unknown
+  currentValue?: unknown
+  options?: unknown
+}
+
+interface SessionOptionChoice {
+  value: string
+  name: string
+  description?: string | null
+}
+
+const flattenChoices = (value: unknown): SessionOptionChoice[] => {
+  if (!Array.isArray(value))
+    return []
+  return value.flatMap((item): SessionOptionChoice[] => {
+    if (!item || typeof item !== "object")
+      return []
+    const choice = item as Record<string, unknown>
+    if (Array.isArray(choice.options))
+      return flattenChoices(choice.options)
+    return typeof choice.value === "string"
+      ? [{ value: choice.value, name: String(choice.name ?? choice.value), description: typeof choice.description === "string" ? choice.description : null }]
+      : []
+  })
+}
+
+function configOption(options: unknown, category: string, id: string): SessionConfigOptionLike | undefined {
+  if (!Array.isArray(options))
+    return undefined
+  return (options as SessionConfigOptionLike[]).find(option => option.category === category || option.id === id)
+}
+
+function normalizeAcpControls(preset: Record<string, any>, response: Record<string, any>): AgentControls {
+  const controls = agentControls(preset)
+  const options = response.configOptions
+  const model = configOption(options, "model", "model") ?? (response.models ? { id: "model" } : undefined)
+  const effort = configOption(options, "thought_level", "reasoning_effort")
+  if (model) {
+    const modelOptions = flattenChoices(model.options)
+    const legacy = Array.isArray(response.models?.availableModels)
+      ? response.models.availableModels.map((item: Record<string, any>) => ({
+          value: String(item.modelId ?? ""),
+          name: String(item.name ?? item.modelId ?? ""),
+          description: typeof item.description === "string" ? item.description : null,
+        })).filter((item: SessionOptionChoice) => item.value)
+      : []
+    controls.model = {
+      supported: true,
+      source: "session",
+      choices: modelOptions.length ? modelOptions : legacy,
+      reason: null,
+    }
+  }
+  if (effort) {
+    controls.effort = {
+      supported: true,
+      source: "session",
+      choices: flattenChoices(effort.options),
+      reason: null,
+    }
+  }
+  return controls
+}
+
+/** 在已建立的会话里设模型 / 思考强度；适配器没报告对应选项就直接报错。 */
+async function applySessionOptions(
+  ctx: acp.ClientContext,
+  session: acp.ActiveSession,
+  model: string | null,
+  effort: string | null,
+): Promise<unknown[] | null | undefined> {
+  const response = session.newSessionResponse as Record<string, any>
+  let options = response.configOptions
+  if (model) {
+    const option = configOption(options, "model", "model")
+    if (option) {
+      const available = flattenChoices(option.options)
+      if (available.length && !available.some(choice => choice.value === model))
+        throw new Error(`该 ACP agent 没有模型「${model}」（可选：${available.map(choice => choice.value).join(" / ")}）`)
+      const updated = await ctx.request(acp.methods.agent.session.setConfigOption, {
+        sessionId: session.sessionId,
+        configId: String(option.id),
+        value: model,
+      })
+      options = updated.configOptions
+    }
+    else {
+      const available = Array.isArray(response.models?.availableModels)
+        ? response.models.availableModels.map((item: Record<string, any>) => String(item.modelId ?? "")).filter(Boolean)
+        : []
+      if (available.length && !available.includes(model))
+        throw new Error(`该 ACP agent 没有模型「${model}」（可选：${available.join(" / ")}）`)
+      // OpenCode 仍使用 ACP 早期的 session/set_model；它只有模型，没有独立的思考强度。
+      await ctx.request("session/set_model", { sessionId: session.sessionId, modelId: model })
+    }
+  }
+  if (effort) {
+    const option = configOption(options, "thought_level", "reasoning_effort")
+    if (!option)
+      throw new Error(`该 ACP agent 没有提供思考强度配置选项，不能设置「${effort}」`)
+    const available = flattenChoices(option.options)
+    if (!available.some(choice => choice.value === effort))
+      throw new Error(`当前模型不支持思考强度「${effort}」（可选：${available.map(choice => choice.value).join(" / ")}）`)
+    const updated = await ctx.request(acp.methods.agent.session.setConfigOption, {
+      sessionId: session.sessionId,
+      configId: String(option.id),
+      value: effort,
+    })
+    options = updated.configOptions
+  }
+  return options
+}
+
+/** 只建立空会话并读取选项；不会调用 session/prompt，不消耗模型 token。 */
+export async function inspectACPOptions(opts: {
+  agent: string
+  command?: string[] | null
+  model?: string | null
+  cwd: string
+  env?: NodeJS.ProcessEnv
+  timeoutSec?: number
+}): Promise<AgentControls> {
+  const preset = { backend: "acp", agent: opts.agent }
+  const command = opts.command ?? localAdapter(DEFAULT_COMMANDS[opts.agent], opts.env)
+  if (!command?.length)
+    throw new Error(`no ACP command for agent '${opts.agent}'`)
+  const exe = which(command[0], opts.env) ?? command[0]
+  let stderr = ""
+  let child: ChildProcess | undefined
+  let timer: NodeJS.Timeout | undefined
+  try {
+    child = spawn(exe, command.slice(1), {
+      cwd: opts.cwd,
+      env: opts.env ?? process.env,
+      shell: isWin && /\.(cmd|bat)$/i.test(exe),
+      windowsHide: true,
+      detached: !isWin,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+    child.stderr!.setEncoding("utf8").on("data", (d: string) => (stderr = (stderr + d).slice(-4000)))
+    const died = new Promise<never>((_, reject) => {
+      child!.once("error", error => reject(new Error(`cannot start ${command[0]}: ${error.message}`)))
+      child!.once("exit", code => reject(new Error(`agent process exited with code ${code}`)))
+    })
+    const timedOut = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`ACP ${opts.agent} option discovery timed out`)), (opts.timeoutSec ?? 20) * 1000)
+    })
+    const stream = acp.ndJsonStream(
+      Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>,
+      Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>,
+    )
+    const app = acp.client({ name: "web-workflow-kit" })
+    const work = app.connectWith(stream, async (ctx) => {
+      await ctx.request(acp.methods.agent.initialize, {
+        protocolVersion: acp.PROTOCOL_VERSION,
+        clientCapabilities: {
+          fs: { readTextFile: false, writeTextFile: false },
+          terminal: false,
+          session: { configOptions: { boolean: {} } },
+        },
+      })
+      return ctx.buildSession(resolve(opts.cwd)).withSession(async (session) => {
+        const options = await applySessionOptions(ctx, session, opts.model ?? null, null)
+        return normalizeAcpControls(preset, { ...(session.newSessionResponse as Record<string, any>), configOptions: options })
+      })
+    })
+    return await Promise.race([work, died, timedOut])
+  }
+  catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    const tail = stderr.trim() ? `\n[agent stderr]\n${stderr.trim().slice(-1200)}` : ""
+    throw new Error(`ACP ${opts.agent} 读取模型选项失败：${detail}${tail}`)
+  }
+  finally {
+    clearTimeout(timer)
+    if (child && child.exitCode === null)
+      killTree(child.pid)
+  }
+}
+
 export class ACPAgent implements Agent {
   readonly agent: string
   readonly command: string[] | null
   readonly model: string | null
+  readonly effort: string | null
   readonly mode: string | null
   readonly allowKinds: string[]
   readonly protectedPaths: string[]
   readonly timeout: number
   readonly env: NodeJS.ProcessEnv | undefined
 
-  constructor(opts: { agent?: string, command?: string[] | null, model?: string | null, mode?: string | null, allowKinds?: string[], protectedPaths?: string[], timeoutSec?: number, env?: NodeJS.ProcessEnv } = {}) {
+  constructor(opts: { agent?: string, command?: string[] | null, model?: string | null, effort?: string | null, mode?: string | null, allowKinds?: string[], protectedPaths?: string[], timeoutSec?: number, env?: NodeJS.ProcessEnv } = {}) {
     this.agent = opts.agent ?? "claude"
     this.command = opts.command ?? null
     this.model = opts.model ?? null
+    this.effort = opts.effort ?? null
     this.mode = opts.mode !== undefined ? opts.mode : DEFAULT_MODES[this.agent] ?? null
     this.allowKinds = opts.allowKinds ?? DEFAULT_ALLOW_KINDS
     this.protectedPaths = opts.protectedPaths ?? DEFAULT_PROTECTED
@@ -277,15 +463,18 @@ export class ACPAgent implements Agent {
       const work = app.connectWith(stream, async (ctx) => {
         const init = await ctx.request(acp.methods.agent.initialize, {
           protocolVersion: acp.PROTOCOL_VERSION,
-          clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+          clientCapabilities: {
+            fs: { readTextFile: false, writeTextFile: false },
+            terminal: false,
+            session: { configOptions: { boolean: {} } },
+          },
         })
         if (images.length && init.agentCapabilities?.promptCapabilities?.image !== true)
           throw new Error(`${IMAGE_UNSUPPORTED}: ${this.agent} 的 ACP 适配器没有声明支持图片输入`)
         return ctx.buildSession(resolve(cwd)).withSession(async (session) => {
           if (this.mode) // 设不上就报错：在默认模式下跑，保护路径可能拦不住
             await ctx.request(acp.methods.agent.session.setMode, { sessionId: session.sessionId, modeId: this.mode })
-          if (this.model) // 选模型是 ACP 的不稳定扩展（OpenCode 支持）；指定了却设不上就报错，不悄悄用默认模型
-            await ctx.request("session/set_model", { sessionId: session.sessionId, modelId: this.model })
+          await applySessionOptions(ctx, session, this.model, this.effort)
           const texts: string[] = []
           let toolCalls = 0
           const reading = (async () => {

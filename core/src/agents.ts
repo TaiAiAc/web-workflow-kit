@@ -1,6 +1,7 @@
 // 外部编程 agent 的统一接口：只关心 stop_reason，不解析自然语言。
 import { join } from "node:path"
 import { ACPAgent } from "./acp.ts"
+import { assertAgentOptions, agentKind, withWorkBuddyLaunchOptions } from "./agent-options.ts"
 import { type Agent, type AgentResult, END_TURN, ERROR, MAX_TOKENS, type Usage } from "./agent-result.ts"
 import { type Config, relativeTo, writeText } from "./config.ts"
 import { run, which } from "./proc.ts"
@@ -10,13 +11,15 @@ export { type Agent, type AgentResult, END_TURN, ERROR, MAX_TOKENS }
 /** `claude -p --output-format json`，prompt 走 stdin，避开命令行长度和转义问题。 */
 export class ClaudeCodeCLI implements Agent {
   readonly model: string | null
+  readonly effort: string | null
   readonly permissionMode: string | null
   readonly maxTurns: number | null
   readonly timeout: number
   readonly env: NodeJS.ProcessEnv | undefined
 
-  constructor(opts: { model?: string | null, permissionMode?: string | null, maxTurns?: number | null, timeoutSec?: number, env?: NodeJS.ProcessEnv } = {}) {
+  constructor(opts: { model?: string | null, effort?: string | null, permissionMode?: string | null, maxTurns?: number | null, timeoutSec?: number, env?: NodeJS.ProcessEnv } = {}) {
     this.model = opts.model ?? null
+    this.effort = opts.effort ?? null
     this.permissionMode = opts.permissionMode ?? null
     this.maxTurns = opts.maxTurns ?? null
     this.timeout = opts.timeoutSec ?? 1800
@@ -30,6 +33,8 @@ export class ClaudeCodeCLI implements Agent {
     const args = ["-p", "--output-format", "json"]
     if (this.model)
       args.push("--model", this.model)
+    if (this.effort)
+      args.push("--effort", this.effort)
     if (this.permissionMode)
       args.push("--permission-mode", this.permissionMode)
     if (this.maxTurns)
@@ -116,26 +121,40 @@ export function defaultFixChoice(cfg: Config): string {
 }
 
 /** 按选择构建“写代码”的 agent：预设（coding_agents.<key>）+ code 段的公共项（如超时）。 */
-export function buildCodingAgent(cfg: Config, choice?: string | null): Agent {
+export function buildCodingAgent(cfg: Config, choice?: string | null, options: { model?: string | null, effort?: string | null } = {}): Agent {
   const code = cfg.get("code")
   const key = choice || code.agent || "claude"
   const presets = codingAgentChoices(cfg)
   if (!(key in presets))
     throw new Error(`未知的编程 agent：${key}（可选：${Object.keys(presets).join(", ")}）`)
   const { agent: _ignored, ...common } = code
-  return buildAgent({ ...common, ...presets[key] }, cfg, "code-task")
+  return buildAgent({ ...common, ...presets[key], ...options }, cfg, "code-task")
 }
 
 export function buildAgent(section: Record<string, any>, cfg: Config, taskName: string): Agent {
   const backend = section.backend ?? "claude_cli"
+  const model = section.model || null
+  const effort = section.effort || null
+  assertAgentOptions(section, model, effort)
   // 预设可以带 env：只给这个 agent 进程加的环境变量（如关掉 CodeBuddy 的自动记忆，免得它往项目外写文件）
   const env = { ...cfg.childEnv(), ...(section.env ?? {}) }
   const timeoutSec = Number(section.timeout_sec ?? 1800)
   if (backend === "claude_cli")
-    return new ClaudeCodeCLI({ model: section.model, permissionMode: section.permission_mode, maxTurns: section.max_turns, timeoutSec, env })
+    return new ClaudeCodeCLI({ model, effort, permissionMode: section.permission_mode, maxTurns: section.max_turns, timeoutSec, env })
   if (backend === "dsh_cli" || backend === "command")
     return new CommandAgent(section.command, join(cfg.stateDir, `${taskName}.md`), timeoutSec, env)
-  if (backend === "acp")
-    return new ACPAgent({ agent: section.agent, command: section.command, model: section.model, allowKinds: section.allow_kinds, protectedPaths: section.protected, timeoutSec, env })
+  if (backend === "acp") {
+    const launchCommand = agentKind(section) === "workbuddy" ? withWorkBuddyLaunchOptions(section.command, model, effort) : section.command
+    return new ACPAgent({
+      agent: section.agent,
+      command: launchCommand,
+      model: agentKind(section) === "workbuddy" ? null : model,
+      effort: agentKind(section) === "workbuddy" ? null : effort,
+      allowKinds: section.allow_kinds,
+      protectedPaths: section.protected,
+      timeoutSec,
+      env,
+    })
+  }
   throw new Error(`unknown agent backend: ${backend}`)
 }

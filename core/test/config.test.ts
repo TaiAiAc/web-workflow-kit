@@ -11,7 +11,7 @@ import {
   userWorkflowFile, WORKFLOW_DEFAULTS, writeSnapshot,
 } from "../src/config.ts"
 import * as W from "../src/console/workspaces.ts"
-import { buildFixAgent } from "../src/deps.ts"
+import { buildFixAgent, defaultDeps } from "../src/deps.ts"
 import { tempDir } from "./helpers.ts"
 
 type Json = Record<string, any>
@@ -253,6 +253,17 @@ describe("agent", () => {
     assert.throws(() => buildCodingAgent(cfg, "cursor"), /未知的编程 agent/)
   })
 
+  it("按角色覆盖模型和思考强度：CLI 参数、WorkBuddy ACP 启动参数，dsh 直接拒绝", () => {
+    const cfg = loadConfig(tempDir())
+    const claude = buildCodingAgent(cfg, "claude", { model: "opus", effort: "high" }) as ClaudeCodeCLI
+    assert.deepEqual([claude.model, claude.effort], ["opus", "high"])
+    const wb = buildCodingAgent(cfg, "workbuddy", { model: "hy3", effort: "max" }) as ACPAgent
+    assert.match(wb.command!.join(" "), /--model hy3 --effort max/)
+    assert.deepEqual([wb.model, wb.effort], [null, null])
+    assert.throws(() => buildCodingAgent(cfg, "dsh", { model: "deepseek-chat" }), /不支持选择模型/)
+    assert.throws(() => buildCodingAgent(cfg, "opencode", { effort: "high" }), /只提供模型列表/)
+  })
+
   it("ACP 预设：codex 用内置适配器，opencode 用自带命令", () => {
     const cfg = loadConfig(tempDir())
     const codex = buildCodingAgent(cfg, "codex") as ACPAgent
@@ -278,6 +289,22 @@ describe("agent", () => {
     assert.ok(fix.taskFile.endsWith("fix-task.md"))
     assert.ok(buildFixAgent(cfg, "claude") instanceof ClaudeCodeCLI)
     assert.throws(() => buildFixAgent(cfg, "cursor"), /未知的修复 agent/)
+  })
+
+  it("每次运行按角色把 model / effort 传到对应 agent", () => {
+    const deps = defaultDeps(loadConfig(tempDir()), {
+      selections: {
+        coding: { agent: "claude", model: "opus", effort: "high" },
+        product: { agent: "claude", model: "sonnet", effort: "low" },
+        fix: { agent: "claude", model: "opus", effort: "max" },
+      },
+    })
+    const coder = deps.coder as ClaudeCodeCLI
+    const fixer = deps.fixer as ClaudeCodeCLI
+    const product = deps.roleAgent!("product").agent as ClaudeCodeCLI
+    assert.deepEqual([coder.model, coder.effort], ["opus", "high"])
+    assert.deepEqual([fixer.model, fixer.effort], ["opus", "max"])
+    assert.deepEqual([product.model, product.effort], ["sonnet", "low"])
   })
 
   it("命令行 agent：长 prompt 写进任务文件，命令行只传一句指令", async () => {

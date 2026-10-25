@@ -89,7 +89,7 @@
 | `label` | 全部 | 控制台下拉框里显示的名字 |
 | `backend` | 全部 | `claude_cli` / `acp` / `dsh_cli`（任意命令行 agent） |
 | `requires` | 全部 | 用来判断“本机是否已安装”的命令名 |
-| `model` / `max_turns` / `permission_mode` | `claude_cli` | 传给 `claude -p` 的模型、最大轮数、权限模式（默认 `acceptEdits`：允许改文件） |
+| `model` / `effort` / `max_turns` / `permission_mode` | `claude_cli` | 传给 `claude -p` 的模型、思考强度、最大轮数、权限模式（默认 `acceptEdits`：允许改文件） |
 | `agent` | `acp` | ACP agent 名称，`claude` / `codex` 时可省略 `command`，使用内置的适配器（默认经 npx 拉起；本机装了同名命令 `codex-acp` / `claude-agent-acp` 时直接用它） |
 | `command` | `acp`、`dsh_cli` | 启动命令；`dsh_cli` 中 `{prompt}` 会替换成“读取任务文件并执行”的一句话 |
 | `allow_kinds` | `acp` | 批准的操作类型，默认 `read` / `search` / `think` / `edit` |
@@ -109,6 +109,20 @@
 ```
 
 控制台的下拉框只列出包内默认的五个选项；项目里新增的 agent 用命令行 `--agent gemini`，或像上例那样设为 `code.agent` 默认使用。
+
+### 按角色设置模型与思考强度
+
+工作流的每个角色可以带 `model` / `effort` 默认值；控制台的角色弹窗会把这些选项保存成当前工作区的覆盖。字段名是 `<角色>_model` / `<角色>_effort`，角色包括 `product`、`tech`、`coding`、`fix`、`review`、`vision`、`arbiter`。
+
+| agent | 模型 | 思考强度 | 传法 |
+| --- | --- | --- | --- |
+| Claude Code | 支持 | 支持 | `claude --model … --effort …` |
+| Codex | 支持 | 支持 | 空会话的 ACP `configOptions`；用 `session/set_config_option` 切换 |
+| OpenCode | 支持 | 不支持 | ACP `session/set_model`；模型列表取自 `session/new` |
+| WorkBuddy（CodeBuddy） | 支持 | 支持 | `codebuddy --acp --model … --effort …` |
+| dsh / 普通命令行 | 不支持 | 不支持 | 没有对应开关 |
+
+控制台的 `GET /api/agent-options` 只为读取选项建立空会话，不发送 prompt。Codex / OpenCode 的动态选项来自适配器的 `session/new` 返回；Claude Code 和 WorkBuddy 使用本机 CLI 的固定参数能力。给不支持的 agent 设置选项会在保存偏好或开工时直接报错。
 
 ### review
 
@@ -168,7 +182,7 @@
 - `stages.gate.install_command`（默认 `"auto"`）：合并预演前在临时目录里装依赖的命令。`"auto"` 按锁文件选冻结安装（pnpm / npm ci / yarn / bun），写命令字符串则用它，`null` 跳过；
 - `documents.repo_dir`（默认 `docs/wwk`）：入库文档目录；
 - `stages.impl-review`（默认开，`max_rounds: 2`）：写完代码后由 tech 角色对照 03 核对实现，对不上交回编码，超过轮次算运行失败；依赖 tech-design 和 implement；
-- `roles.*` 是默认值：控制台里每个项目可以单独选（需求·复核·验收 = product，技术设计·核对 = tech，看图 = vision，只能 codex / claude，仲裁 = arbiter），命令行用 `--product-agent` / `--tech-agent` / `--vision-agent` / `--arbiter-agent`；
+- `roles.*` 是默认值：每个角色可以写 `agent`、`model`、`effort`（如 `{"agent":"codex","model":"deepseek-flash","effort":"high"}`）。控制台里每个项目可以单独覆盖（需求·复核·验收 = product，技术设计·核对 = tech，编程 = dev，修复 = fix，修复审阅 = review，看图 = vision，只能 codex / claude，仲裁 = arbiter）；换了 agent 后，不会把原 agent 的角色默认模型硬套到新 agent 上；
 - `vision`：看图（图片 + 文字输入）用的 codex。`backend` 默认 `codex_acp`（经 ACP 发图片，失败时退到 CLI），可改成 `codex_cli`；`model` 为空用 codex 的默认模型；`timeout_sec` 默认 300；`cli_command` 默认 `["codex"]`；ACP 适配器的命令取 `coding_agents.codex.command`；
 - 其他字段的含义见 [phase2-work-order.md](phase2-work-order.md) 第 3 节。
 

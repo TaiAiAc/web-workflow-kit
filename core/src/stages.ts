@@ -11,7 +11,7 @@ import { type Config, prompt, render, writeText } from "./config.ts"
 import { changedHunks } from "./diffs.ts"
 import { archiveDoc, type DocId, DOCS, docPath, type LintContext, lintDoc, type ParsedDoc, parseDoc } from "./docs.ts"
 import { slugify } from "./gitflow.ts"
-import type { Deps } from "./deps.ts"
+import type { AgentSelection, Deps } from "./deps.ts"
 import type { State, Update } from "./state.ts"
 import type { VisionInput, VisionResult } from "./vision.ts"
 import type { StageName } from "./workflow.ts"
@@ -25,12 +25,19 @@ export interface RoleAgent {
 }
 
 /** 文档阶段用的只读 agent：claude 不批准编辑，ACP 只放 read / search / think；命令行 agent 限不住，靠提交白名单兜底。 */
-export function buildRoleAgent(cfg: Config, role: string, override?: string | null): RoleAgent {
-  const key = override || cfg.workflow.raw.roles?.[role]?.agent
+export function buildRoleAgent(cfg: Config, role: string, override?: string | null, selected?: AgentSelection): RoleAgent {
+  const configured: Json = cfg.workflow.raw.roles?.[role] ?? {}
+  const key = override || selected?.agent || configured.agent
+  const agentChanged = Boolean((override || selected?.agent) && configured.agent && (override || selected?.agent) !== configured.agent)
   const preset = cfg.raw.coding_agents?.[key]
   if (!preset)
     throw new Error(`角色 ${role} 用的 agent「${key}」不在 coding_agents 里`)
-  const section: Json = { timeout_sec: cfg.get("code").timeout_sec, ...preset }
+  const section: Json = {
+    timeout_sec: cfg.get("code").timeout_sec,
+    ...preset,
+    ...(selected?.model || (!agentChanged && configured.model) ? { model: selected?.model || configured.model } : {}),
+    ...(selected?.effort || (!agentChanged && configured.effort) ? { effort: selected?.effort || configured.effort } : {}),
+  }
   if (section.backend === "acp")
     section.allow_kinds = ["read", "search", "think"]
   if ((section.backend ?? "claude_cli") === "claude_cli")
