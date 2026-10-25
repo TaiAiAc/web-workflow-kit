@@ -5,7 +5,7 @@ import { dirname, join } from "node:path"
 import type { Agent, AgentResult, Usage } from "./agent-result.ts"
 
 /** 打回来自哪里 */
-export type RejectBy = "lint" | "doc-review" | "arbiter" | "gate" | "acceptance" | "whitelist"
+export type RejectBy = "lint" | "doc-review" | "arbiter" | "impl-review" | "gate" | "acceptance" | "whitelist"
 
 export type MetricEvent =
   | { kind: "agent", at: string, stage: string, role: string, agent: string, round: number, ms: number, usage: Usage | null, stop_reason: string }

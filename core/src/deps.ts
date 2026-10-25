@@ -64,6 +64,53 @@ export function validatePlan(plan: unknown): Plan {
   return p
 }
 
+/** 运行输入 / 工作空间偏好里各角色的字段名 */
+export const ROLE_INPUTS = { product: "product_agent", tech: "tech_agent", vision: "vision_agent", arbiter: "arbiter_agent" } as const
+export type RoleOverrides = Partial<Record<keyof typeof ROLE_INPUTS, string | null>>
+export const ROLE_FIELDS = {
+  product: { agent: "product_agent", model: "product_model", effort: "product_effort" },
+  tech: { agent: "tech_agent", model: "tech_model", effort: "tech_effort" },
+  coding: { agent: "coding_agent", model: "coding_model", effort: "coding_effort" },
+  fix: { agent: "fix_agent", model: "fix_model", effort: "fix_effort" },
+  review: { agent: "review_backend", model: "review_model", effort: "review_effort" },
+  vision: { agent: "vision_agent", model: "vision_model", effort: "vision_effort" },
+  arbiter: { agent: "arbiter_agent", model: "arbiter_model", effort: "arbiter_effort" },
+} as const
+export type RoleName = keyof typeof ROLE_FIELDS
+export interface AgentSelection {
+  agent?: string | null
+  model?: string | null
+  effort?: string | null
+}
+export type RoleSelections = Partial<Record<RoleName, AgentSelection>>
+/** 从运行输入（或多份，前面的优先）里取各角色本次选的 agent */
+export function roleOverrides(...sources: Record<string, any>[]): RoleOverrides {
+  return Object.fromEntries(Object.entries(ROLE_INPUTS).map(([role, k]) => [role, sources.map(s => s?.[k]).find(Boolean) ?? null]))
+}
+
+/** 从运行输入 / 工作区偏好里取每个角色的 agent、模型和思考强度；空值代表继承。 */
+export function roleSelections(...sources: Record<string, any>[]): RoleSelections {
+  return Object.fromEntries(Object.entries(ROLE_FIELDS).flatMap(([role, fields]) => {
+    const selection = Object.fromEntries(Object.entries(fields).map(([kind, field]) => [
+      kind,
+      sources.map(source => source?.[field]).find(value => value !== undefined && value !== null && value !== "") ?? null,
+    ])) as AgentSelection
+    return Object.values(selection).some(Boolean) ? [[role, selection]] : []
+  }))
+}
+
+/** 工作流 roles 提供默认值，本次运行 / 工作区偏好覆盖它。 */
+export function roleSelection(cfg: Config, role: string, selected?: AgentSelection): AgentSelection {
+  const defaults: AgentSelection = cfg.workflow.raw.roles?.[role] ?? {}
+  const agentChanged = Boolean(selected?.agent && defaults.agent && selected.agent !== defaults.agent)
+  return {
+    agent: selected?.agent || defaults.agent || null,
+    // 角色默认值是给默认 agent 配的；换了 agent 后不能把不兼容的模型设置硬套过去。
+    model: selected?.model || (agentChanged ? null : defaults.model) || null,
+    effort: selected?.effort || (agentChanged ? null : defaults.effort) || null,
+  }
+}
+
 export interface DepsOptions {
   log?: (line: string) => void
   codingAgent?: string | null
@@ -71,39 +118,61 @@ export interface DepsOptions {
   fixAgent?: string | null
   commit?: Deps["commit"]
   metrics?: Metrics
+  /** 文档阶段各角色本次用的 agent，覆盖工作流配置的 roles */
+  roles?: RoleOverrides
+  /** 所有可配置角色的 agent + model + effort；空字段继承工作流 roles */
+  selections?: RoleSelections
 }
 
 export function defaultDeps(cfg: Config, opts: DepsOptions = {}): Deps {
   const log = opts.log ?? ((line: string) => console.log(line))
   // 写代码的 agent：本次运行选的 > 工作流配置里 dev 角色的 > agent.config.json 的 code.agent
-  const coder = opts.codingAgent || cfg.workflow.raw.roles?.dev?.agent || cfg.get("code").agent || "claude"
+  const coding = roleSelection(cfg, "dev", opts.selections?.coding ?? (opts.codingAgent ? { agent: opts.codingAgent } : undefined))
+  const coder = opts.codingAgent || coding.agent || cfg.get("code").agent || "claude"
+  const codingOptions = { model: coding.model, effort: coding.effort }
+  const fix = roleSelection(cfg, "fix", opts.selections?.fix ?? (opts.fixAgent ? { agent: opts.fixAgent } : undefined))
+  const fixKey = opts.fixAgent || fix.agent
+  const review = roleSelection(cfg, "review", opts.selections?.review ?? (opts.reviewBackend ? { agent: opts.reviewBackend } : undefined))
+  const visionSelected = opts.roles?.vision
+    ? { ...(opts.selections?.vision ?? {}), agent: opts.roles.vision }
+    : opts.selections?.vision
+  const vision = roleSelection(cfg, "vision", visionSelected)
   return {
     cfg,
     design: ref => loadDesign(ref, cfg),
     spec: specFn(cfg),
-    coder: buildCodingAgent(cfg, coder),
+    coder: buildCodingAgent(cfg, coder, codingOptions),
     gate: () => runGate(cfg, { log }),
-    reviewer: makeReviewer(cfg, opts.reviewBackend, validatePlan),
-    fixer: buildFixAgent(cfg, opts.fixAgent),
+    reviewer: makeReviewer(cfg, opts.reviewBackend, validatePlan, { model: review.model, effort: review.effort }),
+    fixer: buildFixAgent(cfg, fixKey, { model: fix.model, effort: fix.effort }),
     notifier: state => notifyBreaker(state, cfg),
     log,
     commit: opts.commit,
     metrics: opts.metrics,
-    agentNames: { coder, fixer: opts.fixAgent || "fix" },
-    roleAgent: role => buildRoleAgent(cfg, role),
-    vision: input => analyzeImages(cfg, input, { log }),
+    agentNames: { coder, fixer: fixKey || "fix" },
+    roleAgent: role => buildRoleAgent(cfg, role, opts.roles?.[role as keyof RoleOverrides], opts.selections?.[role as RoleName]),
+    vision: input => analyzeImages(cfg, input, {
+      log,
+      agent: opts.roles?.vision || vision.agent,
+      model: vision.model,
+      effort: vision.effort,
+    }),
   }
 }
 
 /** “修复”的 agent：不选用 fix 段本身（默认 dsh）；选了就用同名预设，超时仍取 fix 段。 */
-export function buildFixAgent(cfg: Config, choice?: string | null): Agent {
+export function buildFixAgent(cfg: Config, choice?: string | null, options: { model?: string | null, effort?: string | null } = {}): Agent {
   const fix = cfg.get("fix")
   if (!choice)
-    return buildAgent(fix, cfg, "fix-task")
+    return buildAgent({ ...fix, ...Object.fromEntries(Object.entries(options).filter(([, value]) => value)) }, cfg, "fix-task")
   const presets: Record<string, any> = cfg.raw.coding_agents ?? {}
   if (!(choice in presets))
     throw new Error(`未知的修复 agent：${choice}（可选：${Object.keys(presets).join(", ")}）`)
-  return buildAgent({ ...(fix.timeout_sec ? { timeout_sec: fix.timeout_sec } : {}), ...presets[choice] }, cfg, "fix-task")
+  return buildAgent({
+    ...(fix.timeout_sec ? { timeout_sec: fix.timeout_sec } : {}),
+    ...presets[choice],
+    ...Object.fromEntries(Object.entries(options).filter(([, value]) => value)),
+  }, cfg, "fix-task")
 }
 
 /** 服务端用：每次运行按输入里的 project_root 加载该项目的配置，不缓存。 */
@@ -111,7 +180,12 @@ export function depsFromState(state: Record<string, any>, log?: (line: string) =
   if (!state.project_root)
     throw new Error("input.project_root is required: the absolute path of the front-end project to work on")
   return defaultDeps(loadConfig(state.project_root), {
-    log, codingAgent: state.coding_agent, reviewBackend: state.review_backend, fixAgent: state.fix_agent,
+    log,
+    codingAgent: state.coding_agent,
+    reviewBackend: state.review_backend,
+    fixAgent: state.fix_agent,
+    roles: roleOverrides(state),
+    selections: roleSelections(state),
   })
 }
 

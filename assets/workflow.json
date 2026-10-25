@@ -1,11 +1,11 @@
 {
   "version": 2,
   "roles": {
-    "product": { "agent": "claude" },
-    "tech": { "agent": "codex" },
-    "dev": { "agent": "claude" },
-    "vision": { "agent": "codex" },
-    "arbiter": { "agent": "dsh" }
+    "product": { "agent": "claude", "model": null, "effort": null },
+    "tech": { "agent": "codex", "model": null, "effort": null },
+    "dev": { "agent": "claude", "model": null, "effort": null },
+    "vision": { "agent": "codex", "model": null, "effort": null },
+    "arbiter": { "agent": "dsh", "model": null, "effort": null }
   },
   "vision": { "backend": "codex_acp", "model": null, "timeout_sec": 300, "cli_command": ["codex"] },
   "stages": {
@@ -13,6 +13,7 @@
     "tech-design": { "order": 20, "role": "tech" },
     "doc-review": { "order": 30, "role": "product", "max_rounds": 2, "on_exceed": "arbiter" },
     "implement": { "order": 40, "role": "dev" },
+    "impl-review": { "order": 45, "role": "tech", "max_rounds": 2 },
     "gate": { "order": 50, "kind": "verify", "install_command": "auto" },
     "acceptance": { "order": 60, "role": "product", "max_rounds": 2 }
   },

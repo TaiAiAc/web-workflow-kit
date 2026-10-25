@@ -17,9 +17,34 @@ const read = async () => {
 let nextId = 1000
 let cwd = process.cwd()
 let model = "default"
+let effort = "default"
 let mode = "default"
 
 const outcomes = []
+const configOptions = () => [
+  {
+    id: "model",
+    name: "Model",
+    category: "model",
+    type: "select",
+    currentValue: model,
+    options: [
+      { value: "model-a", name: "Model A" },
+      { value: "model-b", name: "Model B" },
+    ],
+  },
+  {
+    id: "reasoning_effort",
+    name: "Reasoning effort",
+    category: "thought_level",
+    type: "select",
+    currentValue: effort,
+    options: [
+      { value: "low", name: "Low" },
+      { value: "high", name: "High" },
+    ],
+  },
+]
 async function askPermission(sessionId, path) {
   const id = ++nextId
   const full = { toolCallId: `t${id}`, title: `Edit ${path}`, kind: "edit", locations: [{ path }] }
@@ -46,10 +71,29 @@ for (;;) {
     send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: 1, agentCapabilities: {} } })
   } else if (msg.method === "session/new") {
     cwd = msg.params.cwd
-    send({ jsonrpc: "2.0", id: msg.id, result: { sessionId: "stub-1" } })
+    send({ jsonrpc: "2.0", id: msg.id, result: {
+      sessionId: "stub-1",
+      ...(process.env.STUB_CONFIG_OPTIONS ? {
+        configOptions: configOptions(),
+        models: {
+          currentModelId: model,
+          availableModels: [{ modelId: "model-a", name: "Model A" }, { modelId: "model-b", name: "Model B" }],
+        },
+      } : {}),
+    } })
   } else if (msg.method === "session/set_model") {
     model = msg.params.modelId
     send({ jsonrpc: "2.0", id: msg.id, result: {} })
+  } else if (msg.method === "session/set_config_option") {
+    if (msg.params.configId === "model")
+      model = msg.params.value
+    else if (msg.params.configId === "reasoning_effort")
+      effort = msg.params.value
+    else {
+      send({ jsonrpc: "2.0", id: msg.id, error: { code: -32602, message: "unknown config" } })
+      continue
+    }
+    send({ jsonrpc: "2.0", id: msg.id, result: { configOptions: configOptions() } })
   } else if (msg.method === "session/set_mode") {
     mode = msg.params.modeId
     send({ jsonrpc: "2.0", id: msg.id, result: {} })
@@ -73,7 +117,7 @@ for (;;) {
       } else denied.push(rel)
     }
     send({ jsonrpc: "2.0", method: "session/update", params: { sessionId: "stub-1", update: {
-      sessionUpdate: "agent_message_chunk", content: { type: "text", text: `wrote=${wrote} denied=${denied} model=${model} mode=${mode} outcomes=${outcomes}` },
+      sessionUpdate: "agent_message_chunk", content: { type: "text", text: `wrote=${wrote} denied=${denied} model=${model} effort=${effort} mode=${mode} outcomes=${outcomes}` },
     } } })
     send({ jsonrpc: "2.0", id: msg.id, result: { stopReason: process.env.STUB_STOP || "end_turn" } })
   } else if (msg.id !== undefined && msg.method) {

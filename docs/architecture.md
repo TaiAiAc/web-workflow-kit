@@ -39,6 +39,7 @@
 | 取材与需求 | 01 设计分析（纯文字由代码生成 / 图片由 vision / 设计稿由 product）+ 02 需求规格（product），校验后入库 |
 | 技术设计 | tech 读仓库写 03；被复核打回时带回应表重写 |
 | 文档复核 | product 复核 03 写 04；打回最多 `max_rounds` 轮，超了交 arbiter 仲裁 |
+| 实现核对 | tech 对照 03 和 02 的 AC 看本次改动，对不上把问题和改法交回编码，最多 `max_rounds` 轮 |
 | 编码 | 调用编码子图：有 02 / 03 时直接当 Spec 写代码（附 05 自测）；否则读取设计稿 → 生成Spec → 写代码 |
 | 产品验收 | product 读改动按 02 的 AC 逐条判断写 06；没过按 `return_stage` 回退重做，最多 `max_rounds` 轮 |
 | 门禁 | 运行门禁脚本，记录退出码和失败项；失败则失败轮数 +1 |
@@ -71,6 +72,7 @@
 | --- | --- |
 | `project_root` / `requirement` / `design_ref` | 输入 |
 | `coding_agent` / `review_backend` | 输入：本次运行选的编程 agent、审阅方式 |
+| `*_agent` / `*_model` / `*_effort` | 输入：各角色的 agent 及可选的模型、思考强度覆盖 |
 | `spec` / `baseline` | 生成的 Spec；编码前的工作区快照（只取本次改动块用） |
 | `verify_exit` / `failures` / `attempt` | 最近一次门禁的退出码、失败项、累计失败轮数 |
 | `plan` | 修复审阅的修复计划（含 `reviewer`：经由哪个后端） |
@@ -82,7 +84,7 @@
 节点不直接创建 agent，而是从 `source` 取依赖（[deps.ts](../core/src/deps.ts)）：
 
 - 命令行、交互模式和测试传一个固定的 `Deps`；
-- 控制台和 LangGraph Studio 传 `depsFromState`传一个函数，每次运行按输入里的 `project_root`、`coding_agent`、`review_backend` 现建依赖。所以一个服务能同时服务多个项目，改了项目配置下次运行就生效。
+- 控制台和 LangGraph Studio 传 `depsFromState` 函数，每次运行按输入里的 `project_root` 和各角色选择现建依赖。`agent-options.ts` 定义每种后端的模型/思考强度能力；ACP 运行时会从 `session/new` 的 `configOptions` 找实际可选项，再用 `session/set_config_option` 应用。所以一个服务能同时服务多个项目，改了项目配置下次运行就生效。
 
 测试用假 agent、假门禁整体替换 `Deps`。
 

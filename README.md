@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/brand/logo.png" width="112" alt="web-workflow-kit logo"></p>
+
 # web-workflow-kit
 
 本地前端交付流水线：把“提需求 → 取材 → 需求规格 → 技术设计 → 文档复核 → 写代码 → 门禁 ⇄ 修复 → 产品验收 → 合并”串成一条自动流程，覆盖 **Web 中后台、UniApp、微信/支付宝小程序、Electron 桌面端**。全程在作业分支上自动进行，**人只在最后的合并弹窗点一次**。
@@ -9,7 +11,7 @@
   └─ 拉作业分支 wwk/<时间>-<slug>
       取材与需求（01 设计分析 + 02 需求规格）
       → 技术设计（03）⇄ 文档复核（04，最多 2 轮，超了交仲裁）
-      → 写代码（按 02 + 03，附 05 自测）
+      → 写代码（按 02 + 03，附 05 自测）⇄ 实现核对（技术设计的 agent 对照 03 核对，最多 2 轮）
       → 门禁 ⇄ 修复审阅 → 修复（最多 limits.max_retries 轮）
       → 产品验收（06，没过按 return_stage 回退重做，最多 2 轮）
       → 切回原分支，在临时目录预演合并并复跑门禁 → 合并弹窗：合并 / 不合并 / 作废
@@ -107,7 +109,9 @@ wwk ui
 - 开工检查：不是 git 仓库、工作区有未提交改动、`.gitignore` 没忽略 `.agent/`、还有待处理的运行时不会开工，并直接列出问题（`.gitignore` 可一键修复）；
 - 合并弹窗：跑完自动弹出，列出本地分支（落后几个提交、上游领先 / 落后、冲突预检），默认上次选的目标；先在临时目录预演合并并跑门禁，通过才能点「合并」（squash）；也可以「不合并」（保留分支待处理）或「作废」。关掉后可以从运行记录或项目页的横幅重新打开；页面不在前台时发系统通知；
 - 「指标」：按 agent 汇总最近的运行：调用次数、平均耗时、token、产出被打回的次数和常见原因；
-- 编程 / 修复 / 审阅：点按钮选，每个项目记住自己的选择；本机没装的选项会划掉；
+- 每一步用哪个 agent、模型和思考强度都能选：需求框下方一排彩色标签——需求·复核·验收（同一个 agent 写需求、复核技术设计、做产品验收）、技术设计·核对（同一个 agent 写技术设计、核对实现）、编程、修复、修复审阅、看图（Codex 或 Claude Code）、仲裁；点任一个只改这一项。Claude Code 和 WorkBuddy 用 CLI 参数，Codex 从 ACP `session/new` 读取模型/强度并在会话内切换，OpenCode 只提供模型，dsh 及非 agent 审阅后端会明确标为不支持；每个项目记住自己的选择，不选就用工作流配置里的默认角色；
+- 进度条和日志的每一步都标出是哪个 agent 做的（门禁、合并预演标「门禁脚本（无模型）」）；
+- 预览：交付后在运行详情里点「预览」把项目跑起来——待合并的在临时目录里检出作业分支、装依赖后启动，已合并的直接在项目里启动；启动命令依次取 `agent.config.json` 的 `preview.command`、`package.json` 的 dev / start / serve / preview 脚本，都没有就问编程 agent；显示安装 / 启动 / 运行中（可点开地址）/ 已退出，附日志，随时可以停止（连同包管理器另起进程组的开发服务器一起结束）；
 - 流程进度条：按实际发生的顺序排出 Spec → 写代码 → 门禁 → 审阅 → 修复 → 门禁 #2 → 交付 / 熔断，每一步显示用了哪个 agent、耗时，失败的门禁直接标出哪几项没过，回环用 ⟳ 标出；
 - 门禁检查项：最近一次门禁的 typecheck / lint / test / build … 逐项 ✔ / ✘，以及已修复几轮；
 - 日志按步骤分组、可折叠，点进度条上的任一步只看那一步的日志；运行中自动跟随最新输出。
@@ -156,7 +160,7 @@ wwk --project /path/to/my-app
 | `--project <目录>` | 目标项目（默认当前目录） |
 | `--agent claude\|codex\|opencode\|workbuddy\|dsh` | 写代码用哪个 agent |
 | `--fix-agent <同上>` | 修复用哪个 agent（默认取配置 `fix`，即 dsh） |
-| `--review auto\|api\|dsh\|skip` | 修复审阅方式 |
+| `--review auto\|api\|dsh\|skip\|<编程 agent>` | 修复审阅方式；编程 agent 填预设名，如 `codex` |
 | `--config <文件>` | 额外的配置文件 |
 | `--json` | stdout 只输出结果 JSON，日志走 stderr（给脚本用） |
 | `--version` / `--help` | 版本 / 用法 |
@@ -175,7 +179,7 @@ wwk --project /path/to/my-app
 
 Codex 的 ACP 适配器默认每次经 npx 下载，网络不稳时会在开始写代码前就失败；先全局安装一次（`npm install -g @agentclientprotocol/codex-acp@1.13.0`），之后直接用本机的 `codex-acp`，不再访问 npm。
 
-经 ACP 的 Codex / OpenCode / WorkBuddy 受权限策略约束：改不了 `rules.yaml`、门禁文件和流水线配置，也写不到项目以外。ACP 预设可以用 `model` 指定模型（OpenCode 支持）。agent 一轮下来什么都没做（0 token、无输出，常见于 Key 失效或没登录）会按出错熔断，不会白白耗掉修复轮数。登录状态在设置页里看。
+经 ACP 的 Codex / OpenCode / WorkBuddy 受权限策略约束：改不了 `rules.yaml`、门禁文件和流水线配置，也写不到项目以外。每个角色都可以单独设 `model` 和 `effort`：Codex 通过 ACP 配置项同时切换模型与思考强度，OpenCode 只切模型，WorkBuddy 把两者作为 `codebuddy --acp` 的启动参数，Claude Code 用 `--model` / `--effort`，dsh 没有这两项能力。设置了 agent 不支持的选项会直接报错，不会悄悄退回默认值。agent 一轮下来什么都没做（0 token、无输出，常见于 Key 失效或没登录）会按出错熔断，不会白白耗掉修复轮数。登录状态在设置页里看。
 
 生成 Spec 不受这个选项影响，默认仍用 Claude Code（可改为 GPT，见 [docs/configuration.md](docs/configuration.md#spec)）。
 
@@ -188,6 +192,7 @@ Codex 的 ACP 适配器默认每次经 npx 下载，网络不稳时会在开始�
 | 自动（默认） | 配了 `DEEPSEEK_API_KEY` 用 API；没配但装了 dsh 就用 dsh；都没有就跳过 |
 | DeepSeek API | 直接调接口：天然只读，强制 JSON 输出 |
 | DeepSeek Harness | 用 dsh 审阅；审阅前后比对项目文件，顾问若改动了任何文件即判违规并熔断，列出被改文件交给人处理 |
+| Claude Code / Codex / OpenCode / WorkBuddy | 任一编程 agent 预设都能审阅：只读启动（Claude 不批准编辑，ACP 只放读、搜索、思考），同样比对审阅前后的项目文件；可以和写代码、修复的 agent 选不同的，三方异构 |
 | 跳过 | 不出计划，修复 agent 直接按失败码和出错位置修 |
 
 所以 **DeepSeek API Key 不是必需的**。无论哪种方式，顾问都没有放行权。

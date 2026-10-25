@@ -4,13 +4,17 @@ import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { createServer, request as httpRequest } from "node:http"
 import type { AddressInfo } from "node:net"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import process from "node:process"
 import { after, before, describe, it } from "node:test"
-import { type ConsoleServer, GATE_ONLY, startConsole } from "../src/console/server.ts"
+import { fileURLToPath } from "node:url"
+import { type ConsoleServer, GATE_ONLY, startConsole, stepAgents } from "../src/console/server.ts"
+import { loadConfig } from "../src/config.ts"
 import * as W from "../src/console/workspaces.ts"
 import * as N from "../src/names.ts"
 import { DOC_STAGES, tempDir } from "./helpers.ts"
+
+const STUB_ACP = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "stub-acp-agent.mjs")
 
 /** 门禁只有一项 typecheck，命令是一段 node 脚本。 */
 const rulesRunning = (code: string) =>
@@ -104,7 +108,14 @@ describe("控制台服务", () => {
     assert.deepEqual(body.agents.map((a: any) => a.key), ["claude", "codex", "opencode", "workbuddy", "dsh"])
     assert.equal(body.fix_default, "dsh")
     assert.ok(body.agents.every((a: any) => "available" in a && a.label))
-    assert.deepEqual(body.reviewers.map((r: any) => r.key), ["auto", "api", "dsh", "skip"])
+    const controls = Object.fromEntries(body.agents.map((a: any) => [a.key, a.controls]))
+    assert.deepEqual([controls.claude.model.supported, controls.claude.effort.supported], [true, true])
+    assert.deepEqual([controls.codex.model.supported, controls.codex.effort.supported], [true, true])
+    assert.deepEqual([controls.opencode.model.supported, controls.opencode.effort.supported], [true, false])
+    assert.deepEqual([controls.dsh.model.supported, controls.dsh.effort.supported], [false, false])
+    // 编程 agent 也都能当审阅（dsh 本来就是固定选项，不重复）
+    assert.deepEqual(body.reviewers.map((r: any) => r.key), ["auto", "api", "dsh", "claude", "codex", "opencode", "workbuddy", "skip"])
+    assert.ok(body.reviewers.find((r: any) => r.key === "codex").label)
     assert.match(body.reviewers[0].label, /当前会用/)
     let r = await request("POST", "/api/runs", { graph: N.PIPELINE_NAME, input: { project_root: tempDir(), requirement: "x", coding_agent: "cursor" } })
     assert.deepEqual([r.status, r.body.error], [400, "未知的编程 agent：cursor"])
@@ -112,6 +123,25 @@ describe("控制台服务", () => {
     assert.deepEqual([r.status, r.body.error], [400, "未知的修复 agent：cursor"])
     r = await request("POST", "/api/runs", { graph: N.FIX_LOOP_NAME, input: { project_root: tempDir(), review_backend: "gpt" } })
     assert.deepEqual([r.status, r.body.error], [400, "未知的审阅方式：gpt"])
+    // 文档阶段的角色也能选：需求 / 技术设计 / 仲裁任一编程预设，看图只能 codex / claude
+    assert.deepEqual(body.role_defaults, {
+      coding_agent: "claude",
+      fix_agent: "dsh",
+      review_backend: "auto",
+      product_agent: "claude",
+      tech_agent: "codex",
+      vision_agent: "codex",
+      arbiter_agent: "dsh",
+    })
+    assert.deepEqual(body.vision_agents.map((a: any) => a.key), ["claude", "codex"])
+    r = await request("POST", "/api/runs", { graph: N.FIX_LOOP_NAME, input: { project_root: tempDir(), product_agent: "cursor" } })
+    assert.deepEqual([r.status, r.body.error], [400, "未知的需求 agent：cursor"])
+    r = await request("POST", "/api/runs", { graph: N.FIX_LOOP_NAME, input: { project_root: tempDir(), vision_agent: "dsh" } })
+    assert.match(r.body.error, /看图只支持 codex \/ claude/)
+    r = await request("POST", "/api/runs", { graph: N.FIX_LOOP_NAME, input: { project_root: tempDir(), fix_agent: "dsh", fix_model: "deepseek-chat" } })
+    assert.match(r.body.error, /DeepSeek Harness.*不支持选择模型/)
+    r = await request("POST", "/api/runs", { graph: N.FIX_LOOP_NAME, input: { project_root: tempDir(), fix_agent: "opencode", fix_effort: "high" } })
+    assert.match(r.body.error, /OpenCode.*只提供模型列表/)
   })
 
   it("选文件夹与目录检查", async () => {
@@ -124,6 +154,26 @@ describe("控制台服务", () => {
     pick = null
     assert.equal((await request("POST", "/api/pick-folder", {})).body.path, null)
     assert.equal((await request("POST", "/api/pick-file", {})).body.path, "/tmp/design.json")
+  })
+
+  it("从 ACP session/new 读取角色可用模型，不发送 prompt", async () => {
+    const root = tempDir()
+    writeFileSync(join(root, "agent.config.json"), JSON.stringify({
+      coding_agents: {
+        stub: {
+          label: "Stub ACP",
+          backend: "acp",
+          agent: "stub",
+          command: [process.execPath, STUB_ACP],
+          env: { STUB_CONFIG_OPTIONS: "1" },
+        },
+      },
+    }))
+    await request("POST", "/api/workspaces/add", { path: root })
+    const r = await request("GET", `/api/agent-options?project=${encodeURIComponent(root)}&agent=stub&model=model-b`)
+    assert.equal(r.status, 200)
+    assert.deepEqual(r.body.controls.model.choices.map((o: any) => o.value), ["model-a", "model-b"])
+    assert.deepEqual(r.body.controls.effort.choices.map((o: any) => o.value), ["low", "high"])
   })
 
   it("生成配置：已有的不覆盖", async () => {
@@ -186,6 +236,10 @@ describe("控制台服务", () => {
     assert.deepEqual(r.body.prefs, { review_backend: "skip" }) // 空值 = 回到默认
     r = await request("POST", "/api/workspaces/prefs", { path: ws.path, prefs: { fix_agent: "cursor" } })
     assert.deepEqual([r.status, r.body.error], [400, "未知的修复 agent：cursor"])
+    r = await request("POST", "/api/workspaces/prefs", { path: ws.path, prefs: { coding_agent: "dsh", coding_model: "deepseek-chat" } })
+    assert.match(r.body.error, /DeepSeek Harness.*不支持选择模型/)
+    r = await request("POST", "/api/workspaces/prefs", { path: ws.path, prefs: { coding_agent: "opencode", coding_effort: "high" } })
+    assert.match(r.body.error, /OpenCode.*只提供模型列表/)
 
     assert.equal((await request("POST", "/api/open", { path: ws.path })).status, 200)
     assert.equal(opened.at(-1), ws.path)
@@ -266,6 +320,10 @@ describe("控制台服务", () => {
       ])
       assert.equal(run.result.status, "delivered")
       assert.ok("changed_files" in run.result)
+      // 计划事件带上每一步是谁做的，页面按它标注进度条和日志
+      const plan = run.events.find((e: any) => e.type === "plan")
+      assert.equal(plan.agents[N.WRITE_CODE], "DeepSeek Harness")
+      assert.equal(plan.agents[N.VERIFY], "门禁脚本（无模型）")
       // 跑完已切回 main，作业分支待合并，默认目标的预演已通过
       assert.equal(gitOut(root, "symbolic-ref", "--short", "HEAD"), "main")
       assert.equal(run.flow.status, "ready_to_merge")
@@ -313,6 +371,25 @@ describe("控制台服务", () => {
     assert.equal((await request("POST", "/api/runs", { graph: GATE_ONLY, input: { project_root: tempDir() } })).status, 201)
   })
 
+  it("每一步是谁做的：按工作流角色和本次的选择算，没有模型的步骤也写明", () => {
+    const cfg = loadConfig(tempDir())
+    const a = stepAgents(cfg, { coding_agent: "workbuddy", fix_agent: "dsh", review_backend: "codex" })
+    assert.equal(a[N.DISCOVERY], "Claude Code")
+    assert.equal(a[N.TECH_DESIGN], "Codex")
+    assert.equal(a[N.DOC_REVIEW], "Claude Code（仲裁：DeepSeek Harness）")
+    assert.equal(a[N.WRITE_CODE], cfg.raw.coding_agents.workbuddy.label)
+    assert.equal(a[N.ADVISE], "Codex")
+    assert.equal(a[N.FIX], "DeepSeek Harness")
+    assert.equal(a[N.ACCEPTANCE], "Claude Code")
+    assert.equal(a[N.VERIFY], "门禁脚本（无模型）")
+    assert.match(stepAgents(cfg, { images: ["/a.png"] })[N.DISCOVERY], /看图：Codex/)
+    assert.equal(stepAgents(cfg, { review_backend: "skip" })[N.ADVISE], "跳过审阅")
+    // 本次选的角色覆盖工作流配置
+    const o = stepAgents(cfg, { product_agent: "codex", tech_agent: "claude", arbiter_agent: "workbuddy" })
+    assert.deepEqual([o[N.DISCOVERY], o[N.TECH_DESIGN], o[N.ACCEPTANCE]], ["Codex", "Claude Code", "Codex"])
+    assert.equal(o[N.DOC_REVIEW], `Codex（仲裁：${cfg.raw.coding_agents.workbuddy.label}）`)
+  })
+
   it("三种输入：图片和设计稿二选一，图片要存在且是图片；图片选择器返回多个路径", async () => {
     const root = gitRepo({})
     const start = (input: Record<string, unknown>) => request("POST", "/api/runs", { graph: N.PIPELINE_NAME, input: { project_root: root, requirement: "x", ...input } })
@@ -322,6 +399,25 @@ describe("控制台服务", () => {
     assert.match((await start({ images: [join(root, "nope.png")] })).body.error, /图片不存在/)
     assert.match((await start({ images: [join(root, ".gitignore")] })).body.error, /只支持图片/)
     assert.deepEqual((await request("POST", "/api/pick-images", {})).body, { paths: ["/tmp/a.png", "/tmp/b.jpg"] })
+  })
+
+  it("预览接口：开始、看状态拿地址、停止", async () => {
+    // 服务代码在仓库里、dev 脚本不带引号：Windows 上 npm 用 cmd 跑脚本，带多段引号的命令它解析不了
+    const root = gitRepo({
+      "package.json": JSON.stringify({ name: "p", scripts: { dev: "node server.mjs" } }),
+      "server.mjs": "console.log('Local: http://localhost:5311/'); setInterval(() => {}, 1000)",
+    })
+    await request("POST", "/api/workspaces/add", { path: root })
+    const q = `/api/preview?project=${encodeURIComponent(root)}`
+    assert.equal((await request("GET", q)).body.preview, null)
+    assert.equal((await request("POST", "/api/preview/start", { project: root })).status, 202)
+    let p: any
+    for (let i = 0; i < 100 && p?.status !== "running"; i++) {
+      await new Promise(r => setTimeout(r, 100))
+      p = (await request("GET", q)).body.preview
+    }
+    assert.deepEqual([p.status, p.url], ["running", "http://localhost:5311/"])
+    assert.equal((await request("POST", "/api/preview/stop", { project: root })).body.preview.status, "stopped")
   })
 
   it("作业分支接口只认已加入的工作空间；没有记录的运行返回 404", async () => {

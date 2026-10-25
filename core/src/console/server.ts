@@ -14,19 +14,22 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net"
 import { dirname, extname, join } from "node:path"
 import { ASSET_EXTS } from "../docs.ts"
-import { visionPreflight } from "../vision.ts"
+import { VISION_AGENTS, visionPreflight } from "../vision.ts"
 import { agentAvailability, codingAgentChoices, defaultFixChoice } from "../agents.ts"
+import { assertAgentOptions, agentControls } from "../agent-options.ts"
+import { inspectACPOptions } from "../acp.ts"
 import { ASSETS_DIR, type Config, DEFAULTS, initProject, loadConfig, writeSnapshot } from "../config.ts"
-import { defaultDeps } from "../deps.ts"
+import { defaultDeps, ROLE_FIELDS, ROLE_INPUTS, roleOverrides, roleSelections } from "../deps.ts"
 import { type Flow, FlowError, fixGitignore, NeedsRehearsal, pendingRuns, preflight, readManifest, startRun } from "../gitflow.ts"
 import { buildMainGraph } from "../graph.ts"
 import { Metrics, metricsFile, summarize } from "../metrics.ts"
 import { stagePlan } from "../workflow.ts"
 import * as N from "../names.ts"
-import { availability as reviewAvailability, BACKENDS } from "../review.ts"
+import { availability as reviewAvailability, BACKENDS, resolveBackend } from "../review.ts"
 import type { State } from "../state.ts"
 import { openFolder, pickFile, pickFolder, pickImages } from "./pickers.ts"
 import * as FL from "./flow.ts"
+import * as PV from "./preview.ts"
 import { agentStatuses, describeSettings, launchLogin, openTerminal, saveSettings, testDeepseek, testNetwork } from "./settings.ts"
 import * as W from "./workspaces.ts"
 
@@ -67,26 +70,82 @@ export function describeAgents(): Json {
   const via: Record<string, string> = { claude_cli: "Claude Code CLI", acp: "ACP 协议", dsh_cli: "命令行" }
   const agents = Object.entries(codingAgentChoices(cfg)).map(([key, p]) => {
     const [available, detail] = agentAvailability(p, env)
-    return { key, label: p.label ?? key, available, detail, via: via[p.backend] ?? p.backend }
+    return { key, label: p.label ?? key, available, detail, via: via[p.backend] ?? p.backend, controls: agentControls(p) }
   })
+  const roles = cfg.workflow.raw.roles ?? {}
   return {
-    default: DEFAULTS.code?.agent ?? "claude",
+    default: roles.dev?.agent ?? DEFAULTS.code?.agent ?? "claude",
     agents,
     fix_default: defaultFixChoice(cfg),
     review_default: DEFAULTS.review?.backend ?? "auto",
     reviewers: reviewAvailability(cfg),
+    // 文档阶段各角色的默认 agent（工作流配置），看图只能选能看图的
+    role_defaults: {
+      coding_agent: roles.dev?.agent ?? DEFAULTS.code?.agent ?? "claude",
+      fix_agent: roles.fix?.agent ?? defaultFixChoice(cfg),
+      review_backend: roles.review?.agent ?? DEFAULTS.review?.backend ?? "auto",
+      ...Object.fromEntries(Object.entries(ROLE_INPUTS).map(([role, k]) => [k, roles[role]?.agent ?? ""])),
+    },
+    role_option_defaults: {
+      product_model: roles.product?.model ?? "",
+      product_effort: roles.product?.effort ?? "",
+      tech_model: roles.tech?.model ?? "",
+      tech_effort: roles.tech?.effort ?? "",
+      coding_model: roles.dev?.model ?? "",
+      coding_effort: roles.dev?.effort ?? "",
+      fix_model: roles.fix?.model ?? "",
+      fix_effort: roles.fix?.effort ?? "",
+      review_model: roles.review?.model ?? "",
+      review_effort: roles.review?.effort ?? "",
+      vision_model: roles.vision?.model ?? "",
+      vision_effort: roles.vision?.effort ?? "",
+      arbiter_model: roles.arbiter?.model ?? "",
+      arbiter_effort: roles.arbiter?.effort ?? "",
+    },
+    vision_agents: agents.filter(a => (VISION_AGENTS as readonly string[]).includes(a.key)),
   }
 }
 
 /** 编程 / 修复 agent、审阅方式只接受已知取值（运行输入和工作空间偏好共用）。 */
-export function checkChoices(values: Json): void {
-  const agents = DEFAULTS.coding_agents ?? {}
+export function checkChoices(values: Json, cfg: Config = loadConfig(undefined)): void {
+  const agents: Json = cfg.raw.coding_agents ?? {}
   for (const [field, what] of [["coding_agent", "编程"], ["fix_agent", "修复"]]) {
     if (values[field] && !(values[field] in agents))
       throw new Error(`未知的${what} agent：${values[field]}`)
   }
-  if (values.review_backend && !(values.review_backend in BACKENDS))
+  if (values.review_backend && !(values.review_backend in BACKENDS) && !(values.review_backend in agents)) // 编程 agent 也能只读审阅
     throw new Error(`未知的审阅方式：${values.review_backend}`)
+  for (const [field, what] of [["product_agent", "需求"], ["tech_agent", "技术设计"], ["vision_agent", "看图"], ["arbiter_agent", "仲裁"]]) {
+    if (values[field] && !(values[field] in agents))
+      throw new Error(`未知的${what} agent：${values[field]}`)
+  }
+  if (values.vision_agent && !(VISION_AGENTS as readonly string[]).includes(values.vision_agent))
+    throw new Error(`看图只支持 ${VISION_AGENTS.join(" / ")}：${values.vision_agent}`)
+
+  const roles: Json = cfg.workflow.raw.roles ?? {}
+  const agentFor = (role: keyof typeof ROLE_FIELDS): string | null => {
+    const fields = ROLE_FIELDS[role]
+    const selected = values[fields.agent]
+    if (selected)
+      return String(selected)
+    const workflowRole = role === "coding" ? "dev" : role
+    return roles[workflowRole]?.agent ?? null
+  }
+  for (const [role, fields] of Object.entries(ROLE_FIELDS)) {
+    const model = values[fields.model]
+    const effort = values[fields.effort]
+    if (!model && !effort)
+      continue
+    for (const [kind, value] of [["模型", model], ["思考强度", effort]]) {
+      if (value !== undefined && value !== null && typeof value !== "string")
+        throw new Error(`${fields.model} / ${fields.effort} 必须是非空字符串或空值：${kind}`)
+    }
+    const key = agentFor(role as keyof typeof ROLE_FIELDS)
+    const preset = key ? agents[key] : role === "fix" ? cfg.get("fix") : null
+    if (!preset)
+      throw new Error(`角色 ${role} 当前的 agent 不支持模型 / 思考强度，请先选择具体 agent`)
+    assertAgentOptions(preset, model ? String(model) : null, effort ? String(effort) : null)
+  }
 }
 
 class Run {
@@ -143,6 +202,8 @@ class Run {
       codingAgent: state.coding_agent || this.input.coding_agent,
       reviewBackend: state.review_backend || this.input.review_backend,
       fixAgent: state.fix_agent || this.input.fix_agent,
+      roles: roleOverrides(state, this.input),
+      selections: roleSelections(state, this.input),
       commit: flow ? (src, round, summary) => flow!.commit(src, round, summary) : undefined,
       metrics,
     })
@@ -164,7 +225,7 @@ class Run {
       const graph = buildMainGraph(source as never, GRAPHS[this.graph], { workflow: cfg.workflow })
       // 本次要走的步骤（按生效配置），页面据此画还没开始的步骤
       const steps = stagePlan(cfg.workflow, GRAPHS[this.graph]).map(p => (p.name === "implement" ? N.WRITE_CODE : p.node))
-      this.emit({ type: "plan", nodes: [...steps, N.DELIVER, ...(flow ? [N.REHEARSE] : [])] })
+      this.emit({ type: "plan", nodes: [...steps, N.DELIVER, ...(flow ? [N.REHEARSE] : [])], agents: stepAgents(cfg, this.input) })
       let final: Json = {}
       // subgraphs：编码、审阅修复里的子节点（Spec / 写代码 / 审阅 / 修复）也上报，页面按阶段展示
       const input = { ...this.input, ...(flow ? { docs_dir: flow.manifest.docs_dir } : {}) } // 文档放进作业分支对应的目录
@@ -242,6 +303,40 @@ class Run {
   }
 }
 
+/** 每一步是谁做的（显示名），页面的进度条和日志分组都标出来；没有模型参与的步骤也写明 */
+export function stepAgents(cfg: Config, input: Json): Record<string, string> {
+  const presets: Json = cfg.raw.coding_agents ?? {}
+  const label = (key: string | undefined) => (key ? presets[key]?.label ?? key : "")
+  const roles: Json = cfg.workflow.raw.roles ?? {}
+  const product = label(input.product_agent || roles.product?.agent)
+  const coder = label(input.coding_agent || roles.dev?.agent || cfg.get("code").agent)
+  const fixKey = input.fix_agent || defaultFixChoice(cfg)
+  let reviewer: string
+  try {
+    const [backend] = resolveBackend(cfg, input.review_backend)
+    reviewer = backend in BACKENDS ? BACKENDS[backend] : label(backend)
+  }
+  catch {
+    reviewer = String(input.review_backend ?? "")
+  }
+  const scfg = cfg.get("spec")
+  const script = "门禁脚本（无模型）"
+  return {
+    [N.DISCOVERY]: input.images?.length ? `${product}（看图：${label(input.vision_agent || roles.vision?.agent)}）` : product,
+    [N.TECH_DESIGN]: label(input.tech_agent || roles.tech?.agent),
+    [N.DOC_REVIEW]: `${product}（仲裁：${label(input.arbiter_agent || roles.arbiter?.agent)}）`, // 超过复核轮次才交给仲裁
+    [N.DESIGN]: input.design_ref === "mastergo" ? "MasterGo（无模型）" : "读取文件（无模型）",
+    [N.SPEC]: scfg.backend === "openai_compatible" ? `GPT 兼容接口${scfg.model ? `（${scfg.model}）` : ""}` : "Claude Code",
+    [N.WRITE_CODE]: coder,
+    [N.IMPL_REVIEW]: label(input.tech_agent || roles.tech?.agent),
+    [N.VERIFY]: script,
+    [N.ADVISE]: reviewer,
+    [N.FIX]: fixKey ? label(fixKey) : "fix 段配置",
+    [N.ACCEPTANCE]: product,
+    [N.REHEARSE]: script,
+  }
+}
+
 /** 三种输入（纯文字 / 图片 + 文字 / MasterGo）二选一地带素材；图片模式要求 codex 可用（B 模式开工预检） */
 function checkInputs(cfg: Config, payload: Json): void {
   const images: unknown = payload.images
@@ -258,7 +353,7 @@ function checkInputs(cfg: Config, payload: Json): void {
       throw new Error(`只支持图片（${ASSET_EXTS.join(" ")}）：${p}`)
   }
   if (images.length) {
-    const [ok, why] = visionPreflight(cfg)
+    const [ok, why] = visionPreflight(cfg, typeof payload.vision_agent === "string" ? payload.vision_agent : null)
     if (!ok)
       throw new Error(`图片输入需要 Codex：${why}`)
   }
@@ -333,7 +428,8 @@ export interface ConsoleServer {
 const POST_ROUTES = new Set(["/api/runs", "/api/pick-folder", "/api/pick-file", "/api/pick-images", "/api/init", "/api/open",
   "/api/workspaces/add", "/api/workspaces/remove", "/api/workspaces/prefs",
   "/api/settings", "/api/settings/test", "/api/auth/login", "/api/workspaces/fix-gitignore",
-  "/api/flow/rehearse", "/api/flow/merge", "/api/flow/hold", "/api/flow/discard", "/api/flow/abandon"])
+  "/api/flow/rehearse", "/api/flow/merge", "/api/flow/hold", "/api/flow/discard", "/api/flow/abandon",
+  "/api/preview/start", "/api/preview/stop"])
 
 /** 设置页按项目读写时，只认已加入的工作空间。 */
 function workspaceOrNull(project: unknown): string | null {
@@ -418,6 +514,34 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
     const project = url.searchParams.get("project") ?? ""
     if (url.pathname === "/api/agents")
       return describeAgents()
+    if (url.pathname === "/api/agent-options") {
+      const root = workspaceOrNull(url.searchParams.get("project"))
+      if (!root)
+        throw new HttpError(400, "读取模型选项需要先选择工作空间")
+      const cfg = loadConfig(root)
+      const key = String(url.searchParams.get("agent") ?? "")
+      const preset: Json | undefined = cfg.raw.coding_agents?.[key]
+      if (!preset)
+        throw new HttpError(400, `未知的 agent：${key || "（空）"}`)
+      const controls = agentControls(preset)
+      if (controls.model.source !== "session" && controls.effort.source !== "session")
+        return { agent: key, controls }
+      try {
+        return {
+          agent: key,
+          controls: await inspectACPOptions({
+            agent: String(preset.agent ?? key),
+            command: preset.command ?? null,
+            model: url.searchParams.get("model") || null,
+            cwd: root,
+            env: { ...cfg.childEnv(), ...(preset.env ?? {}) },
+          }),
+        }
+      }
+      catch (error) {
+        throw new HttpError(400, (error as Error).message)
+      }
+    }
     if (url.pathname === "/api/inspect")
       return inspectFolder(url.searchParams.get("path") ?? "")
     if (url.pathname === "/api/workspaces")
@@ -428,6 +552,8 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
       return agentStatuses(workspaceOrNull(project))
     if (url.pathname === "/api/runs")
       return project ? store.forProject(project) : [...store.runs.values()].sort((a, b) => b.started - a.started).map(r => r.brief())
+    if (url.pathname === "/api/preview") // 项目当前的预览（没有就是 null）
+      return { preview: PV.getPreview(flowConfig(project).projectRoot) }
     if (url.pathname === "/api/metrics") // 按 agent 汇总最近的运行：调用、耗时、token、被打回的次数和原因
       return summarize(flowConfig(project).stateDir, { runs: Number(url.searchParams.get("runs") ?? 50) || 50 })
     if (url.pathname === "/api/flow") {
@@ -483,6 +609,13 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
         throw e instanceof HttpError ? e : new HttpError(400, (e as Error).message)
       }
     }
+    if (path === "/api/preview/start" || path === "/api/preview/stop") {
+      const cfg = flowConfig(body.project)
+      if (path === "/api/preview/stop")
+        return [200, { preview: PV.stopPreview(cfg.projectRoot) }]
+      // 判断不了怎么启动时，问这个项目选的编程 agent
+      return [202, { preview: PV.startPreview(cfg, body.run ? String(body.run) : null, { agent: W.find(cfg.projectRoot)?.prefs?.coding_agent }) }]
+    }
     if (path.startsWith("/api/flow/")) {
       const cfg = flowConfig(body.project)
       const runId = String(body.run ?? "")
@@ -531,7 +664,7 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
       }
       if (path === "/api/workspaces/prefs") {
         const prefs = body.prefs ?? {}
-        checkChoices(prefs)
+        checkChoices({ ...(ws.prefs ?? {}), ...prefs }, loadConfig(ws.path))
         return [200, describeWorkspace(W.setPrefs(target, prefs), store)]
       }
       opener(ws.path)
@@ -571,7 +704,8 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
       throw new HttpError(400, `未知的图：${graph}`)
     const payload = Object.fromEntries(Object.entries(body.input ?? {}).filter(([, v]) => v !== null && v !== ""))
     try {
-      checkChoices(payload)
+      const root = String(payload.project_root ?? "")
+      checkChoices(payload, existsSync(root) && statSync(root).isDirectory() ? loadConfig(root) : loadConfig(undefined))
       return [201, { id: store.start(graph, payload).id }]
     }
     catch (e) {
@@ -616,6 +750,9 @@ export async function startConsole(opts: ConsoleOptions = {}): Promise<ConsoleSe
   return {
     server, token, store,
     url: `http://127.0.0.1:${port}/`,
-    close: () => new Promise(r => server.close(() => r())),
+    close: () => {
+      PV.stopAllPreviews() // 预览的开发服务器是控制台拉起的，一起结束
+      return new Promise(r => server.close(() => r()))
+    },
   }
 }

@@ -66,10 +66,10 @@ cd verify && pnpm typecheck && pnpm test
 | `verify/test/visual.test.ts` | 视觉验收：用本机 Edge / Chrome 代替 Electron 走真实的 DevTools 协议；找不到浏览器时跳过，可用 `CHROME_PATH` 指定 |
 | `core/test/pipeline.test.ts` | 主图路由、修复上限、顾问无放行权、断点恢复、改动块提取（假 agent、假门禁） |
 | `core/test/review.test.ts` | 审阅后端选择、dsh 输出解析、只读违规检测 |
-| `core/test/acp.test.ts` | ACP 权限策略、stop_reason 映射、空回合判错（连 `test/fixtures/stub-acp-agent.mjs`） |
+| `core/test/acp.test.ts` | ACP 权限策略、stop_reason 映射、空回合判错、`configOptions` 模型/强度切换与无 prompt 选项读取（连 `test/fixtures/stub-acp-agent.mjs`） |
 | `core/test/design.test.ts` | 设计稿：本地 json、MasterGo（连 `test/fixtures/stub-mastergo-mcp.mjs`） |
 | `core/test/config.test.ts` | 配置深合并、`.env` 优先级；各 agent 的构建与可用性 |
-| `core/test/console.test.ts` | 本地控制台：令牌、Host 校验、生成配置、工作空间、真实运行与进度、运行记录落盘 |
+| `core/test/console.test.ts` | 本地控制台：令牌、Host 校验、agent 能力与角色模型选项、生成配置、工作空间、真实运行与进度、运行记录落盘 |
 | `core/test/settings.test.ts` | 设置页：`.env` 读写与打码、agent 登录状态、终端登录命令、连通性探测 |
 | `core/test/cli.test.ts` | 命令行：`--version` / `--help`、退出码、交互模式 |
 
@@ -81,7 +81,7 @@ node .fx-stage/run-all.mjs
 
 只跑部分场景加 `--only 02,16`，看失败时的完整输出加 `--verbose`。场景素材由 `.fx-stage/tools/gen-scenarios.mjs` 生成，改期望要改生成器再重跑它，不要手改 `expected.json`。跑完后 `16-fixloop-pass/public/index.html` 会被删掉，用 `git checkout -- .fx-stage` 还原。
 
-`core/test/fixtures/stub-acp-agent.mjs` 是一个不调模型的 ACP 桩：按环境变量申请写文件权限，获批才写，用来验证权限策略和 stop_reason 映射。
+`core/test/fixtures/stub-acp-agent.mjs` 是一个不调模型的 ACP 桩：按环境变量申请写文件权限，获批才写；`STUB_CONFIG_OPTIONS=1` 时会像 Codex 一样在 `session/new` 返回模型和思考强度选项，用来验证权限、stop_reason 和会话内配置切换。
 
 ## 打包与安装
 

@@ -590,8 +590,8 @@ export function installCommandFor(root: string): string[] | null {
   return ["npm", "install"]
 }
 
-/** 装依赖；失败返回原因，成功或跳过返回 null。 */
-async function installDeps(wt: string, opts: RehearseOptions, log: (line: string) => void): Promise<string | null> {
+/** 装依赖（合并预演、预览都用）；失败返回原因，成功或跳过返回 null。 */
+export async function installDeps(wt: string, opts: Pick<RehearseOptions, "installCommand" | "env" | "timeoutMs">, log: (line: string) => void): Promise<string | null> {
   const setting = opts.installCommand === undefined ? "auto" : opts.installCommand
   if (setting === null)
     return null
@@ -610,7 +610,7 @@ async function installDeps(wt: string, opts: RehearseOptions, log: (line: string
     // Windows：cmd /s /c "<命令>" 会剥掉最外层引号再原样执行，所以参数不能再经 Node 转义
     ;[cmd, args] = process.platform === "win32" ? ["cmd", ["/d", "/s", "/c", `"${setting}"`]] : ["sh", ["-c", setting]]
   }
-  log(`[合并预演] 安装依赖：${setting === "auto" ? installCommandFor(wt)!.join(" ") : setting}`)
+  log(`[安装依赖] ${setting === "auto" ? installCommandFor(wt)!.join(" ") : setting}`)
   const tail: string[] = []
   const r = await run(cmd, args, {
     cwd: wt,

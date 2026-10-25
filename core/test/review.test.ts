@@ -9,7 +9,7 @@ import { beforeEach, describe, it } from "node:test"
 import { loadConfig } from "../src/config.ts"
 import { defaultDeps, depsFromState } from "../src/deps.ts"
 import { LLMError } from "../src/llm.ts"
-import { extractPlan, resolveBackend } from "../src/review.ts"
+import { availability, extractPlan, makeReviewer, resolveBackend } from "../src/review.ts"
 import { tempDir } from "./helpers.ts"
 
 const PAYLOAD = { failures: [{ code: "TYPECHECK_FAIL", check: "typecheck", message: "x", locations: ["src/a.ts:1"] }], diff_hunks: [] }
@@ -41,6 +41,37 @@ function withEnv<T>(vars: Record<string, string | undefined>, fn: () => T): T {
     throw e
   }
 }
+
+describe("编程 agent 当审阅", () => {
+  const validate = (p: unknown) => p as Record<string, any>
+  /** 把一个编程预设换成假 agent：命令行 agent 跑 FAKE_DSH 脚本 */
+  function withAgent(root: string) {
+    const script = join(root, "fake-agent.mjs")
+    writeFileSync(script, FAKE_DSH)
+    const cfg = loadConfig(root)
+    cfg.raw.coding_agents.codex = { label: "Codex", backend: "command", command: [process.execPath, script, "{prompt}"], requires: process.execPath }
+    return cfg
+  }
+
+  it("预设都列为审阅选项，可以手动指定；没装的标不可用", () => {
+    const cfg = loadConfig(tempDir())
+    cfg.raw.coding_agents.opencode.requires = "definitely-not-installed-opencode"
+    const keys = availability(cfg).map(r => r.key)
+    assert.deepEqual(keys, ["auto", "api", "dsh", "claude", "codex", "opencode", "workbuddy", "skip"])
+    assert.equal(availability(cfg).find(r => r.key === "opencode")!.available, false)
+    assert.deepEqual(resolveBackend(cfg, "codex"), ["codex", "手动指定"])
+  })
+
+  it("从回复里取计划；审阅时改了文件就判违规", async () => {
+    const root = tempDir()
+    const cfg = withAgent(root)
+    const plan = await makeReviewer(cfg, "codex", validate)(PAYLOAD)
+    assert.deepEqual([plan.verdict, plan.reviewer, plan.fixes[0].file], ["fixable", "codex", "src/a.ts"])
+    const bad = await withEnv({ FAKE_DSH_WRITE: join(root, "src.txt") }, () => makeReviewer(cfg, "codex", validate)(PAYLOAD))
+    assert.equal(bad.verdict, "needs_human")
+    assert.match(bad.summary, /修复审阅（codex）违规改动了文件：src\.txt/)
+  })
+})
 
 describe("选择审阅后端", () => {
   it("auto：有 Key 用 API，否则有 dsh 用 dsh，否则跳过", () => {

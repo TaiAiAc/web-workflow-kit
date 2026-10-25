@@ -4,12 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>前端交付流水线</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"%3E%3Cdefs%3E%3ClinearGradient id="bg" x1="0" y1="0" x2="1" y2="1"%3E%3Cstop offset="0" stop-color="#3b7bff"/%3E%3Cstop offset="1" stop-color="#7046d6"/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x="2" y="2" width="60" height="60" rx="15" fill="url(#bg)"/%3E%3Cpolyline points="15,34 27,46 50,21" fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/%3E%3Ccircle cx="15" cy="34" r="6" fill="#ffffff"/%3E%3Ccircle cx="27" cy="46" r="6" fill="#ffffff"/%3E%3Ccircle cx="50" cy="21" r="6" fill="#ffffff"/%3E%3C/svg%3E">
 <style>
 :root {
   --bg: #f5f6f8; --side: #eceef2; --panel: #ffffff; --panel-2: #f3f4f7; --hover: rgba(20, 30, 50, .06); --sel: rgba(47, 111, 237, .12);
   --line: #e1e4ea; --line-2: #cdd2da; --text: #1c2330; --muted: #5d6676; --faint: #8a93a3;
   --accent: #2f6fed; --accent-soft: #e8efff; --on-accent: #fff;
   --ok: #1a8a4f; --ok-soft: #e4f5ec; --bad: #cc3340; --bad-soft: #fdebed; --warn: #b76e00; --warn-soft: #fff3df;
+  --purple: #7046d6; --teal: #0d7f86; --pink: #c0306b; --slate: #5d6676;
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
   --r: 7px;
@@ -20,7 +22,7 @@
     --bg: #15181e; --side: #1b1f27; --panel: #1d222b; --panel-2: #232934; --hover: rgba(255, 255, 255, .06); --sel: rgba(109, 155, 255, .18);
     --line: #2a303c; --line-2: #3a4252; --text: #e6e9ef; --muted: #a0a9b8; --faint: #747e8f;
     --accent: #6d9bff; --accent-soft: #1d2a45; --on-accent: #0b1220;
-    --ok: #4cc38a; --ok-soft: #14291f; --bad: #ff6b76; --bad-soft: #33181c; --warn: #f0a947; --warn-soft: #2e2311;
+    --ok: #4cc38a; --ok-soft: #14291f; --bad: #ff6b76; --bad-soft: #33181c; --warn: #f0a947; --warn-soft: #2e2311; --purple: #b49bff; --teal: #4fcfd6; --pink: #f285b0; --slate: #a0a9b8;
     color-scheme: dark;
   }
 }
@@ -28,7 +30,7 @@
   --bg: #15181e; --side: #1b1f27; --panel: #1d222b; --panel-2: #232934; --hover: rgba(255, 255, 255, .06); --sel: rgba(109, 155, 255, .18);
   --line: #2a303c; --line-2: #3a4252; --text: #e6e9ef; --muted: #a0a9b8; --faint: #747e8f;
   --accent: #6d9bff; --accent-soft: #1d2a45; --on-accent: #0b1220;
-  --ok: #4cc38a; --ok-soft: #14291f; --bad: #ff6b76; --bad-soft: #33181c; --warn: #f0a947; --warn-soft: #2e2311;
+  --ok: #4cc38a; --ok-soft: #14291f; --bad: #ff6b76; --bad-soft: #33181c; --warn: #f0a947; --warn-soft: #2e2311; --purple: #b49bff; --teal: #4fcfd6; --pink: #f285b0; --slate: #a0a9b8;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -41,7 +43,9 @@ svg.i { width: 15px; height: 15px; flex: none; fill: none; stroke: currentColor;
 /* ---------- 外框 ---------- */
 .app { display: grid; grid-template-columns: 248px minmax(0, 1fr); height: 100vh; }
 .side { background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
-.side-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 12px 8px 16px; }
+.brand { display: flex; align-items: center; gap: 9px; padding: 14px 16px 4px; font-weight: 700; font-size: 13.5px; letter-spacing: .01em; }
+.brand svg { flex: none; filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .15)); }
+.side-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 8px 16px; }
 .side-head h1 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 0; letter-spacing: .02em; }
 .ws-list { list-style: none; margin: 0; padding: 0 8px; overflow-y: auto; flex: 1; }
 .ws { position: relative; display: flex; gap: 9px; align-items: flex-start; padding: 8px 8px 8px 10px; border-radius: var(--r); cursor: pointer; }
@@ -97,8 +101,48 @@ kbd { font: 11px var(--mono); color: inherit; opacity: .75; }
 .recent { display: flex; gap: 6px; padding: 0 14px 8px; flex-wrap: wrap; }
 .recent button { border: 1px dashed var(--line-2); background: none; color: var(--muted); border-radius: 12px; padding: 1px 9px; font-size: 12px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .recent button:hover { color: var(--text); border-color: var(--muted); }
-.choices { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); }
+.choices { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); }
 .choice { display: flex; align-items: center; gap: 8px; }
+/* 编程 / 修复 / 审阅：主界面只用三个彩色标签显示当前选择，点开弹窗再选 */
+.role-tag { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid transparent; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.role-tag .k { opacity: .75; }
+.role-tag b { font-weight: 600; }
+.role-tag b small { font-size: 10.5px; font-weight: 500; opacity: .82; }
+.role-tag:hover { border-color: currentColor; }
+.role-tag { --role: var(--accent); background: color-mix(in srgb, var(--role) 13%, transparent); color: var(--role); }
+.role-tag.product { --role: var(--purple); }
+.role-tag.tech { --role: var(--teal); }
+.role-tag.code { --role: var(--accent); }
+.role-tag.fix { --role: var(--warn); }
+.role-tag.review { --role: var(--ok); }
+.role-tag.vision { --role: var(--pink); }
+.role-tag.arbiter { --role: var(--slate); }
+.role-tag.na b { text-decoration: line-through; }
+/* 预览：把交付的代码跑起来 */
+.pvcard { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); display: flex; flex-direction: column; gap: 8px; }
+.pvcard .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pvcard .grow { flex: 1; min-width: 160px; color: var(--muted); font-size: 12.5px; }
+.pvcard .cmd { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.pvcard a.url { font-family: var(--mono); font-size: 12.5px; color: var(--accent); }
+.pvcard pre { margin: 0; max-height: 180px; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 11.5px var(--mono); color: var(--muted); background: var(--panel-2); border-radius: 6px; padding: 6px 8px; }
+.pvcard .err { color: var(--bad); font-size: 12.5px; white-space: pre-wrap; }
+dialog.merge.picker-dlg { width: min(720px, calc(100vw - 32px)); }
+.picker { display: flex; flex-direction: column; gap: 14px; }
+.picker .choice { flex-direction: column; align-items: flex-start; gap: 6px; }
+.picker .choice > span { font-weight: 600; font-size: 12px; color: var(--muted); }
+.picker .seg { flex-wrap: wrap; }
+.picker .why { color: var(--faint); font-size: 11.5px; }
+.agent-options { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.agent-option { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 8px; align-items: center; }
+.agent-option > span { color: var(--muted); font-size: 12px; font-weight: 600; }
+.agent-option select { width: 100%; min-height: 34px; padding: 0 34px 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; }
+.agent-option select:disabled { opacity: .55; cursor: not-allowed; }
+.agent-option .why { grid-column: 2; margin-top: -4px; }
+.agent-options .loading-line { color: var(--faint); font-size: 12px; }
+.picker .choice.busy .seg button { pointer-events: none; }
+.picker .choice.loading .seg { opacity: .6; }
+.picker .choice.loading > span::after { content: ""; display: inline-block; width: 10px; height: 10px; margin-left: 6px; vertical-align: -1px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: rot .8s linear infinite; }
+.picker .why span[title] { text-decoration: underline dotted; text-underline-offset: 2px; cursor: help; }
 .choice > span { color: var(--faint); font-size: 12px; }
 .seg { display: inline-flex; background: var(--panel-2); border-radius: var(--r); padding: 2px; gap: 2px; }
 .seg button { border: 0; background: none; color: var(--muted); padding: 3px 9px; border-radius: 5px; font-size: 12px; white-space: nowrap; }
@@ -275,6 +319,7 @@ dialog.merge.wide { width: min(980px, calc(100vw - 32px)); }
 <body>
 <div class="app">
   <nav class="side" aria-label="工作空间">
+    <div class="brand"><svg width="26" height="26" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><defs><linearGradient id="sbbg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b7bff"/><stop offset="1" stop-color="#7046d6"/></linearGradient><linearGradient id="sbshine" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".18"/><stop offset=".5" stop-color="#ffffff" stop-opacity="0"/></linearGradient></defs><rect x="32" y="32" width="960" height="960" rx="224" fill="url(#sbbg)"/><rect x="32" y="32" width="960" height="960" rx="224" fill="url(#sbshine)"/><polyline points="232,540 420,724 796,332" fill="none" stroke="#ffffff" stroke-width="84" stroke-linecap="round" stroke-linejoin="round"/><circle cx="232" cy="540" r="76" fill="#ffffff"/><circle cx="232" cy="540" r="34" fill="#3b7bff"/><circle cx="420" cy="724" r="76" fill="#ffffff"/><circle cx="420" cy="724" r="34" fill="#5a5fe8"/><circle cx="796" cy="332" r="76" fill="#ffffff"/><circle cx="796" cy="332" r="34" fill="#7046d6"/></svg><span>前端交付流水线</span></div>
     <div class="side-head">
       <h1>工作空间</h1>
       <button class="btn icon ghost" id="add-ws" type="button" title="添加项目" aria-label="添加项目"></button>
@@ -291,6 +336,7 @@ dialog.merge.wide { width: min(980px, calc(100vw - 32px)); }
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 <dialog class="merge" id="merge-dlg" aria-labelledby="merge-title"></dialog>
 <dialog class="merge wide" id="metrics-dlg" aria-labelledby="metrics-title"></dialog>
+<dialog class="merge picker-dlg" id="choice-dlg" aria-labelledby="choice-title"></dialog>
 
 <script>
 "use strict";
@@ -409,7 +455,7 @@ const reviewerLabel = (k) => (AGENTS.reviewers.find((r) => r.key === k)?.label |
 function prefOf(ws, k) {
   const p = ws?.prefs || {};
   if (p[k]) return p[k];
-  return { coding_agent: AGENTS.default, fix_agent: AGENTS.fix_default, review_backend: AGENTS.review_default }[k] || "";
+  return { coding_agent: AGENTS.default, fix_agent: AGENTS.fix_default, review_backend: AGENTS.review_default, ...(AGENTS.role_defaults || {}) }[k] || "";
 }
 
 const RSTATUS = {
@@ -531,11 +577,7 @@ function renderMain() {
     <section class="compose">
       <textarea id="req" placeholder="描述这次要做的需求，例如：订单列表加“导出 Excel”按钮，按当前筛选条件导出">${esc(draft)}</textarea>
       <div class="recent" id="recent"></div>
-      <div class="choices">
-        ${segHtml("coding_agent", "编程", AGENTS.agents.map((a) => [a.key, a.label, a.available, a.detail]), prefOf(ws, "coding_agent"))}
-        ${segHtml("fix_agent", "修复", AGENTS.agents.map((a) => [a.key, a.label, a.available, a.detail]), prefOf(ws, "fix_agent"))}
-        ${segHtml("review_backend", "审阅", AGENTS.reviewers.map((r) => [r.key, reviewerLabel(r.key), r.available, r.detail]), prefOf(ws, "review_backend"))}
-      </div>
+      <div class="choices" id="choices"></div>
       <div class="compose-foot">
         <span class="grow" id="compose-err"></span>
         <span id="design-slot"></span>
@@ -558,29 +600,264 @@ function renderMain() {
   const req = $("req");
   req.oninput = () => { store.set("wwk.draft." + ws.path, req.value); $("compose-err").textContent = ""; };
   req.onkeydown = (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); startRun(PIPELINE); } };
-  document.querySelectorAll(".seg").forEach((seg) => seg.onclick = (e) => {
-    const b = e.target.closest("button[data-v]");
-    if (b) choose(seg.dataset.k, b.dataset.v);
-  });
+  renderChoices();
   renderDesign();
+  loadPreview();
   renderRecent();
   renderRunList();
   renderDetail();
 }
 
+// ---------- 编程 / 修复 / 审阅：一行彩色标签 + 选择弹窗 ----------
+// [字段, 名称, 颜色, 可选项]；按流程顺序排。需求、复核、验收必须是同一个 agent（product），技术设计和实现核对也是同一个（tech）
+const ROLES = [
+  ["product_agent", "需求·复核·验收", "product", () => AGENTS.agents],
+  ["tech_agent", "技术设计·核对", "tech", () => AGENTS.agents],
+  ["coding_agent", "编程", "code", () => AGENTS.agents],
+  ["fix_agent", "修复", "fix", () => AGENTS.agents],
+  ["review_backend", "修复审阅", "review", () => AGENTS.reviewers],
+  ["vision_agent", "看图", "vision", () => AGENTS.vision_agents || []],
+  ["arbiter_agent", "仲裁", "arbiter", () => AGENTS.agents],
+];
+const ROLE_HINT = {
+  product_agent: "同一个 agent 负责写需求（02）、复核技术设计（04）和最后的产品验收（06）。",
+  tech_agent: "同一个 agent 负责写技术设计（03），并在写完代码后核对实现是否和设计对得上。",
+  vision_agent: "只在带图片的需求里用：看图写设计分析（01）。",
+  arbiter_agent: "文档复核超过轮次仍没通过时，由它判定技术设计能否继续。",
+};
+const ROLE_OPTION_PREFIX = {
+  product_agent: "product",
+  tech_agent: "tech",
+  coding_agent: "coding",
+  fix_agent: "fix",
+  review_backend: "review",
+  vision_agent: "vision",
+  arbiter_agent: "arbiter",
+};
+const RUN_ROLE_FIELDS = [
+  "product_agent", "product_model", "product_effort",
+  "tech_agent", "tech_model", "tech_effort",
+  "coding_agent", "coding_model", "coding_effort",
+  "fix_agent", "fix_model", "fix_effort",
+  "review_backend", "review_model", "review_effort",
+  "vision_agent", "vision_model", "vision_effort",
+  "arbiter_agent", "arbiter_model", "arbiter_effort",
+];
+const optLabel = (key, o) => (key === "review_backend" ? reviewerLabel(o.key) : o.label);
+const isPath = (d) => /[\\/]/.test(d || "");
+// 可用时的说明：编程 agent 给的是可执行文件路径，显示「已安装」，路径放进悬停提示
+const availText = (d) => (isPath(d) ? `<span title="${esc(d)}">已安装</span>` : esc(d || ""));
+function renderChoices() {
+  const box = $("choices"), ws = wsOf(current);
+  if (!box || !ws) return;
+  box.innerHTML = ROLES.map(([key, name, cls, list]) => {
+    const v = prefOf(ws, key), o = list().find((x) => x.key === v);
+    const label = o ? optLabel(key, o) : v || "未选";
+    const prefix = ROLE_OPTION_PREFIX[key], model = prefOf(ws, `${prefix}_model`), effort = prefOf(ws, `${prefix}_effort`);
+    const detail = [model, effort && `思考 ${effort}`].filter(Boolean).join(" · ");
+    return `<button class="role-tag ${cls}${o && !o.available ? " na" : ""}" type="button" data-k="${key}" title="${esc(o && !o.available ? o.detail || "本机不可用" : [`点击更改${name} agent`, detail].filter(Boolean).join("；"))}"><span class="k">${name}</span><b>${esc(label)}${detail ? `<small> · ${esc(detail)}</small>` : ""}</b>${o && !o.available ? " ⚠" : ""}</button>`;
+  }).join("");
+  box.onclick = (e) => { const b = e.target.closest("[data-k]"); if (b) openChoices(b.dataset.k); };
+}
+const whyHtml = (key, list) => {
+  const o = list().find((x) => x.key === prefOf(wsOf(current), key));
+  return o ? (o.available ? availText(o.detail) : esc(`本机不可用：${o.detail || ""}`)) : "";
+};
+const optionCache = new Map();
+const roleAgent = (key, value) => (ROLES.find((r) => r[0] === key)?.[3]() || AGENTS.agents).find((a) => a.key === value);
+const unsupportedControl = (reason) => ({ supported: false, source: null, choices: [], reason });
+function controlsFor(key, agent) {
+  if (key === "review_backend" && !AGENTS.agents.some((a) => a.key === agent))
+    return { model: unsupportedControl("这个审阅后端不接受模型设置"), effort: unsupportedControl("这个审阅后端不接受思考强度") };
+  return agent?.controls || { model: unsupportedControl("这个 agent 没有报告模型能力"), effort: unsupportedControl("这个 agent 没有报告思考强度能力") };
+}
+const optionValue = (ws, prefix, kind) => prefOf(ws, `${prefix}_${kind}`);
+
+/** 点哪个标签就只改这一项；模型 / 思考强度也属于这一角色的设置。 */
+function openChoices(focus) {
+  const dlg = $("choice-dlg"), ws = wsOf(current);
+  const role = ROLES.find((r) => r[0] === focus);
+  if (!ws || !role) return;
+  const [key, name, , list] = role;
+  // 只在打开时生成一次；切换时就地改高亮和说明，不重建（重建会闪、丢焦点）
+  dlg.innerHTML = `<header><h3 id="choice-title">设置${name} agent</h3><button class="btn icon ghost" id="ch-x" type="button" aria-label="关闭">${icon("x")}</button></header>
+    <div class="body picker">${segHtml(key, "Agent", list().map((x) => [x.key, optLabel(key, x), x.available, x.detail]), prefOf(ws, key))}
+      <div class="why" data-why="${key}">${whyHtml(key, list)}</div>
+      <div id="agent-options-slot"></div>
+      <div class="why">${esc(ROLE_HINT[key] || "")}建议各环节选不同的 agent，避免同源偏差。每个项目记住自己的选择。</div></div>
+    <footer><span class="grow"></span><button class="btn primary" id="ch-ok" type="button">完成</button></footer>`;
+  $("ch-x").onclick = $("ch-ok").onclick = () => dlg.close();
+  const seg = dlg.querySelector(".seg"), group = seg.closest(".choice");
+  seg.onclick = async (e) => {
+    const b = e.target.closest("button[data-v]");
+    if (!b || group.classList.contains("busy") || b.getAttribute("aria-pressed") === "true") return;
+    const mark = (v) => {
+      seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.v === v)));
+      dlg.querySelector(`[data-why="${key}"]`).innerHTML = whyHtml(key, list);
+      renderChoices();
+    };
+    const prev = prefOf(ws, key);
+    // 保存期间这一组不能再点；超过 150ms 才显示转圈，快的话看不到
+    group.classList.add("busy");
+    const slow = setTimeout(() => group.classList.add("loading"), 150);
+    mark(b.dataset.v);   // 先切过去，不等保存
+    const ok = await changeRoleAgent(key, b.dataset.v);
+    clearTimeout(slow);
+    group.classList.remove("busy", "loading");
+    if (!ok) mark(prev);
+    else await refreshRoleOptions(key, b.dataset.v);
+  };
+  if (!dlg.open) dlg.showModal();
+  refreshRoleOptions(key, prefOf(ws, key));
+  dlg.querySelector(`.seg[data-k="${focus}"] button[aria-pressed="true"]`)?.focus();
+}
+
 function segHtml(key, label, opts, chosen) {
   return `<div class="choice"><span>${label}</span><div class="seg" data-k="${key}" role="group" aria-label="${label}">${opts.map(([k, l, ok, d]) =>
-    `<button type="button" data-v="${esc(k)}" aria-pressed="${k === chosen}" class="${ok ? "" : "na"}" title="${esc(ok ? l : d || "本机不可用")}">${esc(l)}</button>`).join("")}</div></div>`;
+    `<button type="button" data-v="${esc(k)}" aria-pressed="${k === chosen}" class="${ok ? "" : "na"}" title="${esc(ok ? (isPath(d) ? `已安装：${d}` : d || l) : d || "本机不可用")}">${esc(l)}</button>`).join("")}</div></div>`;
 }
-async function choose(key, value) {
+/** 更新角色 agent；新 agent 用不了原来的模型 / 强度就明确清掉，避免留下“看似生效”的配置。 */
+async function changeRoleAgent(key, value) {
   const ws = wsOf(current);
-  const opt = key === "review_backend" ? AGENTS.reviewers.find((r) => r.key === value) : AGENTS.agents.find((a) => a.key === value);
+  const opt = roleAgent(key, value);
   if (opt && !opt.available) toast(`${opt.label || value}：${opt.detail || "本机不可用"}。仍可选择，运行时会失败。`, true);
-  document.querySelectorAll(`.seg[data-k="${key}"] button`).forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.v === value)));
+  const prefix = ROLE_OPTION_PREFIX[key], controls = controlsFor(key, opt), changes = { [key]: value };
+  const stored = ws.prefs || {}, fields = ["model", "effort"].map((kind) => [`${prefix}_${kind}`, kind]);
+  // ACP 的可选值只有建一次空会话才知道；探测失败就按“用不了”处理，不能让旧值留在配置里
+  let available = controls;
+  if (fields.some(([field, kind]) => stored[field] && controls[kind].source === "session")) {
+    try { available = await loadRoleControls(key, value, null); }
+    catch { available = null; }
+  }
+  const dropped = [];
+  for (const [field, kind] of fields) {
+    if (!stored[field]) continue;
+    const control = available ? available[kind] : null;
+    if (!control || !control.supported || !control.choices.some((o) => o.value === stored[field])) {
+      changes[field] = "";
+      dropped.push(kind === "model" ? "模型" : "思考强度");
+    }
+  }
+  const ok = await savePreferences(changes);
+  if (ok && dropped.length) toast(`已清除原${dropped.join("和")}设置（${opt?.label || value} 用不上）。`);
+  return ok;
+}
+
+/** 保存一组工作空间偏好；先在本地改好，失败再改回去。 */
+async function savePreferences(values) {
+  const ws = wsOf(current);
+  const before = { ...(ws.prefs || {}) };
+  ws.prefs = { ...before, ...values };
+  for (const [key, value] of Object.entries(values)) if (!value) delete ws.prefs[key];
+  renderChoices();
   try {
-    const updated = await post("/api/workspaces/prefs", { path: ws.path, prefs: { [key]: value } });
+    const updated = await post("/api/workspaces/prefs", { path: ws.path, prefs: values });
     Object.assign(ws, { prefs: updated.prefs });
-  } catch (err) { toast(err.message, true); }
+    renderChoices();
+    return true;
+  } catch (err) {
+    ws.prefs = before;
+    renderChoices();
+    toast(err.message, true);
+    return false;
+  }
+}
+
+function optionSelect(label, key, controls, current) {
+  const list = [...(controls.choices || [])];
+  if (current && !list.some((o) => o.value === current)) list.unshift({ value: current, name: `${current}（当前配置）` });
+  const disabled = !controls.supported;
+  const reason = controls.reason ? `<div class="why">${esc(controls.reason)}</div>` : "";
+  return `<label class="agent-option"><span>${label}</span><select data-opt="${key}" ${disabled ? "disabled" : ""}>
+    <option value="">${current ? "不使用角色级设置（agent 默认）" : "跟随 agent / 角色默认"}</option>
+    ${list.map((o) => `<option value="${esc(o.value)}" ${o.value === current ? "selected" : ""}>${esc(o.name)}</option>`).join("")}
+  </select>${reason}</label>`;
+}
+
+function renderRoleOptions(focus, agentKey, controls, error = "") {
+  const slot = $("agent-options-slot"), ws = wsOf(current);
+  if (!slot || !ws) return;
+  const prefix = ROLE_OPTION_PREFIX[focus];
+  if (!agentKey) {
+    slot.innerHTML = `<div class="agent-options"><div class="why">先选择一个 agent，再设置模型和思考强度。</div></div>`;
+    return;
+  }
+  if (!controls) {
+    slot.innerHTML = `<div class="agent-options"><div class="loading-line">${error ? esc(error) : `<span class="spin"></span> 正在读取 ${esc(agentLabel(agentKey))} 的可用选项…`}</div></div>`;
+    return;
+  }
+  slot.innerHTML = `<div class="agent-options">
+    ${error ? `<div class="why">${esc(error)}</div>` : ""}
+    ${optionSelect("模型", "model", controls.model, optionValue(ws, prefix, "model"))}
+    ${optionSelect("思考强度", "effort", controls.effort, optionValue(ws, prefix, "effort"))}
+  </div>`;
+  slot.querySelectorAll("select[data-opt]").forEach((select) => {
+    select.onchange = () => changeRoleOption(focus, agentKey, select.dataset.opt, select.value);
+  });
+}
+
+async function loadRoleControls(focus, agentKey, model) {
+  const ws = wsOf(current), agent = roleAgent(focus, agentKey);
+  const base = controlsFor(focus, agent);
+  if (base.model.source !== "session" && base.effort.source !== "session") return base;
+  const q = new URLSearchParams({ project: ws.path, agent: agentKey });
+  if (model) q.set("model", model);
+  const cacheKey = `${ws.path}|${agentKey}|${model || ""}`;
+  if (optionCache.has(cacheKey)) return optionCache.get(cacheKey);
+  const data = await api(`/api/agent-options?${q}`);
+  optionCache.set(cacheKey, data.controls);
+  return data.controls;
+}
+
+async function refreshRoleOptions(focus, agentKey, provided) {
+  const epoch = (refreshRoleOptions.epoch = (refreshRoleOptions.epoch || 0) + 1);
+  const agent = roleAgent(focus, agentKey);
+  renderRoleOptions(focus, agentKey, provided || null);
+  if (provided) return;
+  const base = controlsFor(focus, agent);
+  if (base.model.source !== "session" && base.effort.source !== "session") {
+    renderRoleOptions(focus, agentKey, base);
+    return;
+  }
+  try {
+    const ws = wsOf(current), prefix = ROLE_OPTION_PREFIX[focus];
+    const q = new URLSearchParams({ project: ws.path, agent: agentKey });
+    const currentModel = optionValue(ws, prefix, "model");
+    if (currentModel) q.set("model", currentModel);
+    const cacheKey = `${ws.path}|${agentKey}|${currentModel || ""}`;
+    let controls = optionCache.get(cacheKey);
+    if (!controls) {
+      controls = (await api(`/api/agent-options?${q}`)).controls;
+      optionCache.set(cacheKey, controls);
+    }
+    if (epoch === refreshRoleOptions.epoch) renderRoleOptions(focus, agentKey, controls);
+  } catch (err) {
+    // 读不到选项时也把下拉框画出来，否则旧值没处改、弹窗成了死路
+    if (epoch === refreshRoleOptions.epoch)
+      renderRoleOptions(focus, agentKey, controlsFor(focus, roleAgent(focus, agentKey)), err.message);
+  }
+}
+
+async function changeRoleOption(focus, agentKey, kind, value) {
+  const prefix = ROLE_OPTION_PREFIX[focus], field = `${prefix}_${kind}`;
+  if (!await savePreferences({ [field]: value })) {
+    await refreshRoleOptions(focus, agentKey);
+    return;
+  }
+  if (kind !== "model") return;
+  try {
+    const controls = await loadRoleControls(focus, agentKey, value);
+    renderRoleOptions(focus, agentKey, controls);
+    const ws = wsOf(current), effort = optionValue(ws, prefix, "effort");
+    if (effort && controls.effort.choices.length && !controls.effort.choices.some((o) => o.value === effort)) {
+      await savePreferences({ [`${prefix}_effort`]: "" });
+      toast(`${value} 不支持原思考强度「${effort}」，已恢复为默认。`);
+      renderRoleOptions(focus, agentKey, controls);
+    }
+  } catch (err) {
+    toast(err.message, true);
+    await refreshRoleOptions(focus, agentKey);
+  }
 }
 
 // 设计稿：一键用 MasterGo 当前选中，或选本地导出的 .json
@@ -641,17 +918,22 @@ async function initProject() {
 async function startRun(graph) {
   const ws = wsOf(current);
   if (!ws) return;
-  const input = { project_root: ws.path, review_backend: prefOf(ws, "review_backend"), fix_agent: prefOf(ws, "fix_agent") };
+  const input = {
+    project_root: ws.path,
+    review_backend: prefOf(ws, "review_backend"), review_model: prefOf(ws, "review_model"), review_effort: prefOf(ws, "review_effort"),
+    fix_agent: prefOf(ws, "fix_agent"), fix_model: prefOf(ws, "fix_model"), fix_effort: prefOf(ws, "fix_effort"),
+  };
   if (graph === PIPELINE) {
     const requirement = $("req").value.trim();
     if (!requirement) { $("compose-err").textContent = "先写下这次要做的需求"; $("req").focus(); return; }
-    Object.assign(input, { requirement, coding_agent: prefOf(ws, "coding_agent") });
+    Object.assign(input, { requirement });
+    for (const k of RUN_ROLE_FIELDS) input[k] = prefOf(ws, k);
     if (design) input.design_ref = design;
     if (images.length) input.images = images;
     // 跑完要合并时发通知；趁这次点击要权限（桌面端不需要）
     if ("Notification" in window && Notification.permission === "default") Notification.requestPermission().catch(() => {});
   }
-  if (graph === GATE_ONLY) { delete input.review_backend; delete input.fix_agent; }
+  if (graph === GATE_ONLY) for (const k of ["review_backend", "review_model", "review_effort", "fix_agent", "fix_model", "fix_effort"]) delete input[k];
   try {
     const { id } = await post("/api/runs", { graph, input });
     if (graph === PIPELINE) { $("req").value = ""; store.set("wwk.draft." + ws.path, ""); design = null; images = []; renderDesign(); }
@@ -726,7 +1008,7 @@ function notifyDesk(title, body) {
 }
 
 // ---------- 指标：按 agent 汇总 ----------
-const REJECT_BY = { gate: "门禁", lint: "文档校验", "doc-review": "文档复核", arbiter: "仲裁", acceptance: "验收", whitelist: "越界" };
+const REJECT_BY = { gate: "门禁", lint: "文档校验", "doc-review": "文档复核", arbiter: "仲裁", "impl-review": "实现核对", acceptance: "验收", whitelist: "越界" };
 const fmtTok = (n) => n >= 10000 ? (n / 1000).toFixed(0) + "k" : n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(n);
 async function openMetrics(project) {
   let data;
@@ -1046,11 +1328,12 @@ setInterval(() => { if (run?.status === "running") renderDuration(); }, 1000);
 
 // ---------- 阶段：由事件推出流程进度与分组日志 ----------
 const CONTAINERS = new Set(["编码", "审阅修复"]);
-const STEP_LABEL = { "读取设计稿": "设计稿", "生成Spec": "Spec", "写代码": "写代码", "门禁": "门禁", "修复审阅": "审阅", "执行修复": "修复", "交付": "交付", "熔断": "熔断", "合并预演": "合并预演", "取材与需求": "取材与需求", "技术设计": "技术设计", "文档复核": "文档复核", "产品验收": "产品验收" };
-const TEMPLATE = { [PIPELINE]: ["取材与需求", "技术设计", "文档复核", "写代码", "门禁", "产品验收", "交付", "合并预演"], [FIX_LOOP]: ["门禁", "交付"], [GATE_ONLY]: ["门禁"] };
+const STEP_LABEL = { "读取设计稿": "设计稿", "生成Spec": "Spec", "写代码": "写代码", "门禁": "门禁", "修复审阅": "审阅", "执行修复": "修复", "交付": "交付", "熔断": "熔断", "合并预演": "合并预演", "取材与需求": "取材与需求", "技术设计": "技术设计", "文档复核": "文档复核", "实现核对": "实现核对", "产品验收": "产品验收" };
+const TEMPLATE = { [PIPELINE]: ["取材与需求", "技术设计", "文档复核", "写代码", "实现核对", "门禁", "产品验收", "交付", "合并预演"], [FIX_LOOP]: ["门禁", "交付"], [GATE_ONLY]: ["门禁"] };
 const CHECK_LINE = /^([✔✘-])\s+([\w:-]+)(?::\s*skip)?(?:\s+\((\d+)ms\))?/;
 
 function buildStages(r) {
+  const plan = (r.events || []).find((e) => e.type === "plan");   // 带着每一步是谁做的
   const stages = [];
   const rounds = {};
   let open = null;
@@ -1084,12 +1367,13 @@ function buildStages(r) {
     // 节点本身没抛错，但 agent 没干成：修复出错标红，审阅不可用（不影响后续，修复 agent 直接按失败项改）标黄
     if (s.label === "修复" && s.status === "done" && s.logs.some((l) => /stop_reason=(?!end_turn)/.test(l.text))) s.status = "fail";
     if (s.label === "审阅" && s.status === "done" && s.logs.some((l) => /结论 (unavailable|violation)/.test(l.text) && !/经 skip/.test(l.text))) s.status = "warn";
-    s.agent = stageAgent(s, r.input || {});
+    s.agent = stageAgent(s, r.input || {}, plan?.agents);
   }
   if (pre.logs.length) stages.unshift(pre);
   return stages;
 }
-function stageAgent(s, input) {
+function stageAgent(s, input, agents) {
+  if (agents && s.node in agents) return agents[s.node]; // 服务端按本次运行的配置算好的
   if (s.label === "Spec") return "Claude Code";
   if (s.label === "写代码") return agentLabel(input.coding_agent || AGENTS.default);
   if (s.label === "修复") return agentLabel(input.fix_agent || AGENTS.fix_default) || "fix 段配置";
@@ -1122,9 +1406,11 @@ function renderDetail() {
   });
   if (r.status === "running") {
     const seen = new Set(real.map((s) => s.label));
-    const planned = (r.events || []).find((e) => e.type === "plan")?.nodes?.map((n) => STEP_LABEL[n] || n);
-    const ghosts = (planned || TEMPLATE[r.graph] || []).filter((l) => !seen.has(l) && !(l === "设计稿" && seen.has("Spec")));
-    for (const l of ghosts) flow += (flow ? `<span class="arrow">${icon("arrow")}</span>` : "") + `<div class="step ghost"><div class="n">${esc(l)}</div><div class="s">等待</div></div>`;
+    const plan = (r.events || []).find((e) => e.type === "plan");
+    // [显示名, 将由谁做]；老记录没有计划事件时按模板，不显示 agent
+    const planned = plan?.nodes?.map((n) => [STEP_LABEL[n] || n, plan.agents?.[n] || ""]) || (TEMPLATE[r.graph] || []).map((l) => [l, ""]);
+    const ghosts = planned.filter(([l]) => !seen.has(l) && !(l === "设计稿" && seen.has("Spec")));
+    for (const [l, who] of ghosts) flow += (flow ? `<span class="arrow">${icon("arrow")}</span>` : "") + `<div class="step ghost"><div class="n">${esc(l)}</div><div class="s">${esc([who, "等待"].filter(Boolean).join(" · "))}</div></div>`;
   }
 
   // 最近一次门禁的检查项
@@ -1164,7 +1450,7 @@ function renderDetail() {
     <div class="detail-head"><h3 title="${esc(runTitle(r))}">${esc(runTitle(r))}</h3><span class="tag ${stTag}">${r.status === "running" ? '<span class="spin"></span>' : ""}${esc(stText)}</span></div>
     <div class="detail-sub" id="d-sub"></div>
     <div class="flow" id="flow">${flow || '<div class="step ghost"><div class="n">准备中</div></div>'}</div>
-    ${checks}${result}${flowCard(r)}${failTable}
+    ${checks}${result}${flowCard(r)}<div id="preview-slot"></div>${failTable}
     <div class="log-bar">${tabs.map(([k, l]) => `<button class="tab" type="button" data-f="${esc(k)}" aria-pressed="${k === runFilter}">${esc(l)}</button>`).join("")}
       <span class="grow"></span>${r.status === "running" ? `<button class="btn ghost" id="follow" type="button" aria-pressed="${follow}">${follow ? "跟随最新：开" : "跟随最新：关"}</button>` : ""}</div>
     <div class="log" id="log">${logs || '<div class="none" style="color:var(--faint);font-family:var(--sans)">还没有日志。</div>'}</div>`;
@@ -1174,10 +1460,58 @@ function renderDetail() {
   $("flow").onclick = (e) => { const s = e.target.closest(".step[data-key]"); if (s) { runFilter = s.dataset.key; renderDetail(); } };
   $("follow")?.addEventListener("click", () => { follow = !follow; renderDetail(); });
   $("d-merge")?.addEventListener("click", () => openMerge(r.id));
+  renderPreviewSlot();
   box.querySelectorAll("details.grp").forEach((d) => d.ontoggle = () => { d.open ? openGroups.add(d.dataset.key) : openGroups.delete(d.dataset.key); });
   if (r.status === "running" && follow) box.scrollTop = box.scrollHeight;
   else box.scrollTop = justFinished ? 0 : scroll;   // 刚结束：回到顶部看结论
 }
+// ---------- 预览：结束后把项目跑起来 ----------
+let PREVIEW = null, previewTimer = null;
+const PV_STATUS = { preparing: ["准备中", "accent"], installing: ["安装依赖", "accent"], starting: ["启动中", "accent"], running: ["运行中", "ok"], exited: ["已退出", ""], failed: ["启动失败", "bad"], stopped: ["已停止", ""] };
+const pvActive = (p) => Boolean(p) && ["preparing", "installing", "starting", "running"].includes(p.status);
+async function loadPreview() {
+  clearTimeout(previewTimer);
+  const project = current;
+  if (!project) return;
+  try { PREVIEW = (await api("/api/preview?project=" + encodeURIComponent(project))).preview; } catch { return; }
+  if (project !== current) return;
+  renderPreviewSlot();
+  if (pvActive(PREVIEW)) previewTimer = setTimeout(loadPreview, PREVIEW.status === "running" ? 3000 : 1500);
+}
+async function previewAction(action) {
+  try {
+    PREVIEW = (await post(`/api/preview/${action}`, { project: current, run: run?.id })).preview;
+  } catch (err) { toast(err.message, true); }
+  renderPreviewSlot();
+  loadPreview();
+}
+function renderPreviewSlot() {
+  const slot = $("preview-slot");
+  if (!slot || !run) return;
+  const p = PREVIEW;
+  const delivered = run.status !== "running" && run.graph === PIPELINE && statusKey(run) === "delivered";
+  const mine = p && p.runId === run.id;
+  let html = "";
+  if (p && pvActive(p) && !mine) {
+    html = `<div class="pvcard"><div class="row"><span class="tag ${PV_STATUS[p.status][1]}">${PV_STATUS[p.status][0]}</span>
+      <span class="grow">正在预览这个项目的另一次运行${p.url ? `：<a class="url" href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.url)}</a>` : ""}</span>
+      <button class="btn" type="button" data-pv="stop">停止</button></div></div>`;
+  } else if (mine) {
+    const [text, tag] = PV_STATUS[p.status] || [p.status, ""];
+    html = `<div class="pvcard"><div class="row"><span class="tag ${tag}">${pvActive(p) && p.status !== "running" ? '<span class="spin"></span>' : ""}${esc(text)}</span>
+        <span class="grow">${esc(p.source)}${p.command ? ` · <span class="cmd">${esc(p.command)}</span>${p.via ? `（${esc(p.via)}）` : ""}` : ""}</span>
+        ${p.url && p.status === "running" ? `<a class="btn primary" href="${esc(p.url)}" target="_blank" rel="noopener">${icon("arrow")}打开 ${esc(p.url)}</a>` : ""}
+        ${pvActive(p) ? `<button class="btn" type="button" data-pv="stop">停止</button>` : `<button class="btn" type="button" data-pv="start">${icon("play")}重新预览</button>`}</div>
+      ${p.error ? `<div class="err">${esc(p.error)}</div>` : ""}
+      ${p.log.length ? `<details ${pvActive(p) && p.status !== "running" ? "open" : ""}><summary>预览日志（${p.log.length} 行）</summary><pre>${esc(p.log.slice(-40).join("\n"))}</pre></details>` : ""}</div>`;
+  } else if (delivered) {
+    html = `<div class="pvcard"><div class="row"><span class="grow">把这次交付的代码跑起来看看效果（待合并的在临时目录里跑作业分支，不动项目本身）。</span>
+      <button class="btn primary" type="button" data-pv="start">${icon("play")}预览</button></div></div>`;
+  }
+  slot.innerHTML = html;
+  slot.onclick = (e) => { const b = e.target.closest("[data-pv]"); if (b) previewAction(b.dataset.pv); };
+}
+
 function flowCard(r) {
   const f = r.flow;
   if (!f || r.status === "running") return "";

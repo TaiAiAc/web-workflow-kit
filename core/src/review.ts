@@ -1,15 +1,19 @@
-// 修复审阅（顾问）的后端：DeepSeek API / DeepSeek Harness / 跳过，默认自动选。
+// 修复审阅（顾问）的后端：DeepSeek API / DeepSeek Harness / 任一编程 agent 预设 / 跳过，默认自动选。
 //
 // 顾问只出修复计划、无放行权，且必须只读：
 // - api：直接调 HTTP 接口，天然改不了文件，并强制 JSON 输出；
-// - dsh：`dsh headless` 是能改文件的 agent，所以审阅前后各取一次项目文件指纹，
+// - dsh 和其他编程 agent（Claude Code、Codex、OpenCode、WorkBuddy……）都能改文件：按只读方式启动
+//   （Claude 不批准编辑、ACP 只放 read / search / think），再在审阅前后各取一次项目文件指纹，
 //   有任何变化即判为违规（needs_human → 熔断），列出被改的文件交给人处理，不自动回滚；
 // - skip：不审阅，修复者直接按门禁失败码和出错位置修。
 import { readdirSync, statSync } from "node:fs"
 import { join } from "node:path"
+import { agentAvailability, END_TURN } from "./agents.ts"
+import { assertAgentOptions } from "./agent-options.ts"
 import { type Config, prompt, relativeTo, writeText } from "./config.ts"
 import { chat, LLMError, matchBracket, parseJson } from "./llm.ts"
 import { run, which } from "./proc.ts"
+import { buildRoleAgent } from "./stages.ts"
 
 export const BACKENDS: Record<string, string> = {
   auto: "自动",
@@ -28,11 +32,20 @@ const apiKeyEnv = (cfg: Config): string => cfg.get("review").api_key_env ?? "DEE
 const apiKey = (cfg: Config) => cfg.secret(apiKeyEnv(cfg))
 const dshCommand = (cfg: Config): string[] => [...(cfg.get("review").dsh_command ?? ["dsh", "headless", "{prompt}"])]
 
+/** 也能当审阅用的编程 agent 预设（dsh 已经是固定选项，不重复列） */
+export function agentReviewers(cfg: Config): Record<string, Record<string, any>> {
+  const presets: Record<string, Record<string, any>> = cfg.raw.coding_agents ?? {}
+  return Object.fromEntries(Object.entries(presets).filter(([k]) => k !== "dsh" && !(k in BACKENDS)))
+}
+
+/** 所有合法的审阅选项：固定的几种 + 编程 agent 预设 */
+export const reviewChoices = (cfg: Config): string[] => [...Object.keys(BACKENDS), ...Object.keys(agentReviewers(cfg))]
+
 /** 返回 [实际后端, 原因]。auto：有 key 用 API，否则装了 dsh 用 dsh，否则跳过。 */
 export function resolveBackend(cfg: Config, choice?: string | null): [string, string] {
   const c = choice || cfg.get("review").backend || "auto"
-  if (!(c in BACKENDS))
-    throw new Error(`未知的审阅方式：${c}（可选：${Object.keys(BACKENDS).join(", ")}）`)
+  if (!reviewChoices(cfg).includes(c))
+    throw new Error(`未知的审阅方式：${c}（可选：${reviewChoices(cfg).join(", ")}）`)
   if (c !== "auto")
     return [c, "手动指定"]
   if (apiKey(cfg))
@@ -52,6 +65,10 @@ export function availability(cfg: Config): { key: string, label: string, availab
     { key: "auto", label: `自动（当前会用：${BACKENDS[auto]}）`, available: true, detail: why },
     { key: "api", label: BACKENDS.api, available: key, detail: key ? "只读、强制 JSON 输出" : `未配置 ${keyEnv}` },
     { key: "dsh", label: BACKENDS.dsh, available: !!dsh, detail: dsh ? "经 dsh headless；审阅前后校验没有改动文件" : "未找到 dsh 命令" },
+    ...Object.entries(agentReviewers(cfg)).map(([k, preset]) => {
+      const [ok, found] = agentAvailability(preset, cfg.childEnv())
+      return { key: k, label: preset.label ?? k, available: ok, detail: ok ? "只读启动；审阅前后校验没有改动文件" : found }
+    }),
     { key: "skip", label: BACKENDS.skip, available: true, detail: "修复者直接按门禁失败码修" },
   ]
 }
@@ -115,7 +132,12 @@ export function extractPlan(text: string): Plan {
 const unavailable = (summary: string, backend: string): Plan =>
   ({ verdict: "unavailable", summary: summary.slice(0, 300), fixes: [], reviewer: backend })
 
-export function makeReviewer(cfg: Config, choice: string | null | undefined, validate: (plan: unknown) => Plan) {
+export function makeReviewer(
+  cfg: Config,
+  choice: string | null | undefined,
+  validate: (plan: unknown) => Plan,
+  options: { model?: string | null, effort?: string | null } = {},
+) {
   const rcfg = cfg.get("review")
   const system = prompt("review-prompt.md")
   const timeoutSec = Number(rcfg.timeout_sec ?? 180)
@@ -151,8 +173,43 @@ export function makeReviewer(cfg: Config, choice: string | null | undefined, val
     }
   }
 
+  /** 用编程 agent 预设审阅：只读启动，前后比文件指纹，从回复里取计划 JSON */
+  async function runAgent(payload: Record<string, unknown>, backend: string): Promise<Plan> {
+    let agent
+    try {
+      const preset = cfg.raw.coding_agents?.[backend]
+      if (!preset)
+        throw new Error(`未知的审阅 agent：${backend}`)
+      assertAgentOptions(preset, options.model, options.effort)
+      agent = buildRoleAgent(cfg, "review", backend, options).agent
+    }
+    catch (e) {
+      return unavailable((e as Error).message, backend)
+    }
+    const root = cfg.projectRoot
+    const text = `${system}\n\n## 本次输入\n\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\`\n\n`
+      + "这是**只读**审阅：不要修改、创建或删除任何文件，不要运行会改动文件的命令。只输出一个符合上面格式的 JSON 对象。\n"
+    const before = fingerprint(root)
+    const r = await agent.run(text, root)
+    const touched = changedFiles(before, fingerprint(root))
+    if (touched.length) {
+      const listed = touched.slice(0, 10).join("、") + (touched.length > 10 ? ` 等 ${touched.length} 个` : "")
+      return { verdict: "needs_human", summary: `修复审阅（${backend}）违规改动了文件：${listed}。请检查后再继续`, fixes: [], reviewer: backend, violation: touched }
+    }
+    if (r.stopReason !== END_TURN)
+      return unavailable(`${backend} 审阅没完成（stop_reason=${r.stopReason}）：${r.text.slice(-300)}`, backend)
+    try {
+      return { ...validate(extractPlan(r.text)), reviewer: backend }
+    }
+    catch (e) {
+      return unavailable(String((e as Error).message), backend)
+    }
+  }
+
   return async (payload: Record<string, unknown>): Promise<Plan> => {
     const [backend, why] = resolveBackend(cfg, choice)
+    if ((options.model || options.effort) && !(backend in agentReviewers(cfg)))
+      throw new Error(`审阅方式「${BACKENDS[backend] ?? backend}」不支持模型 / 思考强度；请先选一个具体的编程 agent`)
     if (backend === "skip")
       return unavailable(`未审阅（${why}）`, backend)
     if (backend === "api") {
@@ -168,6 +225,6 @@ export function makeReviewer(cfg: Config, choice: string | null | undefined, val
         return unavailable(String((e as Error).message), backend)
       }
     }
-    return runDsh(payload, backend)
+    return backend === "dsh" ? runDsh(payload, backend) : runAgent(payload, backend)
   }
 }

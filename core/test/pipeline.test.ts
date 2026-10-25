@@ -207,8 +207,8 @@ describe("主图", () => {
   it("stagePlan 按 order 排、跳过关掉的", () => {
     const wf = resolveWorkflow([["default", WORKFLOW_DEFAULTS], ["workspace", { stages: { acceptance: { enabled: false } } }]])
     const plan = stagePlan(wf)
-    assert.deepEqual(plan.map(p => p.name), ["discovery", "tech-design", "doc-review", "implement", "gate"])
-    assert.deepEqual(plan.map(p => p.node), [N.DISCOVERY, N.TECH_DESIGN, N.DOC_REVIEW, N.CODE, N.VERIFY])
+    assert.deepEqual(plan.map(p => p.name), ["discovery", "tech-design", "doc-review", "implement", "impl-review", "gate"])
+    assert.deepEqual(plan.map(p => p.node), [N.DISCOVERY, N.TECH_DESIGN, N.DOC_REVIEW, N.CODE, N.IMPL_REVIEW, N.VERIFY])
   })
 
   it("熔断说明", () => {

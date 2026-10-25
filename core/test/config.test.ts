@@ -11,7 +11,7 @@ import {
   userWorkflowFile, WORKFLOW_DEFAULTS, writeSnapshot,
 } from "../src/config.ts"
 import * as W from "../src/console/workspaces.ts"
-import { buildFixAgent } from "../src/deps.ts"
+import { buildFixAgent, defaultDeps } from "../src/deps.ts"
 import { tempDir } from "./helpers.ts"
 
 type Json = Record<string, any>
@@ -152,21 +152,23 @@ describe("工作流配置", () => {
     assert.ok(!existsSync(userWorkflowFile()))
   })
 
-  it("阶段只认注册表里的六个；门禁不能关；顺序不能改", () => {
+  it("阶段只认注册表里的七个；门禁不能关；顺序不能改", () => {
     assert.throws(() => resolveWorkflow([D, ["user", { stages: { lint: { order: 55, kind: "verify" } } }]]), /stages\.lint：未知阶段/)
     assert.throws(() => resolveWorkflow([D, ["user", { stages: { gate: { enabled: false } } }]]), /门禁是唯一的放行依据/)
     assert.throws(() => resolveWorkflow([D, ["user", { stages: { "tech-design": { order: 45 } } }]]),
-      /阶段顺序不能改，应为 discovery → tech-design → doc-review → implement → gate → acceptance/)
+      /阶段顺序不能改，应为 discovery → tech-design → doc-review → implement → impl-review → gate → acceptance/)
     // 关掉的阶段不参与顺序检查（复核依赖技术设计，一起关）
-    resolveWorkflow([D, ["user", { stages: { "tech-design": { order: 45, enabled: false }, "doc-review": { enabled: false } } }]])
+    resolveWorkflow([D, ["user", { stages: { "tech-design": { order: 45, enabled: false }, "doc-review": { enabled: false }, "impl-review": { enabled: false } } }]])
   })
 
   it("阶段间的依赖：技术设计 / 验收要 02，复核要 03", () => {
-    assert.throws(() => resolveWorkflow([D, ["user", { stages: { "tech-design": { enabled: false } } }]]), /开着 doc-review 就不能关 tech-design/)
+    assert.throws(() => resolveWorkflow([D, ["user", { stages: { "tech-design": { enabled: false } } }]]), (e: Error) =>
+      /开着 doc-review 就不能关 tech-design/.test(e.message) && /开着 impl-review 就不能关 tech-design/.test(e.message))
+    assert.throws(() => resolveWorkflow([D, ["user", { stages: { implement: { enabled: false } } }]]), /开着 impl-review 就不能关 implement/)
     assert.throws(() => resolveWorkflow([D, ["user", { stages: { discovery: { enabled: false } } }]]), (e: Error) =>
       /开着 tech-design 就不能关 discovery/.test(e.message) && /开着 acceptance 就不能关 discovery/.test(e.message))
     // 只留编码 ⇄ 门禁（第一阶段的流程）是合法的
-    resolveWorkflow([D, ["user", { stages: Object.fromEntries(["discovery", "tech-design", "doc-review", "acceptance"].map(n => [n, { enabled: false }])) }]])
+    resolveWorkflow([D, ["user", { stages: Object.fromEntries(["discovery", "tech-design", "doc-review", "impl-review", "acceptance"].map(n => [n, { enabled: false }])) }]])
   })
 
   it("文件夹搬家后重新绑定，偏好和覆盖跟着走", () => {
@@ -251,6 +253,29 @@ describe("agent", () => {
     assert.throws(() => buildCodingAgent(cfg, "cursor"), /未知的编程 agent/)
   })
 
+  it("按角色覆盖模型和思考强度：CLI 参数、WorkBuddy ACP 启动参数，dsh 直接拒绝", () => {
+    const cfg = loadConfig(tempDir())
+    const claude = buildCodingAgent(cfg, "claude", { model: "opus", effort: "high" }) as ClaudeCodeCLI
+    assert.deepEqual([claude.model, claude.effort], ["opus", "high"])
+    const wb = buildCodingAgent(cfg, "workbuddy", { model: "hy3", effort: "max" }) as ACPAgent
+    assert.match(wb.command!.join(" "), /--model hy3 --effort max/)
+    assert.deepEqual([wb.model, wb.effort], [null, null])
+    assert.throws(() => buildCodingAgent(cfg, "dsh", { model: "deepseek-chat" }), /不支持选择模型/)
+    assert.throws(() => buildCodingAgent(cfg, "opencode", { effort: "high" }), /只提供模型列表/)
+  })
+
+  it("本次没选模型时保留预设的 model / effort，选了才覆盖", () => {
+    const root = tempDir()
+    writeFileSync(join(root, "agent.config.json"), JSON.stringify({
+      coding_agents: { codex: { backend: "acp", agent: "codex", model: "deepseek-flash", effort: "high" } },
+    }))
+    const cfg = loadConfig(root)
+    const coder = defaultDeps(cfg, { codingAgent: "codex" }).coder as ACPAgent
+    assert.deepEqual([coder.model, coder.effort], ["deepseek-flash", "high"])
+    const selected = buildCodingAgent(cfg, "codex", { model: "other-model", effort: null }) as ACPAgent
+    assert.deepEqual([selected.model, selected.effort], ["other-model", "high"])
+  })
+
   it("ACP 预设：codex 用内置适配器，opencode 用自带命令", () => {
     const cfg = loadConfig(tempDir())
     const codex = buildCodingAgent(cfg, "codex") as ACPAgent
@@ -276,6 +301,22 @@ describe("agent", () => {
     assert.ok(fix.taskFile.endsWith("fix-task.md"))
     assert.ok(buildFixAgent(cfg, "claude") instanceof ClaudeCodeCLI)
     assert.throws(() => buildFixAgent(cfg, "cursor"), /未知的修复 agent/)
+  })
+
+  it("每次运行按角色把 model / effort 传到对应 agent", () => {
+    const deps = defaultDeps(loadConfig(tempDir()), {
+      selections: {
+        coding: { agent: "claude", model: "opus", effort: "high" },
+        product: { agent: "claude", model: "sonnet", effort: "low" },
+        fix: { agent: "claude", model: "opus", effort: "max" },
+      },
+    })
+    const coder = deps.coder as ClaudeCodeCLI
+    const fixer = deps.fixer as ClaudeCodeCLI
+    const product = deps.roleAgent!("product").agent as ClaudeCodeCLI
+    assert.deepEqual([coder.model, coder.effort], ["opus", "high"])
+    assert.deepEqual([fixer.model, fixer.effort], ["opus", "max"])
+    assert.deepEqual([product.model, product.effort], ["sonnet", "low"])
   })
 
   it("命令行 agent：长 prompt 写进任务文件，命令行只传一句指令", async () => {

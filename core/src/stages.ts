@@ -11,7 +11,7 @@ import { type Config, prompt, render, writeText } from "./config.ts"
 import { changedHunks } from "./diffs.ts"
 import { archiveDoc, type DocId, DOCS, docPath, type LintContext, lintDoc, type ParsedDoc, parseDoc } from "./docs.ts"
 import { slugify } from "./gitflow.ts"
-import type { Deps } from "./deps.ts"
+import type { AgentSelection, Deps } from "./deps.ts"
 import type { State, Update } from "./state.ts"
 import type { VisionInput, VisionResult } from "./vision.ts"
 import type { StageName } from "./workflow.ts"
@@ -25,12 +25,19 @@ export interface RoleAgent {
 }
 
 /** 文档阶段用的只读 agent：claude 不批准编辑，ACP 只放 read / search / think；命令行 agent 限不住，靠提交白名单兜底。 */
-export function buildRoleAgent(cfg: Config, role: string, override?: string | null): RoleAgent {
-  const key = override || cfg.workflow.raw.roles?.[role]?.agent
+export function buildRoleAgent(cfg: Config, role: string, override?: string | null, selected?: AgentSelection): RoleAgent {
+  const configured: Json = cfg.workflow.raw.roles?.[role] ?? {}
+  const key = override || selected?.agent || configured.agent
+  const agentChanged = Boolean((override || selected?.agent) && configured.agent && (override || selected?.agent) !== configured.agent)
   const preset = cfg.raw.coding_agents?.[key]
   if (!preset)
     throw new Error(`角色 ${role} 用的 agent「${key}」不在 coding_agents 里`)
-  const section: Json = { timeout_sec: cfg.get("code").timeout_sec, ...preset }
+  const section: Json = {
+    timeout_sec: cfg.get("code").timeout_sec,
+    ...preset,
+    ...(selected?.model || (!agentChanged && configured.model) ? { model: selected?.model || configured.model } : {}),
+    ...(selected?.effort || (!agentChanged && configured.effort) ? { effort: selected?.effort || configured.effort } : {}),
+  }
   if (section.backend === "acp")
     section.allow_kinds = ["read", "search", "think"]
   if ((section.backend ?? "claude_cli") === "claude_cli")
@@ -390,6 +397,95 @@ async function arbitrate(deps: Deps, s: State, o: { roleAgent: (role: string) =>
   return fail(`DOC_REVIEW_REJECTED: ${verdict === "reject" ? "仲裁判定技术设计不可用" : `仲裁没给出有效结论（stop_reason=${r.stopReason}）`}，见 ${file}`, "doc-review")
 }
 
+// ---------------- 本次改动（实现核对、产品验收都要看） ----------------
+
+/** 本次运行的改动文件清单和 diff（按 diff.max_chars 截断），已经排好版放进 prompt */
+function changes(deps: Deps, s: State): { files: string, diff: string } {
+  const dcfg = deps.cfg.get("diff")
+  const hunks = changedHunks(deps.cfg.projectRoot, s.baseline, [], Number(dcfg.max_chars ?? 12000), Number(dcfg.context_lines ?? 3))
+  const files = s.changed_files?.length ? s.changed_files : [...new Set(hunks.map(h => h.file))]
+  return {
+    files: files.length ? files.map(f => `- ${f}`).join("\n") : "（没有检测到改动）",
+    diff: hunks.map(h => `### ${h.file}\n\`\`\`diff\n${h.patch}\n\`\`\``).join("\n\n") || "（无）",
+  }
+}
+
+// ---------------- 实现核对 ----------------
+
+/** 实现核对的 machine 块不是 01–06 文档，单独检查：verdict、round、items */
+function implReviewErrors(m: Json | null, round: number): string[] {
+  if (!m)
+    return ["缺少末尾的 ```yaml machine: … ``` 块"]
+  const errors: string[] = []
+  if (m.verdict !== "match" && m.verdict !== "mismatch")
+    errors.push("machine.verdict 只能是 match / mismatch")
+  if (m.round !== round)
+    errors.push(`machine.round 应为 ${round}`)
+  if (!Array.isArray(m.items)) {
+    errors.push("machine.items 必须是数组")
+  }
+  else {
+    m.items.forEach((x: Json, i: number) => {
+      if (!x || typeof x.issue !== "string" || !x.issue.trim() || typeof x.fix !== "string" || !x.fix.trim())
+        errors.push(`machine.items[${i}] 需要 issue 和 fix`)
+    })
+    if (m.verdict === "mismatch" && !m.items.length)
+      errors.push("verdict=mismatch 时至少要有一条 items")
+  }
+  return errors
+}
+
+/**
+ * 写完代码后，技术设计的 agent 核对实现和 03 对不对得上：对得上进门禁；对不上把问题交回编码重写，
+ * 最多 max_rounds 轮，超了算运行失败。报告留在 .agent/stages/impl-review/。
+ */
+export async function implReviewStage(deps: Deps, s: State, opts: { roleAgent: (role: string) => RoleAgent }): Promise<Update> {
+  const { cfg } = deps
+  const tech = opts.roleAgent("tech")
+  const max = Number(stageCfg(cfg, "impl-review").max_rounds ?? 2)
+  const round = (s.impl_round ?? 0) + 1
+  const d02 = read(s.artifacts?.["02"])
+  const d03 = read(s.artifacts?.["03"])
+  if (!d03)
+    return fail("DOC_AGENT_ERROR: 实现核对需要技术设计（03）", "impl-review")
+  const { files, diff } = changes(deps, s)
+  const prompt0 = render(prompt("impl-review-prompt.md"), {
+    round: String(round), max_rounds: String(max), spec: d02 || "（无）", design: d03, files, diff, rules: rules(),
+  })
+  const maxLint = Number(limits(cfg).max_doc_lint_failures ?? 3)
+  let feedback = ""
+  let machine: Json | null = null
+  let body = ""
+  for (let i = 1; i <= maxLint; i++) {
+    deps.log(`[实现核对] ${tech.name} 对照 03 核对实现${i > 1 ? `（第 ${i} 次，按校验意见重写）` : ""}…`)
+    const t = Date.now()
+    const r = await tech.agent.run(prompt0 + (feedback ? `\n\n${feedback}` : ""), cfg.projectRoot)
+    deps.metrics?.agentCall("impl-review", "tech", tech.name, round, Date.now() - t, r)
+    if (r.stopReason !== END_TURN)
+      return fail(`DOC_AGENT_ERROR: ${tech.name} 核对实现时 stop_reason=${r.stopReason}：${r.text.slice(-300)}`, "impl-review")
+    body = extractBody(r.text)
+    machine = parseDoc(`---\nx: 1\n---\n${body}`).machine
+    const errors = implReviewErrors(machine, round)
+    if (!errors.length)
+      break
+    deps.metrics?.reject("impl-review", round, "lint", tech.name, errors)
+    if (i === maxLint)
+      return fail(`DOC_LINT_FAILED: 实现核对报告连续 ${maxLint} 次格式不对：${errors.slice(0, 5).join("；")}`, "impl-review")
+    feedback = `## 上一次的输出格式不对\n\n${errors.map(e => `- ${e}`).join("\n")}\n\n请修正后完整重写（正文 + 末尾 machine 块）。`
+  }
+  writeText(join(cfg.stateDir, "stages", "impl-review", `impl-review.r${round}.md`), `${body}\n`)
+  if (machine!.verdict === "match") {
+    deps.log(`[实现核对] 第 ${round} 轮：实现和技术设计对得上`)
+    return { impl_round: round, impl_verdict: "match", impl_feedback: null, stage_status: { "impl-review": "done" } }
+  }
+  const items = (machine!.items as Json[]).map(x => `${x.id ?? "-"}（${x.ref ?? ""}）${x.issue} → ${x.fix}`)
+  deps.metrics?.reject("implement", round, "impl-review", deps.agentNames?.coder ?? null, items.map(x => x.slice(0, 200)))
+  if (round >= max)
+    return { impl_round: round, ...fail(`IMPL_REVIEW_FAILED: 实现核对 ${round} 轮仍和技术设计对不上：${items.slice(0, 3).join("；")}`, "impl-review") }
+  deps.log(`[实现核对] 第 ${round} 轮：${items.length} 处和技术设计对不上，交回编码修改`)
+  return { impl_round: round, impl_verdict: "mismatch", impl_feedback: items.map(x => `- ${x}`).join("\n") }
+}
+
 // ---------------- 产品验收 ----------------
 
 export async function acceptanceStage(deps: Deps, s: State, opts: { roleAgent: (role: string) => RoleAgent, enabled: StageName[] }): Promise<Update> {
@@ -402,15 +498,12 @@ export async function acceptanceStage(deps: Deps, s: State, opts: { roleAgent: (
     return fail("DOC_AGENT_ERROR: 产品验收需要需求规格（02）", "acceptance")
   const d03 = read(s.artifacts?.["03"])
   const d05 = read(s.artifacts?.["05"])
-  const dcfg = cfg.get("diff")
-  const hunks = changedHunks(cfg.projectRoot, s.baseline, [], Number(dcfg.max_chars ?? 12000), Number(dcfg.context_lines ?? 3))
-  const files = s.changed_files?.length ? s.changed_files : [...new Set(hunks.map(h => h.file))]
+  const { files, diff } = changes(deps, s)
   const r = await produce(deps, s, {
     id: "06", role: "product", round, inputs: d03 ? ["02", "03"] : ["02"],
     prompt: fb => render(prompt("acceptance-prompt.md"), {
       round: String(round), max_rounds: String(max), spec: d02, design: d03 || "（未做技术设计）",
-      files: files.length ? files.map(f => `- ${f}`).join("\n") : "（没有检测到改动）",
-      diff: hunks.map(h => `### ${h.file}\n\`\`\`diff\n${h.patch}\n\`\`\``).join("\n\n") || "（无）",
+      files, diff,
       self_test: d05 ? `开发的自测（05）：\n\n${d05}` : "",
       rules: rules(),
     }) + (fb ? `\n\n${fb}` : ""),
@@ -440,6 +533,8 @@ export async function acceptanceStage(deps: Deps, s: State, opts: { roleAgent: (
     return_stage: back,
     review_verdict: null,
     doc_round: 0,
+    impl_round: 0,      // 重做后实现核对重新计数
+    impl_verdict: null,
     feedback: `未达成的验收标准：${failed.join("、")}\n\n${r.doc.body.trim().slice(0, 3000)}${reasons.length ? `\n\n依据：\n${reasons.map(x => `- ${x}`).join("\n")}` : ""}`,
   }
 }

@@ -10,7 +10,7 @@ import { codePrompt, type Deps, fixPrompt } from "./deps.ts"
 import { changedHunks, snapshot } from "./diffs.ts"
 import * as N from "./names.ts"
 import { PipelineState, type State, type Update } from "./state.ts"
-import { acceptanceStage, buildRoleAgent, defaultDocsDir, discoveryStage, docReviewStage, redoDone, saveSelfTest, selfTestAsk, specFromDocs, techDesignStage } from "./stages.ts"
+import { acceptanceStage, buildRoleAgent, defaultDocsDir, discoveryStage, docReviewStage, implReviewStage, redoDone, saveSelfTest, selfTestAsk, specFromDocs, techDesignStage } from "./stages.ts"
 import { type StageName, STAGE_NODE, stagePlan, STAGES } from "./workflow.ts"
 
 /** 固定的 Deps（CLI / 测试），或按 state 现建 Deps 的函数（控制台 / 服务端）。 */
@@ -159,6 +159,7 @@ const BREAK_EXPLAINED: Record<string, string> = {
   DOC_REVIEW_REJECTED: "文档复核超过轮次，仲裁判定技术设计不可用",
   ACCEPTANCE_FAILED: "产品验收超过轮次仍未通过",
   VISION_ERROR: "看图（vision）失败",
+  IMPL_REVIEW_FAILED: "实现核对超过轮次仍和技术设计对不上",
   COMMIT_ERROR: "阶段提交失败",
 }
 const NOTIFY_EXPLAINED: Record<string, string> = { sent: "已发熔断邮件", deduped: "24 小时内已就同类问题发过邮件，本次不重复发送" }
@@ -169,7 +170,7 @@ export function explainBreak(state: State, notify: string): string {
   const key = i < 0 ? reason : reason.slice(0, i)
   const detail = i < 0 ? "" : reason.slice(i + 1).trim()
   let text = `已熔断：${BREAK_EXPLAINED[key] ?? (reason || "原因未知")}`
-  if (detail && ["NEEDS_HUMAN", "DESIGN_ERROR", "SPEC_ERROR", "WHITELIST_VIOLATION", "COMMIT_ERROR", "DOC_AGENT_ERROR", "DOC_LINT_FAILED", "DOC_REVIEW_REJECTED", "ACCEPTANCE_FAILED", "VISION_ERROR"].includes(key))
+  if (detail && ["NEEDS_HUMAN", "DESIGN_ERROR", "SPEC_ERROR", "WHITELIST_VIOLATION", "COMMIT_ERROR", "DOC_AGENT_ERROR", "DOC_LINT_FAILED", "DOC_REVIEW_REJECTED", "ACCEPTANCE_FAILED", "VISION_ERROR", "IMPL_REVIEW_FAILED"].includes(key))
     text += `（${detail.slice(0, 200)}）`
   const codes = [...new Set((state.failures ?? []).map(f => f.code ?? "?"))].sort()
   if (codes.length)
@@ -243,12 +244,14 @@ export function buildMainGraph(source: Source, entry: Entry = "code", opts: Main
     if (stage.name === "implement") {
       g.addNode(N.CODE, async (state: State, config: LangGraphRunnableConfig) => {
         const deps = resolveDeps(source, state)
-        const round = (state.acceptance_round ?? 0) + 1
+        const round = (state.acceptance_round ?? 0) + (state.impl_round ?? 0) + 1
         // 有 02 / 03 就直接当 Spec；验收打回的重做把意见带上
         const spec = specFromDocs(state)
-        const requirement = state.return_stage === "implement" && state.feedback
+        let requirement = state.return_stage === "implement" && state.feedback
           ? `${state.requirement}\n\n## 上一轮产品验收没通过，这次要改正\n\n${state.feedback}`
           : state.feedback ? `${state.requirement}\n\n${state.feedback}` : state.requirement
+        if (state.impl_verdict === "mismatch" && state.impl_feedback) // 实现核对指出和技术设计对不上
+          requirement += `\n\n## 实现核对没通过：下面几处和技术设计（03）对不上，这次要改正\n\n${state.impl_feedback}`
         const out: Update = pick(await codegraph.invoke({ ...state, requirement, ...(spec ? { spec } : {}) }, config), CODE_KEYS)
         if (!out.break_reason)
           Object.assign(out, stageCommit(deps, "implement", round, state.requirement ?? ""))
@@ -269,6 +272,7 @@ export function buildMainGraph(source: Source, entry: Entry = "code", opts: Main
         "tech-design": (d: Deps, s: State) => techDesignStage(d, s, { roleAgent: roleAgent(s) }),
         "doc-review": (d: Deps, s: State) => docReviewStage(d, s, { roleAgent: roleAgent(s) }),
         "acceptance": (d: Deps, s: State) => acceptanceStage(d, s, { roleAgent: roleAgent(s), enabled }),
+        "impl-review": (d: Deps, s: State) => implReviewStage(d, s, { roleAgent: roleAgent(s) }),
       }[stage.name]
       g.addNode(stage.node, async (state: State) => run(resolveDeps(source, state), state))
     }
@@ -289,6 +293,9 @@ export function buildMainGraph(source: Source, entry: Entry = "code", opts: Main
     }
     else if (stage.name === "doc-review") { // 打回 → 技术设计重写（复核依赖技术设计，validateWorkflow 保证它开着）
       g.addConditionalEdges(stage.node, (s: State) => (s.break_reason ? N.BREAKER : s.review_verdict === "rejected" ? N.TECH_DESIGN : after), [...new Set([after, N.TECH_DESIGN, N.BREAKER])])
+    }
+    else if (stage.name === "impl-review") { // 对不上 → 交回编码改（实现核对排在编码之后，编码一定开着）
+      g.addConditionalEdges(stage.node, (s: State) => (s.break_reason ? N.BREAKER : s.impl_verdict === "mismatch" ? N.CODE : after), [...new Set([after, N.CODE, N.BREAKER])])
     }
     else if (stage.name === "acceptance") { // 没通过 → 回到 return_stage 重做
       g.addConditionalEdges(stage.node, (s: State) => {
